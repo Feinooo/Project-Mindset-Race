@@ -1,3 +1,6 @@
 # Fichiers temporaires de Roblox Studio
 *.rbxl.lock
 *.rbxlx.lock
+
+# Reglages personnels de Claude Code
+.claude/settings.local.json

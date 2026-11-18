@@ -16,7 +16,12 @@ local CONFIG = {
     NB_DIAMANTS = 14,
     NB_CANAPES = 8,
     NB_EVENEMENTS_MAX = 3,     -- événements par course
-    ID_MUSIQUE_AURA = "",      -- exemple : "rbxassetid://1234567890" (laisse vide = pas de son)
+    -- 🎵 MUSIQUES : colle les ID trouvés dans la Toolbox (onglet Audio), ex. "rbxassetid://1234567890"
+    MUSIQUE_LOBBY = "",        -- musique calme dans le lobby
+    MUSIQUE_COURSE = "",       -- musique qui pousse pendant la course
+    MUSIQUES_AURA = { "" },    -- sons phonk courts : un au hasard à chaque moment aura (mets-en plusieurs !)
+    MUSIQUE_VICTOIRE = "",     -- musique du gagnant
+    NB_BOOSTS = 6,             -- plaques turbo sur la piste
     VICTOIRES_POUR_TALENT = 10, -- victoires nécessaires pour débloquer Talent
     RECHARGE_ATTAQUE = 6,      -- secondes entre deux tacles/balayettes
     DUREE_CHUTE = 1.6,         -- temps au sol après un tacle ou une balayette
@@ -81,7 +86,15 @@ local ChuteEvent = remote("Chute")     -- serveur -> joueur : « tu t'es pris un
 local AttaqueEvent = remote("Attaque") -- joueur -> serveur : « je tacle » / serveur -> joueur : résultat
 dossierRemotes.Parent = ReplicatedStorage
 
-ReplicatedStorage:SetAttribute("IdMusiqueAura", CONFIG.ID_MUSIQUE_AURA)
+ReplicatedStorage:SetAttribute("MusiqueLobby", CONFIG.MUSIQUE_LOBBY)
+ReplicatedStorage:SetAttribute("MusiqueCourse", CONFIG.MUSIQUE_COURSE)
+ReplicatedStorage:SetAttribute("MusiquesAura", table.concat(CONFIG.MUSIQUES_AURA, ","))
+ReplicatedStorage:SetAttribute("MusiqueVictoire", CONFIG.MUSIQUE_VICTOIRE)
+
+-- Phase du jeu, lue par les clients pour la caméra, la musique et les effets
+local function setPhase(phase)
+    ReplicatedStorage:SetAttribute("Phase", phase)
+end
 
 local function setStatut(texte)
     ReplicatedStorage:SetAttribute("Statut", texte)
@@ -185,6 +198,200 @@ local poutre = bloc({
     Material = Enum.Material.Neon,
 })
 panneau(poutre, "🏁 ARRIVÉE 🏁", Color3.new(1, 1, 1), 30, 6, 5)
+
+-- ========================== AMBIANCE : NUIT NÉON ==========================
+local Lighting = game:GetService("Lighting")
+Lighting.ClockTime = 20.8
+Lighting.Brightness = 1.5
+Lighting.Ambient = Color3.fromRGB(40, 35, 70)
+Lighting.OutdoorAmbient = Color3.fromRGB(70, 60, 110)
+
+local function effetLumiere(classe, nom, proprietes)
+    local existant = Lighting:FindFirstChild(nom)
+    if existant then
+        existant:Destroy()
+    end
+    proprietes.Name = nom
+    proprietes.Parent = Lighting
+    return creer(classe, proprietes)
+end
+effetLumiere("Atmosphere", "MindsetAtmosphere", {
+    Density = 0.3,
+    Offset = 0.1,
+    Color = Color3.fromRGB(120, 90, 200),
+    Decay = Color3.fromRGB(60, 30, 90),
+    Glare = 0.4,
+    Haze = 1.5,
+})
+effetLumiere("BloomEffect", "MindsetBloom", { Intensity = 1, Size = 36, Threshold = 0.9 })
+effetLumiere("ColorCorrectionEffect", "MindsetCouleurs", { Contrast = 0.12, Saturation = 0.25, Brightness = 0.02 })
+
+-- Bandes néon le long de la piste
+for _, cote in ipairs({ -1, 1 }) do
+    local couleur = if cote < 0 then Color3.fromRGB(170, 80, 255) else Color3.fromRGB(60, 200, 255)
+    bloc({
+        Name = "NeonBas",
+        Size = Vector3.new(0.6, 0.6, L + 80),
+        Position = Vector3.new(X0 + cote * (W / 2 - 0.3), SOL + 0.3, L / 2 + 20),
+        Color = couleur,
+        Material = Enum.Material.Neon,
+        CanCollide = false,
+    })
+    bloc({
+        Name = "NeonHaut",
+        Size = Vector3.new(0.6, 0.6, L + 80),
+        Position = Vector3.new(X0 + cote * (W / 2 + 1), SOL + 24.3, L / 2 + 20),
+        Color = couleur,
+        Material = Enum.Material.Neon,
+        CanCollide = false,
+    })
+end
+
+-- Lampadaires
+for z = 0, L, 50 do
+    for _, cote in ipairs({ -1, 1 }) do
+        bloc({
+            Name = "Lampadaire",
+            Size = Vector3.new(1, 30, 1),
+            Position = Vector3.new(X0 + cote * (W / 2 + 4), SOL + 15, z),
+            Color = Color3.fromRGB(30, 30, 40),
+        })
+        local lampe = bloc({
+            Name = "Lampe",
+            Size = Vector3.new(3, 1, 3),
+            Position = Vector3.new(X0 + cote * (W / 2 + 2), SOL + 30, z),
+            Color = Color3.fromRGB(255, 240, 200),
+            Material = Enum.Material.Neon,
+            CanCollide = false,
+        })
+        creer("SpotLight", {
+            Face = Enum.NormalId.Bottom,
+            Angle = 70,
+            Range = 45,
+            Brightness = 3,
+            Color = Color3.fromRGB(255, 230, 190),
+            Parent = lampe,
+        })
+    end
+end
+
+-- Marques de distance + panneau de la dernière ligne droite
+for m = 100, L - 100, 100 do
+    local marque = bloc({
+        Name = "Marque",
+        Size = Vector3.new(W, 0.2, 1),
+        Position = Vector3.new(X0, SOL + 0.1, m),
+        Color = Color3.new(1, 1, 1),
+        Material = Enum.Material.Neon,
+        Transparency = 0.6,
+        CanCollide = false,
+    })
+    panneau(marque, m .. " m", Color3.new(1, 1, 1), 10, 3, 14)
+end
+local panneauFinal = bloc({
+    Name = "PanneauFinal",
+    Size = Vector3.new(1, 1, 1),
+    Position = Vector3.new(X0, SOL + 18, L - 120),
+    Transparency = 1,
+    CanCollide = false,
+})
+panneau(panneauFinal, "🔥 DERNIÈRE LIGNE DROITE 🔥", Color3.fromRGB(255, 120, 60), 30, 5, 0)
+
+-- Le public dans les gradins (c'est le client qui les fait sauter)
+local dossierFoule = creer("Folder", { Name = "Foule", Parent = carte })
+local COULEURS_FOULE = {
+    Color3.fromRGB(255, 80, 80), Color3.fromRGB(80, 160, 255), Color3.fromRGB(255, 220, 80),
+    Color3.fromRGB(120, 255, 140), Color3.fromRGB(230, 120, 255), Color3.fromRGB(255, 255, 255),
+    Color3.fromRGB(255, 150, 40),
+}
+local PEAUX_FOULE = {
+    Color3.fromRGB(255, 224, 189), Color3.fromRGB(234, 192, 134),
+    Color3.fromRGB(198, 134, 66), Color3.fromRGB(141, 85, 36),
+}
+for _, cote in ipairs({ -1, 1 }) do
+    for marche = 0, 2 do
+        local hauteur = 4 + marche * 3
+        local x = X0 + cote * (W / 2 + 8 + marche * 4)
+        bloc({
+            Name = "Gradin",
+            Size = Vector3.new(4, hauteur, L + 80),
+            Position = Vector3.new(x, Y0 - 1 + hauteur / 2, L / 2 + 20),
+            Color = Color3.fromRGB(35, 35, 50),
+        })
+        local dessus = Y0 - 1 + hauteur
+        for z = -10, L + 50, 8 do
+            if math.random() < 0.85 then
+                local phase = math.random() * 6
+                local zz = z + math.random(-2, 2)
+                local corps = bloc({
+                    Name = "Corps",
+                    Size = Vector3.new(1.6, 2.4, 1),
+                    Position = Vector3.new(x, dessus + 1.2, zz),
+                    Color = COULEURS_FOULE[math.random(1, #COULEURS_FOULE)],
+                    CanCollide = false,
+                    CanQuery = false,
+                    CanTouch = false,
+                    CastShadow = false,
+                    Parent = dossierFoule,
+                })
+                corps:SetAttribute("Phase", phase)
+                local tete = bloc({
+                    Name = "Tete",
+                    Size = Vector3.new(1.1, 1.1, 1.1),
+                    Position = Vector3.new(x, dessus + 2.95, zz),
+                    Color = PEAUX_FOULE[math.random(1, #PEAUX_FOULE)],
+                    CanCollide = false,
+                    CanQuery = false,
+                    CanTouch = false,
+                    CastShadow = false,
+                    Parent = dossierFoule,
+                })
+                tete:SetAttribute("Phase", phase)
+            end
+        end
+    end
+end
+
+-- Canons à confettis sur l'arche
+local confettis = {}
+for _, cote in ipairs({ -1, 1 }) do
+    local canon = bloc({
+        Name = "CanonConfettis",
+        Size = Vector3.new(2, 2, 2),
+        Position = Vector3.new(X0 + cote * (W / 2 - 1), SOL + 21, L),
+        Transparency = 1,
+        CanCollide = false,
+    })
+    table.insert(confettis, creer("ParticleEmitter", {
+        Enabled = false,
+        Rate = 150,
+        Lifetime = NumberRange.new(2, 3),
+        Speed = NumberRange.new(25, 40),
+        SpreadAngle = Vector2.new(40, 40),
+        EmissionDirection = Enum.NormalId.Top,
+        Acceleration = Vector3.new(0, -25, 0),
+        Size = NumberSequence.new(0.4),
+        Rotation = NumberRange.new(0, 360),
+        RotSpeed = NumberRange.new(-200, 200),
+        LightEmission = 0.5,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 80, 80)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 220, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 200, 255)),
+        }),
+        Parent = canon,
+    }))
+end
+local function lancerConfettis(duree)
+    for _, emetteur in ipairs(confettis) do
+        emetteur.Enabled = true
+    end
+    task.delay(duree, function()
+        for _, emetteur in ipairs(confettis) do
+            emetteur.Enabled = false
+        end
+    end)
+end
 
 -- Lobby : podiums de choix du personnage
 local panneauLobby = bloc({
@@ -381,6 +588,7 @@ end
 local coureurs = {}
 local diamants = {}
 local canapes = {}
+local boosts = {}
 local pluieJusqua = 0
 local telephoneJusqua = 0
 local courseEnCours = false
@@ -417,6 +625,11 @@ local function nouveauCoureur(nom, perso, modele, joueur)
         vigilant = false,
         cibleX = nil,
         prochainChangement = 0,
+        -- aura pendant la course
+        turboJusqua = 0,
+        pointsAura = 0,
+        niveauAura = 0,
+        trainee = nil,
     }
 end
 
@@ -558,7 +771,21 @@ local function etiquettePerso(c)
         local gui = panneau(tete, string.upper(c.perso), PERSOS[c.perso].couleur, 6, 1.5, 3.2)
         gui.AlwaysOnTop = true
         gui.MaxDistance = 120
-        gui.PlayerToHideFrom = c.joueur -- en 1re personne, on ne voit pas sa propre étiquette
+    end
+    -- Traînée lumineuse de la couleur du perso
+    if c.root then
+        local haut = creer("Attachment", { Name = "TraineeHaut", Position = Vector3.new(0, 1, 0), Parent = c.root })
+        local bas = creer("Attachment", { Name = "TraineeBas", Position = Vector3.new(0, -1.5, 0), Parent = c.root })
+        c.trainee = creer("Trail", {
+            Attachment0 = haut,
+            Attachment1 = bas,
+            Color = ColorSequence.new(PERSOS[c.perso].couleur),
+            Transparency = NumberSequence.new(0.3, 1),
+            Lifetime = 0.25,
+            LightEmission = 1,
+            FaceCamera = true,
+            Parent = c.root,
+        })
     end
 end
 
@@ -590,6 +817,59 @@ end
 local function prevenir(c, texte, duree)
     if c.joueur then
         AnnonceEvent:FireClient(c.joueur, texte, duree or 1.5)
+    end
+end
+
+-- ========================== NIVEAUX D'AURA PENDANT LA COURSE ==========================
+-- Dépassements, tacles, turbos et diamants font monter l'aura. Plus elle monte, plus tu brilles.
+local SEUILS_AURA = { 1, 3, 6 } -- points pour atteindre les niveaux 1, 2 et 3
+
+local function majAura(c, points)
+    c.pointsAura += points
+    local niveau = 0
+    for i, seuil in ipairs(SEUILS_AURA) do
+        if c.pointsAura >= seuil then
+            niveau = i
+        end
+    end
+    if niveau <= c.niveauAura or not valide(c) then
+        return
+    end
+    local couleur = PERSOS[c.perso].couleur
+    local torse = c.modele:FindFirstChild("UpperTorso") or c.modele:FindFirstChild("Torso") or c.root
+    for palier = c.niveauAura + 1, niveau do
+        if palier == 1 then
+            creer("Sparkles", { SparkleColor = couleur, Parent = c.root })
+            if c.trainee then
+                c.trainee.Lifetime = 0.5
+            end
+        elseif palier == 2 then
+            creer("Fire", { Color = couleur, SecondaryColor = Color3.new(1, 1, 1), Size = 4, Heat = 6, Parent = torse })
+            if c.trainee then
+                c.trainee.Lifetime = 0.8
+            end
+        elseif palier == 3 then
+            creer("Fire", { Color = Color3.new(1, 1, 1), SecondaryColor = couleur, Size = 7, Heat = 12, Parent = torse })
+            creer("PointLight", { Color = couleur, Brightness = 4, Range = 18, Parent = c.root })
+            creer("Highlight", {
+                FillColor = couleur,
+                FillTransparency = 0.6,
+                OutlineColor = Color3.new(1, 1, 1),
+                Parent = c.modele,
+            })
+            if c.trainee then
+                c.trainee.Lifetime = 1.2
+            end
+            local tete = c.modele:FindFirstChild("Head")
+            if tete then
+                local gui = panneau(tete, "👑 AURA MAX", Color3.fromRGB(255, 220, 80), 6, 1.2, 4.6)
+                gui.AlwaysOnTop = true
+            end
+        end
+    end
+    c.niveauAura = niveau
+    if c.joueur then
+        c.joueur:SetAttribute("NiveauAura", niveau)
     end
 end
 
@@ -631,6 +911,9 @@ local function vitesse(c, t, maintenant)
     if maintenant < c.dashJusqua then
         v *= 1.6 -- élan du tacle
     end
+    if maintenant < c.turboJusqua then
+        v *= 1.45 -- plaque turbo
+    end
     if maintenant < c.arretJusqua then
         v = 0
     end
@@ -641,6 +924,7 @@ local function placerObstacles()
     dossierObstacles:ClearAllChildren()
     diamants = {}
     canapes = {}
+    boosts = {}
     local function positionAuHasard()
         return X0 + math.random(-W / 2 + 4, W / 2 - 4), math.random(60, L - 40)
     end
@@ -680,6 +964,20 @@ local function placerObstacles()
         panneau(assise, "🛋️", Color3.new(1, 1, 1), 3, 3, 4)
         table.insert(canapes, { position = assise.Position })
     end
+    for _ = 1, CONFIG.NB_BOOSTS do
+        local x, z = positionAuHasard()
+        local plaque = bloc({
+            Name = "Turbo",
+            Size = Vector3.new(6, 0.3, 6),
+            Position = Vector3.new(x, SOL + 0.15, z),
+            Color = Color3.fromRGB(255, 230, 60),
+            Material = Enum.Material.Neon,
+            CanCollide = false,
+            Parent = dossierObstacles,
+        })
+        panneau(plaque, "⚡⏩", Color3.fromRGB(255, 240, 120), 4, 2, 2)
+        table.insert(boosts, { position = plaque.Position })
+    end
 end
 
 local function verifierObstacles(c, maintenant)
@@ -692,6 +990,7 @@ local function verifierObstacles(c, maintenant)
             diamant.part:Destroy()
             table.remove(diamants, i)
             ajouterStat(c.joueur, "Aura", 2)
+            majAura(c, 0.5)
             if c.perso == "Ego" then
                 c.arretJusqua = maintenant + 1.2
                 prevenir(c, "💎 Trop beau... l'Ego s'arrête pour poser 💅", 1.2)
@@ -708,6 +1007,17 @@ local function verifierObstacles(c, maintenant)
                 end
                 c.ralentiJusqua = maintenant + 1.5
             end
+        end
+    end
+    for _, boost in ipairs(boosts) do
+        if math.abs(position.X - boost.position.X) < 3.5 and math.abs(position.Z - boost.position.Z) < 3.5 then
+            if maintenant > c.turboJusqua then
+                majAura(c, 0.5)
+                if c.joueur then
+                    AuraEvent:FireClient(c.joueur, "⚡ TURBO ⚡", "petit")
+                end
+            end
+            c.turboJusqua = maintenant + 1.5
         end
     end
 end
@@ -804,6 +1114,7 @@ local function attaquer(c, typeAttaque, maintenant)
     cible.arretJusqua = math.max(cible.arretJusqua, maintenant + duree)
     cible.protegeJusqua = maintenant + duree + 2.5 -- pas de tacles à la chaîne sur la même personne
     c.attaques += 1
+    majAura(c, 1)
 
     if cible.joueur then
         ChuteEvent:FireClient(cible.joueur, c.nom, typeAttaque, duree)
@@ -848,6 +1159,17 @@ local function piloterBot(c, t, maintenant)
         c.cibleX = math.clamp(c.laneX + math.random(-6, 6), GAUCHE, DROITE)
     end
     local cibleX = c.cibleX or c.laneX
+
+    -- les bots attentifs visent les plaques turbo
+    if c.vigilant then
+        for _, boost in ipairs(boosts) do
+            local dz = boost.position.Z - position.Z
+            if dz > 2 and dz < 25 and math.abs(boost.position.X - position.X) < 10 then
+                cibleX = boost.position.X
+                break
+            end
+        end
+    end
 
     if c.perso == "Ego" then
         -- 2) l'Ego fonce vers les diamants
@@ -917,6 +1239,7 @@ local function calculerRangs(t, maintenant)
                 c.derniereAura = maintenant
                 c.depassements += 1
                 effetAura(c)
+                majAura(c, 1)
                 if c.joueur then
                     AuraEvent:FireClient(c.joueur, "✨ DÉPASSEMENT ✨")
                     ajouterStat(c.joueur, "Aura", 5)
@@ -941,6 +1264,7 @@ end
 -- ============================ BOUCLE DU JEU ============================
 while true do
     -- 1) LOBBY
+    setPhase("Lobby")
     setStatut("🧠 Choisis ton état d'esprit sur un podium !")
     compteARebours(CONFIG.ATTENTE_LOBBY)
 
@@ -969,6 +1293,7 @@ while true do
             joueur:SetAttribute("Perso", perso)
         end
         persosPris[perso] = true
+        joueur:SetAttribute("NiveauAura", 0)
         table.insert(coureurs, nouveauCoureur(joueur.DisplayName, perso, joueur.Character, joueur))
     end
 
@@ -1004,14 +1329,17 @@ while true do
         end
     end
 
-    -- 3) DÉPART : 3, 2, 1
-    setStatut("Prêts ?")
-    task.wait(1)
+    -- 3) INTRO CINÉMATIQUE (survol de la piste), puis DÉPART : 3, 2, 1
+    setStatut("")
+    setPhase("Intro")
+    task.wait(3.5)
+    setPhase("Decompte")
+    task.wait(0.5)
     for i = 3, 1, -1 do
-        AnnonceEvent:FireAllClients(tostring(i), 0.9)
+        EvenementEvent:FireAllClients("Decompte", i)
         task.wait(1)
     end
-    AnnonceEvent:FireAllClients("GO ! 🔥", 1.2)
+    EvenementEvent:FireAllClients("Go", 0)
     for _, c in ipairs(coureurs) do
         if valide(c) then
             bloquer(c, false)
@@ -1034,6 +1362,7 @@ while true do
     debutCourse = debut
     courseEnCours = true
     ReplicatedStorage:SetAttribute("CourseEnCours", true)
+    setPhase("Course")
     for _, c in ipairs(coureurs) do
         if c.perso == "Talent" then
             c.prochainEnnui = debut + math.random(30, 60) / 10
@@ -1041,6 +1370,7 @@ while true do
     end
     local ordreArrivee = 0
     local gagnant = nil
+    local derniereLigne = false
 
     while true do
         task.wait(0.1)
@@ -1059,6 +1389,10 @@ while true do
             if not c.fini and valide(c) then
                 actifs += 1
                 verifierObstacles(c, maintenant)
+                if not derniereLigne and c.root.Position.Z >= L - 120 then
+                    derniereLigne = true
+                    EvenementEvent:FireAllClients("DerniereLigne", 5)
+                end
                 if c.perso == "Talent" then
                     gererTalent(c, maintenant)
                 end
@@ -1079,6 +1413,8 @@ while true do
                     if ordreArrivee == 1 then
                         gagnant = c
                         effetAura(c)
+                        majAura(c, 10)
+                        lancerConfettis(6)
                         AnnonceEvent:FireAllClients("👑 " .. c.nom .. " GAGNE avec " .. string.upper(c.perso) .. " !", 3)
                         if c.joueur then
                             AuraEvent:FireClient(c.joueur, "👑 VICTOIRE 👑")
@@ -1110,6 +1446,18 @@ while true do
     courseEnCours = false
     ReplicatedStorage:SetAttribute("CourseEnCours", false)
     setStatut("🏁 Course terminée !")
+    for _, c in ipairs(coureurs) do
+        if valide(c) then
+            bloquer(c, true) -- tout le monde s'arrête pour la cinématique
+        end
+    end
+    setPhase("Fin")
+    if gagnant and gagnant.modele.Parent then
+        -- Cinématique : la caméra tourne autour du gagnant
+        EvenementEvent:FireAllClients("Vainqueur", 4, gagnant.modele, gagnant.nom, gagnant.perso)
+        lancerConfettis(4)
+        task.wait(4)
+    end
     local classement = calculerRangs(0, os.clock())
     for _, c in ipairs(coureurs) do
         if c.joueur and c.joueur.Parent then
