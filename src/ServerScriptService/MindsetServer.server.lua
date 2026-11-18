@@ -22,17 +22,17 @@ local CONFIG = {
     --   bpm      = le tempo de la musique → mesure-le avec le testeur : lance le jeu dans Studio et appuie sur B
     --   debut    = à quelle seconde du son on commence (pour démarrer direct sur le drop !)
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
-    -- ⚠️ bpm/debut/decalage pas encore mesurés (130 / 0 / 0 par défaut) → utilise le testeur BPM
+    -- ✅ mesurés avec le testeur BPM le 2026-11-18
     MUSIQUES = {
-        { id = "rbxassetid://95131770144654", nom = "AURA (Brazilian Phonk/Funk)", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://129098116998483", nom = "TOMA FUNK (PHONK)", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://85735197482652", nom = "DRIFT NIGHT PHONK", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://139959590610806", nom = "FUNK FESTA", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://119598380829349", nom = "Rat Dance Phonk", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://139266399633943", nom = "Lost Phonk", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://77701977147898", nom = "SHADOW PHONK BRAZIL", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://128510578554487", nom = "TIKI TIKI FUNK (Sped Up)", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://92299938059573", nom = "Miguel Phonk", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://95131770144654", nom = "AURA (Brazilian Phonk/Funk)", bpm = 155, debut = 16.7, decalage = -0.06 },
+        { id = "rbxassetid://129098116998483", nom = "TOMA FUNK (PHONK)", bpm = 137, debut = 11.1, decalage = 0 },
+        { id = "rbxassetid://85735197482652", nom = "DRIFT NIGHT PHONK", bpm = 162, debut = 12.71, decalage = -0.08 },
+        { id = "rbxassetid://139959590610806", nom = "FUNK FESTA", bpm = 138, debut = 15.5, decalage = 0.07 },
+        { id = "rbxassetid://119598380829349", nom = "Rat Dance Phonk", bpm = 162, debut = 0, decalage = -0.03 },
+        { id = "rbxassetid://139266399633943", nom = "Lost Phonk", bpm = 164, debut = 0, decalage = -0.17 },
+        { id = "rbxassetid://77701977147898", nom = "SHADOW PHONK BRAZIL", bpm = 157, debut = 13.06, decalage = 0.04 },
+        { id = "rbxassetid://128510578554487", nom = "TIKI TIKI FUNK (Sped Up)", bpm = 154, debut = 23.54, decalage = 0.08 },
+        { id = "rbxassetid://92299938059573", nom = "Miguel Phonk", bpm = 178, debut = 0, decalage = 0.1 },
     },
 }
 -- ===========================================================================
