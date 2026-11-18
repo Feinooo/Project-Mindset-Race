@@ -23,6 +23,7 @@ local CONFIG = {
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
     MUSIQUES = {
         { id = "rbxassetid://95131770144654", bpm = 130, debut = 0, decalage = 0 }, -- AURA (Brazilian Phonk/Funk) : BPM à vérifier
+        { id = "rbxassetid://129098116998483", bpm = 130, debut = 0, decalage = 0 }, -- TOMA FUNK (PHONK) : BPM à vérifier
     },
 }
 -- ===========================================================================
