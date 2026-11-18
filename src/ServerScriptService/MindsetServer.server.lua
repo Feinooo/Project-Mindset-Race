@@ -30,7 +30,6 @@ local CONFIG = {
         { id = "rbxassetid://139959590610806", nom = "FUNK FESTA", bpm = 130, debut = 0, decalage = 0 },
         { id = "rbxassetid://119598380829349", nom = "Rat Dance Phonk", bpm = 130, debut = 0, decalage = 0 },
         { id = "rbxassetid://139266399633943", nom = "Lost Phonk", bpm = 130, debut = 0, decalage = 0 },
-        { id = "rbxassetid://125476440612900", nom = "67 KID PHONK", bpm = 130, debut = 0, decalage = 0 },
         { id = "rbxassetid://77701977147898", nom = "SHADOW PHONK BRAZIL", bpm = 130, debut = 0, decalage = 0 },
         { id = "rbxassetid://128510578554487", nom = "TIKI TIKI FUNK (Sped Up)", bpm = 130, debut = 0, decalage = 0 },
         { id = "rbxassetid://92299938059573", nom = "Miguel Phonk", bpm = 130, debut = 0, decalage = 0 },
