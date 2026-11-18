@@ -18,20 +18,22 @@ local CONFIG = {
 
     -- 🎵 MUSIQUES : une est tirée au hasard à chaque manche.
     --   id       = l'ID copié dans la Toolbox, ex. "rbxassetid://1234567890"
-    --   bpm      = le tempo de la musique (cherche « BPM + nom du son », ou tape le rythme sur un site « tap BPM »)
+    --   nom      = juste pour s'y retrouver (affiché dans le testeur BPM)
+    --   bpm      = le tempo de la musique → mesure-le avec le testeur : lance le jeu dans Studio et appuie sur B
     --   debut    = à quelle seconde du son on commence (pour démarrer direct sur le drop !)
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
+    -- ⚠️ bpm/debut/decalage pas encore mesurés (130 / 0 / 0 par défaut) → utilise le testeur BPM
     MUSIQUES = {
-        { id = "rbxassetid://95131770144654", bpm = 130, debut = 0, decalage = 0 }, -- AURA (Brazilian Phonk/Funk) : BPM à vérifier
-        { id = "rbxassetid://129098116998483", bpm = 130, debut = 0, decalage = 0 }, -- TOMA FUNK (PHONK) : BPM à vérifier
-        { id = "rbxassetid://85735197482652", bpm = 130, debut = 0, decalage = 0 }, -- DRIFT NIGHT PHONK : BPM à vérifier
-        { id = "rbxassetid://139959590610806", bpm = 130, debut = 0, decalage = 0 }, -- FUNK FESTA : BPM à vérifier
-        { id = "rbxassetid://119598380829349", bpm = 130, debut = 0, decalage = 0 }, -- Rat Dance Phonk : BPM à vérifier
-        { id = "rbxassetid://139266399633943", bpm = 130, debut = 0, decalage = 0 }, -- Lost Phonk : BPM à vérifier
-        { id = "rbxassetid://125476440612900", bpm = 130, debut = 0, decalage = 0 }, -- 67 KID PHONK : BPM à vérifier
-        { id = "rbxassetid://77701977147898", bpm = 130, debut = 0, decalage = 0 }, -- SHADOW PHONK BRAZIL : BPM à vérifier
-        { id = "rbxassetid://128510578554487", bpm = 130, debut = 0, decalage = 0 }, -- TIKI TIKI FUNK (Sped Up) : BPM à vérifier (sûrement plus rapide)
-        { id = "rbxassetid://92299938059573", bpm = 130, debut = 0, decalage = 0 }, -- Miguel Phonk : BPM à vérifier
+        { id = "rbxassetid://95131770144654", nom = "AURA (Brazilian Phonk/Funk)", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://129098116998483", nom = "TOMA FUNK (PHONK)", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://85735197482652", nom = "DRIFT NIGHT PHONK", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://139959590610806", nom = "FUNK FESTA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://119598380829349", nom = "Rat Dance Phonk", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://139266399633943", nom = "Lost Phonk", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://125476440612900", nom = "67 KID PHONK", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://77701977147898", nom = "SHADOW PHONK BRAZIL", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://128510578554487", nom = "TIKI TIKI FUNK (Sped Up)", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://92299938059573", nom = "Miguel Phonk", bpm = 130, debut = 0, decalage = 0 },
     },
 }
 -- ===========================================================================
@@ -90,6 +92,20 @@ local FinEvent = remote("Fin")             -- serveur -> joueur : son écran de 
 
 local dossierGrimpeurs = creer("Folder", { Name = "Grimpeurs", Parent = ReplicatedStorage })
 dossierRemotes.Parent = ReplicatedStorage
+
+-- 🎵 Testeur BPM (touche B) : en Studio seulement, on partage la liste des musiques avec le testeur
+if game:GetService("RunService"):IsStudio() then
+    local dossierTest = creer("Folder", { Name = "TesteurMusiques" })
+    dossierTest:SetAttribute("DureeManche", CONFIG.DUREE_MANCHE)
+    for i, m in ipairs(CONFIG.MUSIQUES) do
+        local valeur = creer("StringValue", { Name = string.format("%02d", i), Value = m.id, Parent = dossierTest })
+        valeur:SetAttribute("Nom", m.nom or ("Musique " .. i))
+        valeur:SetAttribute("Bpm", m.bpm)
+        valeur:SetAttribute("Debut", m.debut)
+        valeur:SetAttribute("Decalage", m.decalage)
+    end
+    dossierTest.Parent = ReplicatedStorage
+end
 
 local function setPhase(phase)
     ReplicatedStorage:SetAttribute("Phase", phase)
