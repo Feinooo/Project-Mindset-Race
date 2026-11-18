@@ -24,6 +24,14 @@ local CONFIG = {
     MUSIQUES = {
         { id = "rbxassetid://95131770144654", bpm = 130, debut = 0, decalage = 0 }, -- AURA (Brazilian Phonk/Funk) : BPM à vérifier
         { id = "rbxassetid://129098116998483", bpm = 130, debut = 0, decalage = 0 }, -- TOMA FUNK (PHONK) : BPM à vérifier
+        { id = "rbxassetid://85735197482652", bpm = 130, debut = 0, decalage = 0 }, -- DRIFT NIGHT PHONK : BPM à vérifier
+        { id = "rbxassetid://139959590610806", bpm = 130, debut = 0, decalage = 0 }, -- FUNK FESTA : BPM à vérifier
+        { id = "rbxassetid://119598380829349", bpm = 130, debut = 0, decalage = 0 }, -- Rat Dance Phonk : BPM à vérifier
+        { id = "rbxassetid://139266399633943", bpm = 130, debut = 0, decalage = 0 }, -- Lost Phonk : BPM à vérifier
+        { id = "rbxassetid://125476440612900", bpm = 130, debut = 0, decalage = 0 }, -- 67 KID PHONK : BPM à vérifier
+        { id = "rbxassetid://77701977147898", bpm = 130, debut = 0, decalage = 0 }, -- SHADOW PHONK BRAZIL : BPM à vérifier
+        { id = "rbxassetid://128510578554487", bpm = 130, debut = 0, decalage = 0 }, -- TIKI TIKI FUNK (Sped Up) : BPM à vérifier (sûrement plus rapide)
+        { id = "rbxassetid://92299938059573", bpm = 130, debut = 0, decalage = 0 }, -- Miguel Phonk : BPM à vérifier
     },
 }
 -- ===========================================================================
