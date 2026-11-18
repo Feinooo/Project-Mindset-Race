@@ -251,8 +251,19 @@ end
 -- ⚠️ Pour tester dans Studio : publie le jeu, puis
 --    Paramètres du jeu > Sécurité > « Activer l'accès Studio aux services API ».
 local DataStoreService = game:GetService("DataStoreService")
-local sauvegarde = DataStoreService:GetDataStore("MindsetRace_Joueurs_v1")
 local donneesChargees = {} -- [joueur] = true seulement si le chargement a réussi
+local sauvegarde = nil
+do
+    -- Si le jeu n'est pas publié, Roblox refuse l'accès : on joue quand même, mais sans sauvegarde
+    local ok, resultat = pcall(function()
+        return DataStoreService:GetDataStore("MindsetRace_Joueurs_v1")
+    end)
+    if ok then
+        sauvegarde = resultat
+    else
+        warn("💾 Sauvegarde désactivée (publie le jeu et active l'accès Studio aux services API) :", resultat)
+    end
+end
 
 local function cle(joueur)
     return "joueur_" .. joueur.UserId
@@ -274,6 +285,9 @@ local function essayer(fonction)
 end
 
 local function chargerJoueur(joueur, stats)
+    if not sauvegarde then
+        return
+    end
     local ok, donnees = essayer(function()
         return sauvegarde:GetAsync(cle(joueur))
     end)
