@@ -22,7 +22,7 @@ local CONFIG = {
     --   debut    = à quelle seconde du son on commence (pour démarrer direct sur le drop !)
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
     MUSIQUES = {
-        { id = "", bpm = 130, debut = 0, decalage = 0 },
+        { id = "rbxassetid://95131770144654", bpm = 130, debut = 0, decalage = 0 }, -- AURA (Brazilian Phonk/Funk) : BPM à vérifier
     },
 }
 -- ===========================================================================
