@@ -17,6 +17,12 @@ local CONFIG = {
     NB_CANAPES = 8,
     NB_EVENEMENTS_MAX = 3,     -- événements par course
     ID_MUSIQUE_AURA = "",      -- exemple : "rbxassetid://1234567890" (laisse vide = pas de son)
+    VICTOIRES_POUR_TALENT = 10, -- victoires nécessaires pour débloquer Talent
+    RECHARGE_ATTAQUE = 6,      -- secondes entre deux tacles/balayettes
+    DUREE_CHUTE = 1.6,         -- temps au sol après un tacle ou une balayette
+    PORTEE_TACLE = 9,          -- le tacle touche quelqu'un DEVANT toi
+    PORTEE_BALAYETTE = 6,      -- la balayette touche quelqu'un AUTOUR de toi (parfait juste après un dépassement)
+    AVATARS_BOTS = {},         -- optionnel : des UserId Roblox dont les bots copient l'avatar (ex. ceux de tes amis, avec leur accord)
 }
 -- ===========================================================================
 
@@ -37,8 +43,14 @@ local PERSOS = {
         couleur = Color3.fromRGB(230, 40, 60),
         description = "Lent au début\nPuis accélère sans arrêt",
     },
+    Talent = {
+        couleur = Color3.fromRGB(60, 220, 140),
+        description = "Le plus rapide du jeu\nMais s'ennuie et s'arrête",
+        verrou = true, -- se débloque avec CONFIG.VICTOIRES_POUR_TALENT victoires
+    },
 }
-local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" }
+local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" } -- persos de base (bots et tirage au hasard)
+local ORDRE_PODIUMS = { "Motivation", "Ego", "Discipline", "Obsession", "Talent" }
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -65,6 +77,8 @@ local AnnonceEvent = remote("Annonce")
 local EvenementEvent = remote("Evenement")
 local AuraEvent = remote("Aura")
 local FinEvent = remote("Fin")
+local ChuteEvent = remote("Chute")     -- serveur -> joueur : « tu t'es pris un tacle »
+local AttaqueEvent = remote("Attaque") -- joueur -> serveur : « je tacle » / serveur -> joueur : résultat
 dossierRemotes.Parent = ReplicatedStorage
 
 ReplicatedStorage:SetAttribute("IdMusiqueAura", CONFIG.ID_MUSIQUE_AURA)
@@ -182,24 +196,53 @@ local panneauLobby = bloc({
 })
 panneau(panneauLobby, "🧠 MINDSET RACE\nMonte sur un podium pour choisir ton état d'esprit", Color3.new(1, 1, 1), 40, 10, 0)
 
-for i, nom in ipairs(ORDRE_PERSOS) do
+local function nombreVictoires(joueur)
+    local stats = joueur:FindFirstChild("leaderstats")
+    local victoires = stats and stats:FindFirstChild("Victoires")
+    return if victoires then victoires.Value else 0
+end
+
+local avertis = setmetatable({}, { __mode = "k" }) -- évite de spammer le message « verrouillé »
+
+for i, nom in ipairs(ORDRE_PODIUMS) do
     local info = PERSOS[nom]
     local podium = bloc({
         Name = "Podium_" .. nom,
         Size = Vector3.new(10, 1, 10),
-        Position = Vector3.new(-36 + (i - 1) * 24, 0.5, -30),
+        Position = Vector3.new(-48 + (i - 1) * 24, 0.5, -30),
         Color = info.couleur,
         Material = Enum.Material.Neon,
     })
-    panneau(podium, string.upper(nom), info.couleur, 14, 3, 7)
-    panneau(podium, info.description, Color3.new(1, 1, 1), 14, 3, 4)
+    local titre = if info.verrou then "🔒 " .. string.upper(nom) else string.upper(nom)
+    local description = if info.verrou
+        then CONFIG.VICTOIRES_POUR_TALENT .. " victoires pour débloquer\n" .. info.description
+        else info.description
+    panneau(podium, titre, info.couleur, 14, 3, 7)
+    panneau(podium, description, Color3.new(1, 1, 1), 14, 3, 4)
 
     podium.Touched:Connect(function(touche)
         local modele = touche:FindFirstAncestorOfClass("Model")
         local joueur = modele and Players:GetPlayerFromCharacter(modele)
-        if joueur and joueur:GetAttribute("Perso") ~= nom then
-            joueur:SetAttribute("Perso", nom)
+        if not joueur or joueur:GetAttribute("Perso") == nom then
+            return
         end
+        if info.verrou then
+            local victoires = nombreVictoires(joueur)
+            if victoires < CONFIG.VICTOIRES_POUR_TALENT then
+                local maintenant = os.clock()
+                if maintenant - (avertis[joueur] or 0) > 2 then
+                    avertis[joueur] = maintenant
+                    AnnonceEvent:FireClient(
+                        joueur,
+                        "🔒 Gagne " .. CONFIG.VICTOIRES_POUR_TALENT .. " courses pour " .. string.upper(nom)
+                            .. " (" .. victoires .. "/" .. CONFIG.VICTOIRES_POUR_TALENT .. ")",
+                        2
+                    )
+                end
+                return
+            end
+        end
+        joueur:SetAttribute("Perso", nom)
     end)
 end
 
@@ -326,6 +369,8 @@ local diamants = {}
 local canapes = {}
 local pluieJusqua = 0
 local telephoneJusqua = 0
+local courseEnCours = false
+local debutCourse = 0
 
 local function nouveauCoureur(nom, perso, modele, joueur)
     return {
@@ -346,6 +391,18 @@ local function nouveauCoureur(nom, perso, modele, joueur)
         boostJusqua = 0,
         arretJusqua = 0,
         derniereAura = 0,
+        dashJusqua = 0,         -- élan du tacle
+        protegeJusqua = 0,      -- ne peut pas être re-taclé tout de suite
+        prochaineAttaque = 0,
+        attaques = 0,           -- tacles/balayettes réussis
+        prochainEnnui = math.huge, -- Talent : prochaine pause
+        pauses = 0,
+        -- bots uniquement
+        forme = 1,
+        reaction = 0,
+        vigilant = false,
+        cibleX = nil,
+        prochainChangement = 0,
     }
 end
 
@@ -358,33 +415,113 @@ local function valide(c)
         and (c.joueur == nil or c.joueur.Parent ~= nil)
 end
 
+-- ---------- Bots réalistes : look, pseudo, animations ----------
+local PEAUX = {
+    Color3.fromRGB(255, 224, 189), Color3.fromRGB(255, 205, 148), Color3.fromRGB(234, 192, 134),
+    Color3.fromRGB(198, 134, 66), Color3.fromRGB(141, 85, 36), Color3.fromRGB(90, 56, 37),
+}
+local PANTALONS = {
+    Color3.fromRGB(30, 40, 70), Color3.fromRGB(40, 40, 40), Color3.fromRGB(90, 70, 50),
+    Color3.fromRGB(60, 90, 140), Color3.fromRGB(110, 110, 120),
+}
+local PRENOMS = { "Lucas", "Emma", "Noah", "Lina", "Adam", "Jade", "Nathan", "Mia", "Enzo", "Chloe", "Sacha", "Ines", "Leo", "Zoe", "Hugo", "Lea", "Max", "Sara" }
+local MOTS = { "Gamer", "Pro", "Speed", "Dark", "Shadow", "King", "Queen", "Ninja", "Flash", "Noob", "Turbo", "Dragon", "Wolf", "Blox", "Star" }
+local ANIM_COURSE = "rbxassetid://913376220"  -- animation de course R15 par défaut de Roblox
+local ANIM_ATTENTE = "rbxassetid://507766388" -- animation d'attente R15 par défaut de Roblox
+
+local function auHasard(liste)
+    return liste[math.random(1, #liste)]
+end
+
+local function pseudoDeBot()
+    local style = math.random(1, 4)
+    if style == 1 then
+        return auHasard(PRENOMS) .. "_" .. auHasard(MOTS) .. math.random(1, 99)
+    elseif style == 2 then
+        return "xX" .. auHasard(MOTS) .. auHasard(PRENOMS) .. "Xx"
+    elseif style == 3 then
+        return string.lower(auHasard(PRENOMS)) .. math.random(2008, 2016)
+    end
+    return auHasard(MOTS) .. auHasard(MOTS) .. math.random(100, 999)
+end
+
+local function descriptionDeBot(perso)
+    if #CONFIG.AVATARS_BOTS > 0 then
+        local ok, description = pcall(function()
+            return Players:GetHumanoidDescriptionFromUserId(auHasard(CONFIG.AVATARS_BOTS))
+        end)
+        if ok and description then
+            return description
+        end
+    end
+    local peau = auHasard(PEAUX)
+    local tshirt = PERSOS[perso].couleur
+    local bras = if math.random() < 0.5 then peau else tshirt -- manches courtes ou longues
+    local jambes = auHasard(PANTALONS)
+    local description = Instance.new("HumanoidDescription")
+    description.HeadColor = peau
+    description.TorsoColor = tshirt
+    description.LeftArmColor = bras
+    description.RightArmColor = bras
+    description.LeftLegColor = jambes
+    description.RightLegColor = jambes
+    return description
+end
+
+local function animerBot(humanoid)
+    local animator = humanoid:FindFirstChildOfClass("Animator") or creer("Animator", { Parent = humanoid })
+    local function charger(id)
+        local animation = Instance.new("Animation")
+        animation.AnimationId = id
+        local piste = animator:LoadAnimation(animation)
+        piste.Looped = true
+        return piste
+    end
+    local course = charger(ANIM_COURSE)
+    local attente = charger(ANIM_ATTENTE)
+    attente:Play()
+    humanoid.Running:Connect(function(vitesseActuelle)
+        if vitesseActuelle > 1 then
+            if not course.IsPlaying then
+                attente:Stop(0.2)
+                course:Play(0.2)
+            end
+            course:AdjustSpeed(math.clamp(vitesseActuelle / 22, 0.6, 1.8))
+        elseif not attente.IsPlaying then
+            course:Stop(0.2)
+            attente:Play(0.2)
+        end
+    end)
+end
+
 local function creerBot(perso)
-    local couleur = PERSOS[perso].couleur
     local ok, modele = pcall(function()
-        local description = Instance.new("HumanoidDescription")
-        description.HeadColor = couleur
-        description.TorsoColor = couleur
-        description.LeftArmColor = couleur
-        description.RightArmColor = couleur
-        description.LeftLegColor = couleur
-        description.RightLegColor = couleur
-        return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+        return Players:CreateHumanoidModelFromDescription(descriptionDeBot(perso), Enum.HumanoidRigType.R15)
     end)
     if not ok or not modele then
         warn("Impossible de créer un bot :", modele)
         return nil
     end
-    modele.Name = "Bot " .. perso
-    local humanoid = modele:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid.DisplayName = "🤖 " .. perso
+    local pseudo = pseudoDeBot()
+    modele.Name = pseudo
+    local animate = modele:FindFirstChild("Animate")
+    if animate then
+        animate:Destroy() -- on gère les animations nous-mêmes
     end
     modele.Parent = workspace
+    local humanoid = modele:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.DisplayName = pseudo
+        local okAnim, erreur = pcall(animerBot, humanoid)
+        if not okAnim then
+            warn("Animations du bot impossibles :", erreur)
+        end
+    end
     local racine = modele:FindFirstChild("HumanoidRootPart")
     if racine then
         racine:SetNetworkOwner(nil)
     end
-    return modele
+    return modele, pseudo
 end
 
 local function bloquer(c, bloque)
@@ -407,6 +544,7 @@ local function etiquettePerso(c)
         local gui = panneau(tete, string.upper(c.perso), PERSOS[c.perso].couleur, 6, 1.5, 3.2)
         gui.AlwaysOnTop = true
         gui.MaxDistance = 120
+        gui.PlayerToHideFrom = c.joueur -- en 1re personne, on ne voit pas sa propre étiquette
     end
 end
 
@@ -463,15 +601,21 @@ local function vitesse(c, t, maintenant)
         else
             v = math.min(34, 14 + (t - 8) * 1.5) -- accélère sans arrêt
         end
+    elseif perso == "Talent" then
+        v = 38 -- le plus rapide... quand il veut bien courir (voir gererTalent)
     else
         v = 20
     end
+    v *= c.forme -- les bots ont une petite « forme du jour »
 
     if maintenant < telephoneJusqua and perso ~= "Discipline" and perso ~= "Obsession" then
         v *= 0.3
     end
     if maintenant < c.ralentiJusqua and perso ~= "Discipline" then
         v *= 0.35
+    end
+    if maintenant < c.dashJusqua then
+        v *= 1.6 -- élan du tacle
     end
     if maintenant < c.arretJusqua then
         v = 0
@@ -571,6 +715,164 @@ local function declencherEvenement(type, maintenant)
     end
 end
 
+-- ========================== TALENT ==========================
+local function gererTalent(c, maintenant)
+    if maintenant >= c.prochainEnnui then
+        local pause = math.random(20, 35) / 10
+        c.arretJusqua = math.max(c.arretJusqua, maintenant + pause)
+        c.prochainEnnui = maintenant + pause + math.random(40, 80) / 10
+        c.pauses += 1
+        prevenir(c, "🥱 Talent s'ennuie... petite pause", 1.5)
+    end
+end
+
+-- ========================== TACLES ET BALAYETTES ==========================
+local ATTAQUES_VALIDES = { Tacle = true, Balayette = true }
+
+local function trouverCoureur(joueur)
+    for _, c in ipairs(coureurs) do
+        if c.joueur == joueur then
+            return c
+        end
+    end
+    return nil
+end
+
+-- Tacle : quelqu'un DEVANT toi. Balayette : quelqu'un AUTOUR de toi.
+local function cibleProche(attaquant, typeAttaque, maintenant)
+    local position = attaquant.root.Position
+    local meilleure, meilleureDistance = nil, math.huge
+    for _, c in ipairs(coureurs) do
+        if c ~= attaquant and not c.fini and valide(c) and maintenant >= c.protegeJusqua then
+            local ecart = c.root.Position - position
+            local distance = Vector3.new(ecart.X, 0, ecart.Z).Magnitude
+            local aPortee
+            if typeAttaque == "Tacle" then
+                aPortee = distance <= CONFIG.PORTEE_TACLE and ecart.Z > -1
+            else
+                aPortee = distance <= CONFIG.PORTEE_BALAYETTE
+            end
+            if aPortee and distance < meilleureDistance then
+                meilleure, meilleureDistance = c, distance
+            end
+        end
+    end
+    return meilleure
+end
+
+local function attaquer(c, typeAttaque, maintenant)
+    if not courseEnCours or maintenant - debutCourse < 2 then
+        return -- pas de bagarre sur la ligne de départ
+    end
+    if maintenant < c.prochaineAttaque or maintenant < c.arretJusqua then
+        return -- encore en recharge, ou déjà par terre
+    end
+    c.prochaineAttaque = maintenant + CONFIG.RECHARGE_ATTAQUE
+    if c.joueur then
+        c.joueur:SetAttribute("RechargeFin", workspace:GetServerTimeNow() + CONFIG.RECHARGE_ATTAQUE)
+    end
+    if typeAttaque == "Tacle" then
+        c.dashJusqua = maintenant + 0.5 -- on se jette en avant
+    end
+
+    local cible = cibleProche(c, typeAttaque, maintenant)
+    if not cible then
+        if typeAttaque == "Tacle" then
+            c.ralentiJusqua = maintenant + 1.2 -- tacle dans le vide : on se relève lentement
+        end
+        if c.joueur then
+            AttaqueEvent:FireClient(c.joueur, "Rate", typeAttaque)
+        end
+        return
+    end
+
+    local duree = if cible.perso == "Discipline" then CONFIG.DUREE_CHUTE * 0.5 else CONFIG.DUREE_CHUTE
+    cible.arretJusqua = math.max(cible.arretJusqua, maintenant + duree)
+    cible.protegeJusqua = maintenant + duree + 2.5 -- pas de tacles à la chaîne sur la même personne
+    c.attaques += 1
+
+    if cible.joueur then
+        ChuteEvent:FireClient(cible.joueur, c.nom, typeAttaque, duree)
+    else
+        local humanoid = cible.humanoid
+        humanoid:ChangeState(Enum.HumanoidStateType.FallingDown)
+        cible.root.AssemblyLinearVelocity += Vector3.new(0, 18, 0)
+        task.delay(duree, function()
+            if humanoid.Parent then
+                humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end)
+    end
+    if c.joueur then
+        ajouterStat(c.joueur, "Aura", 3)
+        AttaqueEvent:FireClient(c.joueur, "Touche", typeAttaque, cible.nom)
+    end
+end
+
+AttaqueEvent.OnServerEvent:Connect(function(joueur, typeAttaque)
+    if not ATTAQUES_VALIDES[typeAttaque] then
+        return
+    end
+    local c = trouverCoureur(joueur)
+    if c and not c.fini and valide(c) then
+        attaquer(c, typeAttaque, os.clock())
+    end
+end)
+
+-- ========================== CERVEAU DES BOTS ==========================
+local GAUCHE, DROITE = X0 - W / 2 + 3, X0 + W / 2 - 3
+
+local function piloterBot(c, t, maintenant)
+    if t < c.reaction then
+        return -- temps de réaction au départ, comme un vrai joueur
+    end
+    local position = c.root.Position
+
+    -- 1) il change un peu de couloir de temps en temps
+    if maintenant >= c.prochainChangement then
+        c.prochainChangement = maintenant + math.random(15, 35) / 10
+        c.cibleX = math.clamp(c.laneX + math.random(-6, 6), GAUCHE, DROITE)
+    end
+    local cibleX = c.cibleX or c.laneX
+
+    if c.perso == "Ego" then
+        -- 2) l'Ego fonce vers les diamants
+        for _, diamant in ipairs(diamants) do
+            local dz = diamant.position.Z - position.Z
+            if dz > 0 and dz < 25 and math.abs(diamant.position.X - position.X) < 12 then
+                cibleX = diamant.position.X
+                break
+            end
+        end
+    elseif c.vigilant and c.perso ~= "Discipline" then
+        -- 3) les autres esquivent les canapés... s'ils les voient à temps
+        for _, canape in ipairs(canapes) do
+            local dz = canape.position.Z - position.Z
+            if dz > 3 and dz < 20 and math.abs(canape.position.X - cibleX) < 7 then
+                local aGauche, aDroite = canape.position.X - 8, canape.position.X + 8
+                if aGauche > GAUCHE and (math.abs(aGauche - position.X) < math.abs(aDroite - position.X) or aDroite > DROITE) then
+                    cibleX = aGauche
+                else
+                    cibleX = aDroite
+                end
+                break
+            end
+        end
+    end
+
+    -- 4) petit saut de temps en temps
+    if math.random() < 0.004 then
+        c.humanoid.Jump = true
+    end
+
+    -- 5) balayette sur un adversaire tout proche
+    if maintenant >= c.prochaineAttaque and math.random() < 0.04 and cibleProche(c, "Balayette", maintenant) then
+        attaquer(c, "Balayette", maintenant)
+    end
+
+    c.humanoid:MoveTo(Vector3.new(cibleX, SOL, math.min(position.Z + 30, L + 50)))
+end
+
 local function calculerRangs(t, maintenant)
     local liste = {}
     for _, c in ipairs(coureurs) do
@@ -645,12 +947,15 @@ while true do
     local persosPris = {}
     for _, joueur in ipairs(joueurs) do
         local perso = joueur:GetAttribute("Perso")
+        if PERSOS[perso] and PERSOS[perso].verrou and nombreVictoires(joueur) < CONFIG.VICTOIRES_POUR_TALENT then
+            perso = nil
+        end
         if not PERSOS[perso] then
             perso = ORDRE_PERSOS[math.random(1, #ORDRE_PERSOS)]
             joueur:SetAttribute("Perso", perso)
         end
         persosPris[perso] = true
-        table.insert(coureurs, nouveauCoureur(joueur.Name, perso, joueur.Character, joueur))
+        table.insert(coureurs, nouveauCoureur(joueur.DisplayName, perso, joueur.Character, joueur))
     end
 
     -- Des bots complètent la course
@@ -660,9 +965,9 @@ while true do
             break
         end
         if not persosPris[perso] then
-            local bot = creerBot(perso)
+            local bot, pseudo = creerBot(perso)
             if bot then
-                table.insert(coureurs, nouveauCoureur("🤖 " .. perso, perso, bot, nil))
+                table.insert(coureurs, nouveauCoureur(pseudo, perso, bot, nil))
                 manque -= 1
             end
         end
@@ -678,6 +983,11 @@ while true do
         c.modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(0, 0, 1)))
         bloquer(c, true)
         etiquettePerso(c)
+        if not c.joueur then
+            c.forme = math.random(94, 104) / 100   -- chaque bot a sa « forme du jour »
+            c.reaction = math.random(10, 50) / 100 -- temps de réaction au départ
+            c.vigilant = math.random() < 0.7       -- voit (ou pas) les canapés arriver
+        end
     end
 
     -- 3) DÉPART : 3, 2, 1
@@ -707,6 +1017,14 @@ while true do
     -- 4) LA COURSE
     setStatut("🏃 COURS ! (maintiens la touche avancer)")
     local debut = os.clock()
+    debutCourse = debut
+    courseEnCours = true
+    ReplicatedStorage:SetAttribute("CourseEnCours", true)
+    for _, c in ipairs(coureurs) do
+        if c.perso == "Talent" then
+            c.prochainEnnui = debut + math.random(30, 60) / 10
+        end
+    end
     local ordreArrivee = 0
     local gagnant = nil
 
@@ -727,9 +1045,12 @@ while true do
             if not c.fini and valide(c) then
                 actifs += 1
                 verifierObstacles(c, maintenant)
+                if c.perso == "Talent" then
+                    gererTalent(c, maintenant)
+                end
                 c.humanoid.WalkSpeed = vitesse(c, t, maintenant)
                 if not c.joueur then
-                    c.humanoid:MoveTo(Vector3.new(c.laneX, SOL, L + 50))
+                    piloterBot(c, t, maintenant)
                 end
 
                 if c.root.Position.Z >= L then
@@ -738,6 +1059,9 @@ while true do
                     ordreArrivee += 1
                     c.place = ordreArrivee
                     c.humanoid.WalkSpeed = 16
+                    if not c.joueur then
+                        c.humanoid:MoveTo(Vector3.new(c.root.Position.X, SOL, L + 45))
+                    end
                     if ordreArrivee == 1 then
                         gagnant = c
                         effetAura(c)
@@ -745,6 +1069,14 @@ while true do
                         if c.joueur then
                             AuraEvent:FireClient(c.joueur, "👑 VICTOIRE 👑")
                             ajouterStat(c.joueur, "Victoires", 1)
+                            if nombreVictoires(c.joueur) == CONFIG.VICTOIRES_POUR_TALENT then
+                                local champion = c.joueur
+                                task.delay(3.5, function()
+                                    if champion.Parent then
+                                        AnnonceEvent:FireClient(champion, "🔓 TALENT DÉBLOQUÉ ! Monte sur son podium 🏆", 3)
+                                    end
+                                end)
+                            end
                             ajouterStat(c.joueur, "Aura", 25)
                         end
                     else
@@ -761,6 +1093,8 @@ while true do
     end
 
     -- 5) FIN DE LA COURSE
+    courseEnCours = false
+    ReplicatedStorage:SetAttribute("CourseEnCours", false)
     setStatut("🏁 Course terminée !")
     local classement = calculerRangs(0, os.clock())
     for _, c in ipairs(coureurs) do
@@ -775,6 +1109,8 @@ while true do
                 temps = if c.temps then string.format("%.1f s", c.temps) else "Pas arrivé",
                 diamants = c.diamants,
                 depassements = c.depassements,
+                attaques = c.attaques,
+                pauses = c.pauses,
                 gagnant = if gagnant then gagnant.nom else "personne",
             })
         end

@@ -15,7 +15,10 @@ Le script serveur construit tout seul la piste, le lobby et l'arche d'arrivée.
 
 - [ ] Musique d'aura (`ID_MUSIQUE_AURA`)
 - [x] Sauvegarde de la progression (DataStore) : victoires et aura
-- [ ] Perso Talent (débloqué après 10 victoires)
+- [x] Perso Talent (débloqué après 10 victoires)
+- [x] Bots réalistes (pseudos, looks, animations, esquives, balayettes)
+- [x] Vue à la première personne avec les bras visibles, **C** pour regarder derrière
+- [x] Tacle (**E**) et balayette (**F**), avec boutons sur mobile
 - [ ] Auras à débloquer
 - [ ] Classement du jour
 - [ ] Écran de fin adapté au mobile

@@ -9,6 +9,8 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
+local ContextActionService = game:GetService("ContextActionService")
+local UserInputService = game:GetService("UserInputService")
 
 local joueur = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("MindsetRemotes")
@@ -16,12 +18,15 @@ local AnnonceEvent = remotes:WaitForChild("Annonce")
 local EvenementEvent = remotes:WaitForChild("Evenement")
 local AuraEvent = remotes:WaitForChild("Aura")
 local FinEvent = remotes:WaitForChild("Fin")
+local ChuteEvent = remotes:WaitForChild("Chute")
+local AttaqueEvent = remotes:WaitForChild("Attaque")
 
 local COULEURS = {
     Motivation = Color3.fromRGB(255, 150, 30),
     Ego = Color3.fromRGB(170, 80, 255),
     Discipline = Color3.fromRGB(60, 140, 255),
     Obsession = Color3.fromRGB(230, 40, 60),
+    Talent = Color3.fromRGB(60, 220, 140),
 }
 local BLANC = Color3.new(1, 1, 1)
 local OR = Color3.fromRGB(255, 220, 80)
@@ -102,9 +107,9 @@ local persoTexte = texte({
     Parent = gui,
 })
 local rangTexte = texte({
-    AnchorPoint = Vector2.new(1, 0.5),
-    Position = UDim2.new(1, -20, 0.5, 0),
-    Size = UDim2.new(0, 160, 0, 60),
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -20, 0, 110), -- en haut à droite, pour laisser la place aux boutons
+    Size = UDim2.new(0, 160, 0, 40),
     TextColor3 = OR,
     Visible = false,
     Parent = gui,
@@ -274,6 +279,8 @@ local function statDrole(data)
         return "Motivation restante : 0 %. Mais c'était beau au début. 🔥"
     elseif data.perso == "Discipline" then
         return "Excuses données : 0. Pluie ignorée. 🧱"
+    elseif data.perso == "Talent" then
+        return "Pauses par ennui : " .. (data.pauses or 0) .. ". Trop fort pour forcer. 🥱"
     end
     return ""
 end
@@ -284,7 +291,8 @@ FinEvent.OnClientEvent:Connect(function(data)
     finTitre.TextColor3 = couleur
     contourFin.Color = couleur
     finPlace.Text = (if data.place == 1 then "🥇 1er" else "🏁 " .. data.place .. "e") .. " sur " .. data.total
-    finDetails.Text = "⏱️ " .. data.temps .. "   ✨ Dépassements : " .. data.depassements .. "\n👑 Gagnant : " .. data.gagnant
+    finDetails.Text = "⏱️ " .. data.temps .. "   ✨ Dépassements : " .. data.depassements
+        .. "   🦵 Tacles : " .. (data.attaques or 0) .. "\n👑 Gagnant : " .. data.gagnant
     finDrole.Text = statDrole(data)
     ecranFin.Visible = true
     if data.place == 1 then
@@ -292,5 +300,240 @@ FinEvent.OnClientEvent:Connect(function(data)
     end
     task.delay(7, function()
         ecranFin.Visible = false
+    end)
+end)
+
+-- ========================== VUE À LA PREMIÈRE PERSONNE ==========================
+joueur.CameraMode = Enum.CameraMode.LockFirstPerson
+
+local NOMS_BRAS = {
+    "LeftUpperArm", "LeftLowerArm", "LeftHand",
+    "RightUpperArm", "RightLowerArm", "RightHand",
+    "Left Arm", "Right Arm", -- avatars R6
+}
+
+local regardeDerriere = false
+local cframeNormale = nil
+
+local derriereTexte = texte({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.new(0.5, 0, 0, 190),
+    Size = UDim2.new(0.5, 0, 0, 30),
+    Text = "👀 Tu regardes derrière toi",
+    Visible = false,
+    Parent = gui,
+})
+
+local function setRegardeDerriere(actif)
+    regardeDerriere = actif
+    derriereTexte.Visible = actif
+end
+
+-- Juste après la caméra de Roblox : on montre les bras, et on tourne la vue si on regarde derrière
+RunService:BindToRenderStep("MindsetVue", Enum.RenderPriority.Camera.Value + 1, function()
+    local personnage = joueur.Character
+    if personnage then
+        for _, nom in ipairs(NOMS_BRAS) do
+            local partie = personnage:FindFirstChild(nom)
+            if partie then
+                partie.LocalTransparencyModifier = 0
+            end
+        end
+    end
+    local camera = workspace.CurrentCamera
+    if regardeDerriere and camera then
+        cframeNormale = camera.CFrame
+        camera.CFrame = camera.CFrame * CFrame.Angles(0, math.pi, 0)
+    end
+end)
+
+-- Une fois l'image affichée, on remet la caméra normale : ton perso continue de courir tout droit
+RunService.PreSimulation:Connect(function()
+    if cframeNormale then
+        workspace.CurrentCamera.CFrame = cframeNormale
+        cframeNormale = nil
+    end
+end)
+
+-- ========================== BOUTONS : DERRIÈRE / TACLE / BALAYETTE ==========================
+local surMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local hauteurBouton = if surMobile then 56 else 64
+
+local boutons = nouveau("Frame", {
+    AnchorPoint = Vector2.new(1, 1),
+    Position = UDim2.new(1, -20, 1, if surMobile then -150 else -20), -- sur mobile : au-dessus du bouton saut
+    Size = UDim2.new(0, 120, 0, hauteurBouton * 3 + 16),
+    BackgroundTransparency = 1,
+    Visible = false,
+    Parent = gui,
+})
+nouveau("UIListLayout", {
+    Padding = UDim.new(0, 8),
+    HorizontalAlignment = Enum.HorizontalAlignment.Right,
+    VerticalAlignment = Enum.VerticalAlignment.Bottom,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Parent = boutons,
+})
+
+local function bouton(texteBouton, couleur, ordre)
+    local b = nouveau("TextButton", {
+        Size = UDim2.new(0, 120, 0, hauteurBouton),
+        BackgroundColor3 = couleur,
+        BackgroundTransparency = 0.15,
+        Font = Enum.Font.FredokaOne,
+        TextScaled = true,
+        TextColor3 = BLANC,
+        Text = texteBouton,
+        LayoutOrder = ordre,
+        Parent = boutons,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 14), Parent = b })
+    nouveau("UIPadding", {
+        PaddingLeft = UDim.new(0, 6),
+        PaddingRight = UDim.new(0, 6),
+        PaddingTop = UDim.new(0, 4),
+        PaddingBottom = UDim.new(0, 4),
+        Parent = b,
+    })
+    return b
+end
+
+local TEXTE_DERRIERE = if surMobile then "👀 DERRIÈRE" else "👀 DERRIÈRE\n[C]"
+local TEXTE_TACLE = if surMobile then "🦵 TACLE" else "🦵 TACLE\n[E]"
+local TEXTE_BALAYETTE = if surMobile then "🌀 BALAYETTE" else "🌀 BALAYETTE\n[F]"
+
+local boutonDerriere = bouton(TEXTE_DERRIERE, Color3.fromRGB(70, 70, 90), 1)
+local boutonTacle = bouton(TEXTE_TACLE, Color3.fromRGB(220, 90, 40), 2)
+local boutonBalayette = bouton(TEXTE_BALAYETTE, Color3.fromRGB(150, 60, 220), 3)
+
+local function envoyerAttaque(typeAttaque)
+    if ReplicatedStorage:GetAttribute("CourseEnCours") then
+        AttaqueEvent:FireServer(typeAttaque)
+    end
+end
+
+-- Clavier et manette (C, E, F marchent pareil en AZERTY et en QWERTY)
+ContextActionService:BindAction("MindsetDerriere", function(_, etat)
+    if etat == Enum.UserInputState.Begin then
+        setRegardeDerriere(true)
+    elseif etat == Enum.UserInputState.End or etat == Enum.UserInputState.Cancel then
+        setRegardeDerriere(false)
+    end
+    return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.C, Enum.KeyCode.ButtonL1)
+
+ContextActionService:BindAction("MindsetTacle", function(_, etat)
+    if etat == Enum.UserInputState.Begin then
+        envoyerAttaque("Tacle")
+    end
+    return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.E, Enum.KeyCode.ButtonX)
+
+ContextActionService:BindAction("MindsetBalayette", function(_, etat)
+    if etat == Enum.UserInputState.Begin then
+        envoyerAttaque("Balayette")
+    end
+    return Enum.ContextActionResult.Sink
+end, false, Enum.KeyCode.F, Enum.KeyCode.ButtonB)
+
+-- Écran tactile
+local function estUnAppui(input)
+    return input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1
+end
+boutonDerriere.InputBegan:Connect(function(input)
+    if estUnAppui(input) then
+        setRegardeDerriere(true)
+    end
+end)
+boutonDerriere.InputEnded:Connect(function(input)
+    if estUnAppui(input) then
+        setRegardeDerriere(false)
+    end
+end)
+boutonTacle.Activated:Connect(function()
+    envoyerAttaque("Tacle")
+end)
+boutonBalayette.Activated:Connect(function()
+    envoyerAttaque("Balayette")
+end)
+
+-- Les boutons n'apparaissent que pendant la course
+local function majCourse()
+    local enCours = ReplicatedStorage:GetAttribute("CourseEnCours") == true
+    boutons.Visible = enCours
+    if not enCours then
+        setRegardeDerriere(false)
+    end
+end
+ReplicatedStorage:GetAttributeChangedSignal("CourseEnCours"):Connect(majCourse)
+majCourse()
+
+-- Affiche la recharge sur les boutons
+RunService.Heartbeat:Connect(function()
+    if not boutons.Visible then
+        return
+    end
+    local reste = (joueur:GetAttribute("RechargeFin") or 0) - workspace:GetServerTimeNow()
+    if reste > 0 then
+        local attente = "⏳ " .. math.ceil(reste)
+        boutonTacle.Text = attente
+        boutonBalayette.Text = attente
+        boutonTacle.BackgroundTransparency = 0.6
+        boutonBalayette.BackgroundTransparency = 0.6
+    else
+        boutonTacle.Text = TEXTE_TACLE
+        boutonBalayette.Text = TEXTE_BALAYETTE
+        boutonTacle.BackgroundTransparency = 0.15
+        boutonBalayette.BackgroundTransparency = 0.15
+    end
+end)
+
+-- ========================== RÉSULTATS DES ATTAQUES ==========================
+local SON_ATTAQUE = "rbxasset://sounds/swordlunge.wav" -- son intégré à Roblox
+local NOMS_ATTAQUES = { Tacle = "🦵 TACLE", Balayette = "🌀 BALAYETTE" }
+
+AttaqueEvent.OnClientEvent:Connect(function(resultat, typeAttaque, nomCible)
+    if resultat == "Touche" then
+        jouerSon(SON_ATTAQUE)
+        apparaitre(auraTexte, (NOMS_ATTAQUES[typeAttaque] or "") .. " sur " .. tostring(nomCible) .. " ! +3 ✨", 1.2)
+        task.spawn(coupDeZoom)
+    else
+        local message = if typeAttaque == "Tacle" then "🤦 Tacle dans le vide..." else "💨 Balayette dans le vent..."
+        apparaitre(auraTexte, message, 1)
+    end
+end)
+
+-- Quand c'est TOI qui te fais tacler
+ChuteEvent.OnClientEvent:Connect(function(nomAttaquant, typeAttaque, duree)
+    setRegardeDerriere(false)
+    grosTexte.TextColor3 = Color3.fromRGB(255, 90, 90)
+    apparaitre(grosTexte, "😵 " .. (NOMS_ATTAQUES[typeAttaque] or "") .. " de " .. tostring(nomAttaquant) .. " !", duree)
+    jouerSon(SON_ATTAQUE, 0.7)
+
+    local personnage = joueur.Character
+    local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
+    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
+    if not humanoid then
+        return
+    end
+    humanoid:ChangeState(Enum.HumanoidStateType.FallingDown)
+    if racine then
+        racine.AssemblyLinearVelocity += Vector3.new(0, 18, 0)
+    end
+
+    -- petite secousse de caméra
+    task.spawn(function()
+        local fin = os.clock() + 0.4
+        while os.clock() < fin and humanoid.Parent do
+            humanoid.CameraOffset = Vector3.new(math.random(-10, 10) / 40, math.random(-10, 10) / 40, 0)
+            RunService.RenderStepped:Wait()
+        end
+        humanoid.CameraOffset = Vector3.zero
+    end)
+
+    task.delay(duree, function()
+        if humanoid.Parent then
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
     end)
 end)
