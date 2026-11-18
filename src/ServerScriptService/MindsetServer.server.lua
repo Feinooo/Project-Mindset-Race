@@ -203,17 +203,114 @@ for i, nom in ipairs(ORDRE_PERSOS) do
     end)
 end
 
+-- ========================== SAUVEGARDE (DataStore) ==========================
+-- Garde les victoires et l'aura de chaque joueur d'une partie à l'autre.
+-- ⚠️ Pour tester dans Studio : publie le jeu, puis
+--    Paramètres du jeu > Sécurité > « Activer l'accès Studio aux services API ».
+local DataStoreService = game:GetService("DataStoreService")
+local sauvegarde = DataStoreService:GetDataStore("MindsetRace_Joueurs_v1")
+local donneesChargees = {} -- [joueur] = true seulement si le chargement a réussi
+
+local function cle(joueur)
+    return "joueur_" .. joueur.UserId
+end
+
+-- Réessaie jusqu'à 3 fois, car les serveurs Roblox ratent parfois une requête
+local function essayer(fonction)
+    for essai = 1, 3 do
+        local ok, resultat = pcall(fonction)
+        if ok then
+            return true, resultat
+        end
+        warn("💾 Sauvegarde : essai " .. essai .. " raté :", resultat)
+        if essai < 3 then
+            task.wait(2)
+        end
+    end
+    return false, nil
+end
+
+local function chargerJoueur(joueur, stats)
+    local ok, donnees = essayer(function()
+        return sauvegarde:GetAsync(cle(joueur))
+    end)
+    if not joueur.Parent then
+        return
+    end
+    if ok then
+        donnees = donnees or {}
+        -- « += » : on garde aussi ce qu'il a gagné pendant le chargement
+        stats.Victoires.Value += donnees.victoires or 0
+        stats.Aura.Value += donnees.aura or 0
+        donneesChargees[joueur] = true
+    else
+        -- On ne sauvegardera PAS ce joueur, pour ne pas écraser ses vraies données par des zéros
+        warn("💾 Impossible de charger les données de " .. joueur.Name .. " : pas de sauvegarde pour cette partie.")
+    end
+end
+
+local function sauverJoueur(joueur)
+    if not donneesChargees[joueur] then
+        return
+    end
+    local stats = joueur:FindFirstChild("leaderstats")
+    if not stats then
+        return
+    end
+    local victoires = stats.Victoires.Value
+    local aura = stats.Aura.Value
+    essayer(function()
+        sauvegarde:UpdateAsync(cle(joueur), function(anciennes)
+            local donnees = anciennes or {}
+            donnees.victoires = victoires
+            donnees.aura = aura
+            return donnees
+        end)
+    end)
+end
+
 -- ========================== JOUEURS ==========================
 local function joueurArrive(joueur)
     local stats = creer("Folder", { Name = "leaderstats", Parent = joueur })
     creer("IntValue", { Name = "Victoires", Parent = stats })
     creer("IntValue", { Name = "Aura", Parent = stats })
     joueur:SetAttribute("Rang", 0)
+    task.spawn(chargerJoueur, joueur, stats)
 end
 Players.PlayerAdded:Connect(joueurArrive)
 for _, joueur in ipairs(Players:GetPlayers()) do
     joueurArrive(joueur)
 end
+
+Players.PlayerRemoving:Connect(function(joueur)
+    sauverJoueur(joueur)
+    donneesChargees[joueur] = nil
+end)
+
+-- Quand le serveur s'éteint : on sauvegarde tout le monde avant
+game:BindToClose(function()
+    local restants = 0
+    for _, joueur in ipairs(Players:GetPlayers()) do
+        restants += 1
+        task.spawn(function()
+            sauverJoueur(joueur)
+            restants -= 1
+        end)
+    end
+    while restants > 0 do
+        task.wait(0.1)
+    end
+end)
+
+-- Sauvegarde automatique toutes les 2 minutes (au cas où le serveur plante)
+task.spawn(function()
+    while true do
+        task.wait(120)
+        for _, joueur in ipairs(Players:GetPlayers()) do
+            task.spawn(sauverJoueur, joueur)
+        end
+    end
+end)
 
 local function ajouterStat(joueur, nom, nombre)
     local stats = joueur and joueur:FindFirstChild("leaderstats")

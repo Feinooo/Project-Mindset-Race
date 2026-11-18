@@ -14,7 +14,7 @@ Le script serveur construit tout seul la piste, le lobby et l'arche d'arrivée.
 ## À faire
 
 - [ ] Musique d'aura (`ID_MUSIQUE_AURA`)
-- [ ] Sauvegarde de la progression (DataStore)
+- [x] Sauvegarde de la progression (DataStore) : victoires et aura
 - [ ] Perso Talent (débloqué après 10 victoires)
 - [ ] Auras à débloquer
 - [ ] Classement du jour
