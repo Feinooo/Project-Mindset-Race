@@ -16,15 +16,53 @@ local CONFIG = {
     NB_COULOIRS = 8,      -- grimpeurs affichés en même temps (mets le même nombre en « Max joueurs »)
     COUREURS_MIN = 4,     -- des bots complètent jusqu'à ce nombre
 
-    -- 🎵 MUSIQUES : une est tirée au hasard à chaque manche.
-    --   id       = l'ID copié dans la Toolbox, ex. "rbxassetid://1234567890"
-    --   nom      = juste pour s'y retrouver (affiché dans le testeur BPM)
+    NB_PROPOSITIONS = 3,  -- musiques proposées au vote dans le lobby
+
+    -- 🎵 MUSIQUES : à chaque lobby, 3 sont tirées au hasard et les joueurs votent.
+    --   id       = l'ID Roblox du son, ex. "rbxassetid://1234567890"
+    --              ⚠ une musique avec id = "" est ignorée (pas encore mise en ligne)
+    --   nom      = le nom affiché sur le bouton de vote
     --   bpm      = le tempo de la musique → mesure-le avec le testeur : lance le jeu dans Studio et appuie sur B
     --   debut    = à quelle seconde du son on commence (pour démarrer direct sur le drop !)
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
-    -- (liste vidée le 2026-11-19 : les anciennes musiques sont dans l'historique git, commit 19623be)
+    -- (les anciennes musiques sont dans l'historique git, commit 19623be)
     MUSIQUES = {
-        -- { id = "rbxassetid://...", nom = "...", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "LUNA BALA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "Automotivo da Reciprocidade", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "AUTOMOTIVO DECORADA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "Automotivo Mec", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "AUTOMOTIVO PEGA 1.0", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "BUFÓN!", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "COM MEDO!", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "COMING FOR YOU", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGE SENNTANA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "maldito movimiento", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "ETERNITY", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "Fica De Quatão", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "FUNK ABNORMAL", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "TAK TAK", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "LUA NA PRAÇA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MATADORA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "ME VS ME", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM BRAVO", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM GUERREIRO", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM IMPACTO", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM MELODIA EXPLOSIVA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM PEGADORA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM PENSAR", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM REBOLA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "MONTAGEM SUPERSONIC", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "RITMO AGRESSIVO", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "NO BATIDÃO", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "NO ERA AMOR", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "EMPIRE", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "Pique do ombrinho", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "SPACE!", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "TIKI TIKI", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "TITAN!", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "TODO LA VIDA", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "UH VEI VEI", bpm = 130, debut = 0, decalage = 0 },
+        { id = "", nom = "Your Next Opponent Is You", bpm = 130, debut = 0, decalage = 0 },
     },
 }
 -- ===========================================================================
@@ -80,16 +118,24 @@ local NoteEvent = remote("Note")           -- client -> serveur : « j'ai eu PAR
 local ChoisirEvent = remote("Choisir")     -- client -> serveur : choix du perso
 local EvenementEvent = remote("Evenement") -- serveur -> clients : sommet atteint, vainqueur...
 local FinEvent = remote("Fin")             -- serveur -> joueur : son écran de fin
+local VoterMusiqueEvent = remote("VoterMusique") -- client -> serveur : vote pour une des 3 musiques
 
 local dossierGrimpeurs = creer("Folder", { Name = "Grimpeurs", Parent = ReplicatedStorage })
+-- Les musiques proposées au vote (StringValue "1", "2", "3" : Value = nom, attribut Votes)
+local dossierChoixMusiques = creer("Folder", { Name = "ChoixMusiques", Parent = ReplicatedStorage })
 dossierRemotes.Parent = ReplicatedStorage
 
 -- 🎵 Testeur BPM (touche B) : en Studio seulement, on partage la liste des musiques avec le testeur
 if game:GetService("RunService"):IsStudio() then
     local dossierTest = creer("Folder", { Name = "TesteurMusiques" })
     dossierTest:SetAttribute("DureeManche", CONFIG.DUREE_MANCHE)
-    for i, m in ipairs(CONFIG.MUSIQUES) do
-        local valeur = creer("StringValue", { Name = string.format("%02d", i), Value = m.id, Parent = dossierTest })
+    local numero = 0
+    for _, m in ipairs(CONFIG.MUSIQUES) do
+        if m.id == "" then
+            continue -- pas encore mise en ligne
+        end
+        numero += 1
+        local valeur = creer("StringValue", { Name = string.format("%02d", numero), Value = m.id, Parent = dossierTest })
         valeur:SetAttribute("Nom", m.nom or ("Musique " .. i))
         valeur:SetAttribute("Bpm", m.bpm)
         valeur:SetAttribute("Debut", m.debut)
@@ -574,6 +620,83 @@ local function genererPartition(musique)
     return notes
 end
 
+-- ========================== VOTE DE LA MUSIQUE ==========================
+local propositions = {}   -- les musiques proposées pendant ce lobby
+local votesMusique = {}   -- [joueur] = numéro de la musique votée
+
+local function compterVotes()
+    local comptes = {}
+    for i = 1, #propositions do
+        comptes[i] = 0
+    end
+    for votant, i in pairs(votesMusique) do
+        if votant.Parent and comptes[i] then
+            comptes[i] += 1
+        end
+    end
+    for i = 1, #propositions do
+        local valeur = dossierChoixMusiques:FindFirstChild(tostring(i))
+        if valeur then
+            valeur:SetAttribute("Votes", comptes[i])
+        end
+    end
+    return comptes
+end
+
+local function proposerMusiques()
+    votesMusique = {}
+    propositions = {}
+    dossierChoixMusiques:ClearAllChildren()
+    local dispo = {}
+    for _, m in ipairs(CONFIG.MUSIQUES) do
+        if m.id ~= "" then
+            table.insert(dispo, m)
+        end
+    end
+    for _ = 1, math.min(CONFIG.NB_PROPOSITIONS, #dispo) do
+        table.insert(propositions, table.remove(dispo, math.random(1, #dispo)))
+    end
+    for i, m in ipairs(propositions) do
+        local valeur = creer("StringValue", { Name = tostring(i), Value = m.nom or ("Musique " .. i), Parent = dossierChoixMusiques })
+        valeur:SetAttribute("Votes", 0)
+    end
+end
+
+-- La plus votée gagne (égalité ou aucun vote : tirage au sort entre les ex æquo)
+local function musiqueGagnante()
+    if #propositions == 0 then
+        return nil
+    end
+    local comptes = compterVotes()
+    local meilleur, exAequo = -1, {}
+    for i = 1, #propositions do
+        if comptes[i] > meilleur then
+            meilleur, exAequo = comptes[i], { i }
+        elseif comptes[i] == meilleur then
+            table.insert(exAequo, i)
+        end
+    end
+    return propositions[exAequo[math.random(1, #exAequo)]]
+end
+
+VoterMusiqueEvent.OnServerEvent:Connect(function(votant, i)
+    if ReplicatedStorage:GetAttribute("Phase") ~= "Lobby" then
+        return
+    end
+    if typeof(i) ~= "number" or not propositions[i] then
+        return
+    end
+    votesMusique[votant] = i
+    compterVotes()
+end)
+
+Players.PlayerRemoving:Connect(function(parti)
+    if votesMusique[parti] then
+        votesMusique[parti] = nil
+        compterVotes()
+    end
+end)
+
 local function compteARebours(secondes)
     for t = secondes, 1, -1 do
         setTemps(t)
@@ -586,6 +709,7 @@ end
 while true do
     -- 1) LOBBY : tout le monde en bas, on choisit son perso
     manche = nil
+    proposerMusiques()
     setPhase("Lobby")
     for _, g in ipairs(dossierGrimpeurs:GetChildren()) do
         g:SetAttribute("Marche", 0)
@@ -593,7 +717,7 @@ while true do
         g:SetAttribute("NiveauAura", 0)
         g:SetAttribute("EnJeu", false)
     end
-    setStatut("🧠 Choisis ton état d'esprit !")
+    setStatut(if #propositions > 0 then "🧠 Choisis ton état d'esprit et vote pour la musique !" else "🧠 Choisis ton état d'esprit !")
     compteARebours(CONFIG.ATTENTE_LOBBY)
 
     local participants = {}
@@ -634,10 +758,10 @@ while true do
     end
 
     -- 3) MUSIQUE + PARTITION
-    local musique = CONFIG.MUSIQUES[math.random(1, math.max(#CONFIG.MUSIQUES, 1))]
+    local musique = musiqueGagnante()
     if not musique then
-        -- aucune musique dans la liste : on joue quand même, en silence, à 130 BPM
-        warn("[Mindset] Aucune musique dans CONFIG.MUSIQUES : manche sans son.")
+        -- aucune musique avec un ID : on joue quand même, en silence, à 130 BPM
+        warn("[Mindset] Aucune musique avec un ID dans CONFIG.MUSIQUES : manche sans son.")
         musique = { id = "", nom = "(silence)", bpm = 130, debut = 0, decalage = 0 }
     end
     local notes = genererPartition(musique)
@@ -649,7 +773,13 @@ while true do
         manche.stats[g] = { parfaits = 0, biens = 0, rates = 0, comboMax = 0, sommetA = nil }
         manche.prochaineNote[g] = 1
     end
-    setStatut("")
+    -- on annonce la musique gagnante pendant le décompte
+    setStatut(if musique.id ~= "" then "🎵 " .. musique.nom else "")
+    task.delay(CONFIG.PREPARATION, function()
+        if ReplicatedStorage:GetAttribute("Phase") == "Manche" then
+            setStatut("")
+        end
+    end)
     setPhase("Manche")
     DebutEvent:FireAllClients({
         musique = musique.id,

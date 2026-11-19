@@ -20,7 +20,9 @@ local NoteEvent = remotes:WaitForChild("Note")
 local ChoisirEvent = remotes:WaitForChild("Choisir")
 local EvenementEvent = remotes:WaitForChild("Evenement")
 local FinEvent = remotes:WaitForChild("Fin")
+local VoterMusiqueEvent = remotes:WaitForChild("VoterMusique")
 local dossierGrimpeurs = ReplicatedStorage:WaitForChild("Grimpeurs")
+local dossierChoixMusiques = ReplicatedStorage:WaitForChild("ChoixMusiques")
 
 local GEO = {
     X0 = ReplicatedStorage:GetAttribute("GeoX0"),
@@ -276,6 +278,128 @@ for _, perso in ipairs(ORDRE_PERSOS) do
     end)
     cartes[perso] = { carte = carte, contour = contour }
 end
+
+-- Vote de la musique (en haut, sous le chrono)
+local BLEU_MUSIQUE = Color3.fromRGB(120, 170, 255)
+local choixMusique = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.new(0.5, 0, 0, 132),
+    Size = UDim2.new(if surMobile then 0.94 else 0.6, 0, 0, if surMobile then 84 else 104),
+    BackgroundTransparency = 1,
+    Visible = false,
+    ZIndex = 6,
+    Parent = gui,
+})
+texte({
+    Size = UDim2.new(1, 0, 0, 22),
+    Text = "🎵 VOTE POUR LA MUSIQUE",
+    TextColor3 = BLEU_MUSIQUE,
+    ZIndex = 6,
+    Parent = choixMusique,
+})
+local rangeeMusiques = nouveau("Frame", {
+    Position = UDim2.new(0, 0, 0, 28),
+    Size = UDim2.new(1, 0, 1, -28),
+    BackgroundTransparency = 1,
+    ZIndex = 6,
+    Parent = choixMusique,
+})
+nouveau("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    HorizontalAlignment = Enum.HorizontalAlignment.Center,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0.015, 0),
+    Parent = rangeeMusiques,
+})
+local boutonsMusique = {}
+local monVote = nil
+
+local function majVotesMusique()
+    for i, b in pairs(boutonsMusique) do
+        local votes = b.valeur:GetAttribute("Votes") or 0
+        b.votes.Text = votes .. (if votes > 1 then " votes" else " vote")
+        local choisi = monVote == i
+        b.contour.Color = if choisi then OR else BLEU_MUSIQUE
+        b.contour.Thickness = if choisi then 3 else 1.5
+        b.bouton.BackgroundColor3 = if choisi then Color3.fromRGB(50, 42, 15) else Color3.fromRGB(20, 20, 30)
+    end
+end
+
+local function reconstruireMusiques()
+    for _, b in pairs(boutonsMusique) do
+        b.bouton:Destroy()
+    end
+    boutonsMusique = {}
+    monVote = nil
+    local valeurs = dossierChoixMusiques:GetChildren()
+    table.sort(valeurs, function(a, b)
+        return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0)
+    end)
+    for _, valeur in ipairs(valeurs) do
+        local i = tonumber(valeur.Name)
+        if not i then
+            continue
+        end
+        local bouton = nouveau("TextButton", {
+            Size = UDim2.new(1 / #valeurs - 0.015, 0, 1, 0),
+            LayoutOrder = i,
+            BackgroundColor3 = Color3.fromRGB(20, 20, 30),
+            BackgroundTransparency = 0.1,
+            AutoButtonColor = true,
+            Text = "",
+            ZIndex = 6,
+            Parent = rangeeMusiques,
+        })
+        nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = bouton })
+        local contour = nouveau("UIStroke", {
+            Color = BLEU_MUSIQUE,
+            Thickness = 1.5,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            Parent = bouton,
+        })
+        texte({
+            Position = UDim2.new(0, 8, 0, 4),
+            Size = UDim2.new(1, -16, 0.6, -4),
+            Text = valeur.Value,
+            ZIndex = 7,
+            Parent = bouton,
+        })
+        local votes = texte({
+            Position = UDim2.new(0, 8, 0.6, 0),
+            Size = UDim2.new(1, -16, 0.4, -4),
+            Font = Enum.Font.GothamBold,
+            TextColor3 = OR,
+            TextStrokeTransparency = 1,
+            ZIndex = 7,
+            Parent = bouton,
+        })
+        bouton.Activated:Connect(function()
+            monVote = i
+            VoterMusiqueEvent:FireServer(i)
+            majVotesMusique()
+        end)
+        valeur:GetAttributeChangedSignal("Votes"):Connect(majVotesMusique)
+        boutonsMusique[i] = { bouton = bouton, contour = contour, votes = votes, valeur = valeur }
+    end
+    choixMusique.Visible = ReplicatedStorage:GetAttribute("Phase") == "Lobby" and next(boutonsMusique) ~= nil
+    majVotesMusique()
+end
+
+-- Le serveur remplace les 3 musiques d'un coup : on attend un poil avant de reconstruire
+local reconstructionPrevue = false
+local function prevoirReconstruction()
+    if reconstructionPrevue then
+        return
+    end
+    reconstructionPrevue = true
+    task.delay(0.1, function()
+        reconstructionPrevue = false
+        reconstruireMusiques()
+    end)
+end
+dossierChoixMusiques.ChildAdded:Connect(prevoirReconstruction)
+dossierChoixMusiques.ChildRemoved:Connect(prevoirReconstruction)
+reconstruireMusiques()
 
 -- Écran de fin
 local ecranFin = nouveau("Frame", {
@@ -970,6 +1094,7 @@ end)
 local function majPhase()
     local phase = ReplicatedStorage:GetAttribute("Phase")
     choix.Visible = phase == "Lobby"
+    choixMusique.Visible = phase == "Lobby" and next(boutonsMusique) ~= nil
     barre.Visible = phase == "Manche" or phase == "Fin"
     marcheTexte.Visible = phase == "Manche"
     if phase == "Lobby" then

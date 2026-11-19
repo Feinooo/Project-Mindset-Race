@@ -4,3 +4,6 @@
 
 # Reglages personnels de Claude Code
 .claude/settings.local.json
+
+# Les MP3 bruts (on met seulement les ID Roblox dans le script)
+Musique/
