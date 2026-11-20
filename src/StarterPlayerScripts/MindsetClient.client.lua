@@ -1029,8 +1029,19 @@ DebutEvent.OnClientEvent:Connect(function(infos)
         musique.Volume = 0.8
         task.spawn(function()
             pcall(function()
-                ContentProvider:PreloadAsync({ musique })
+                ContentProvider:PreloadAsync({ musique }, function(_, statut)
+                    if statut ~= Enum.AssetFetchStatus.Success then
+                        warn("[MUSIQUE] Impossible de charger " .. tostring(infos.musique)
+                            .. " (statut : " .. tostring(statut) .. "). Son privé, en modération, jeu pas publié ou mauvais ID ?")
+                    end
+                end)
             end)
+            if not musique.IsLoaded then
+                task.wait(3)
+                if not musique.IsLoaded and musique.SoundId == infos.musique then
+                    warn("[MUSIQUE] Toujours pas chargée après 3 s : " .. tostring(infos.musique))
+                end
+            end
         end)
     end
 
