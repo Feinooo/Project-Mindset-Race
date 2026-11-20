@@ -42,11 +42,26 @@ local COULEURS = {
     Obsession = Color3.fromRGB(230, 40, 60),
 }
 local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" }
-local REGLES = {
-    Motivation = "Départ en feu : +2 marches par note au début.\nMais quand ça se gâte, chute de 2.",
-    Ego = "Combo 10+ : les PARFAIT valent +2.\nUne erreur = -2 (il perd la face).",
-    Discipline = "+1 par note, jamais plus.\nMais ne redescend JAMAIS.",
-    Obsession = "Lent au début (que les PARFAIT).\nPuis +2 par note sur la fin.",
+-- Ce qui s'affiche sur les cartes du menu (les vraies règles sont dans le script serveur)
+local ICONES = { Motivation = "🔥", Ego = "👑", Discipline = "🧱", Obsession = "👁️" }
+local DEVISES = {
+    Motivation = "Le feu du départ",
+    Ego = "Le roi du combo",
+    Discipline = "Le mur inébranlable",
+    Obsession = "Le monstre de la fin",
+}
+local COMPETENCES = {
+    Motivation = { "⚡ +2 marches par note au début", "⚠️ Rate ensuite = -2" },
+    Ego = { "💅 Combo 10+ : PARFAIT = +2", "⚠️ Une erreur = -2" },
+    Discipline = { "🧱 +1 par note, toujours", "🛡️ Ne redescend JAMAIS" },
+    Obsession = { "🐢 Début : que les PARFAIT", "🚀 2e moitié : +2 par note" },
+}
+local JAUGES = { "DÉBUT", "FIN", "SÉCURITÉ" }
+local NOTES_PERSOS = { -- sur 5
+    Motivation = { 5, 2, 2 },
+    Ego = { 3, 4, 1 },
+    Discipline = { 3, 3, 5 },
+    Obsession = { 1, 5, 3 },
 }
 local BLANC = Color3.new(1, 1, 1)
 local NOIR = Color3.new(0, 0, 0)
@@ -226,181 +241,6 @@ local barre = nouveau("Frame", {
 nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = barre })
 texte({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -4), Size = UDim2.fromOffset(40, 28), Text = "👑", ZIndex = 3, Parent = barre })
 
--- Choix du perso
-local choix = nouveau("Frame", {
-    AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -16),
-    Size = UDim2.new(0.94, 0, 0, if surMobile then 140 else 170),
-    BackgroundTransparency = 1,
-    ZIndex = 6,
-    Parent = gui,
-})
-nouveau("UIListLayout", {
-    FillDirection = Enum.FillDirection.Horizontal,
-    HorizontalAlignment = Enum.HorizontalAlignment.Center,
-    Padding = UDim.new(0.01, 0),
-    Parent = choix,
-})
-local cartes = {}
-for _, perso in ipairs(ORDRE_PERSOS) do
-    local couleur = COULEURS[perso]
-    local carte = nouveau("TextButton", {
-        Size = UDim2.new(0.24, 0, 1, 0),
-        BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-        BackgroundTransparency = 0.1,
-        AutoButtonColor = true,
-        Text = "",
-        ZIndex = 6,
-        Parent = choix,
-    })
-    nouveau("UICorner", { CornerRadius = UDim.new(0, 14), Parent = carte })
-    local contour = nouveau("UIStroke", { Color = couleur, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = carte })
-    texte({
-        Position = UDim2.new(0, 8, 0, 6),
-        Size = UDim2.new(1, -16, 0.32, 0),
-        Text = string.upper(perso),
-        TextColor3 = couleur,
-        ZIndex = 7,
-        Parent = carte,
-    })
-    texte({
-        Position = UDim2.new(0, 8, 0.36, 0),
-        Size = UDim2.new(1, -16, 0.6, -6),
-        Text = REGLES[perso],
-        Font = Enum.Font.GothamMedium,
-        TextColor3 = Color3.fromRGB(220, 220, 230),
-        TextStrokeTransparency = 1,
-        ZIndex = 7,
-        Parent = carte,
-    })
-    carte.Activated:Connect(function()
-        ChoisirEvent:FireServer(perso)
-    end)
-    cartes[perso] = { carte = carte, contour = contour }
-end
-
--- Vote de la musique (en haut, sous le chrono)
-local BLEU_MUSIQUE = Color3.fromRGB(120, 170, 255)
-local choixMusique = nouveau("Frame", {
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.new(0.5, 0, 0, 132),
-    Size = UDim2.new(if surMobile then 0.94 else 0.6, 0, 0, if surMobile then 84 else 104),
-    BackgroundTransparency = 1,
-    Visible = false,
-    ZIndex = 6,
-    Parent = gui,
-})
-texte({
-    Size = UDim2.new(1, 0, 0, 22),
-    Text = "🎵 VOTE POUR LA MUSIQUE",
-    TextColor3 = BLEU_MUSIQUE,
-    ZIndex = 6,
-    Parent = choixMusique,
-})
-local rangeeMusiques = nouveau("Frame", {
-    Position = UDim2.new(0, 0, 0, 28),
-    Size = UDim2.new(1, 0, 1, -28),
-    BackgroundTransparency = 1,
-    ZIndex = 6,
-    Parent = choixMusique,
-})
-nouveau("UIListLayout", {
-    FillDirection = Enum.FillDirection.Horizontal,
-    HorizontalAlignment = Enum.HorizontalAlignment.Center,
-    SortOrder = Enum.SortOrder.LayoutOrder,
-    Padding = UDim.new(0.015, 0),
-    Parent = rangeeMusiques,
-})
-local boutonsMusique = {}
-local monVote = nil
-
-local function majVotesMusique()
-    for i, b in pairs(boutonsMusique) do
-        local votes = b.valeur:GetAttribute("Votes") or 0
-        b.votes.Text = votes .. (if votes > 1 then " votes" else " vote")
-        local choisi = monVote == i
-        b.contour.Color = if choisi then OR else BLEU_MUSIQUE
-        b.contour.Thickness = if choisi then 3 else 1.5
-        b.bouton.BackgroundColor3 = if choisi then Color3.fromRGB(50, 42, 15) else Color3.fromRGB(20, 20, 30)
-    end
-end
-
-local function reconstruireMusiques()
-    for _, b in pairs(boutonsMusique) do
-        b.bouton:Destroy()
-    end
-    boutonsMusique = {}
-    monVote = nil
-    local valeurs = dossierChoixMusiques:GetChildren()
-    table.sort(valeurs, function(a, b)
-        return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0)
-    end)
-    for _, valeur in ipairs(valeurs) do
-        local i = tonumber(valeur.Name)
-        if not i then
-            continue
-        end
-        local bouton = nouveau("TextButton", {
-            Size = UDim2.new(1 / #valeurs - 0.015, 0, 1, 0),
-            LayoutOrder = i,
-            BackgroundColor3 = Color3.fromRGB(20, 20, 30),
-            BackgroundTransparency = 0.1,
-            AutoButtonColor = true,
-            Text = "",
-            ZIndex = 6,
-            Parent = rangeeMusiques,
-        })
-        nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = bouton })
-        local contour = nouveau("UIStroke", {
-            Color = BLEU_MUSIQUE,
-            Thickness = 1.5,
-            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-            Parent = bouton,
-        })
-        texte({
-            Position = UDim2.new(0, 8, 0, 4),
-            Size = UDim2.new(1, -16, 0.6, -4),
-            Text = valeur.Value,
-            ZIndex = 7,
-            Parent = bouton,
-        })
-        local votes = texte({
-            Position = UDim2.new(0, 8, 0.6, 0),
-            Size = UDim2.new(1, -16, 0.4, -4),
-            Font = Enum.Font.GothamBold,
-            TextColor3 = OR,
-            TextStrokeTransparency = 1,
-            ZIndex = 7,
-            Parent = bouton,
-        })
-        bouton.Activated:Connect(function()
-            monVote = i
-            VoterMusiqueEvent:FireServer(i)
-            majVotesMusique()
-        end)
-        valeur:GetAttributeChangedSignal("Votes"):Connect(majVotesMusique)
-        boutonsMusique[i] = { bouton = bouton, contour = contour, votes = votes, valeur = valeur }
-    end
-    choixMusique.Visible = ReplicatedStorage:GetAttribute("Phase") == "Lobby" and next(boutonsMusique) ~= nil
-    majVotesMusique()
-end
-
--- Le serveur remplace les 3 musiques d'un coup : on attend un poil avant de reconstruire
-local reconstructionPrevue = false
-local function prevoirReconstruction()
-    if reconstructionPrevue then
-        return
-    end
-    reconstructionPrevue = true
-    task.delay(0.1, function()
-        reconstructionPrevue = false
-        reconstruireMusiques()
-    end)
-end
-dossierChoixMusiques.ChildAdded:Connect(prevoirReconstruction)
-dossierChoixMusiques.ChildRemoved:Connect(prevoirReconstruction)
-reconstruireMusiques()
-
 -- Écran de fin
 local ecranFin = nouveau("Frame", {
     AnchorPoint = Vector2.new(0.5, 0.5),
@@ -467,6 +307,774 @@ local forceSecousse = 0  -- secousse qui retombe toute seule
 local function secousse(force)
     forceSecousse = math.max(forceSecousse, force)
 end
+
+-- ========================== MENU DU LOBBY ==========================
+-- Plein écran pendant le lobby : les 4 états d'esprit + le vote de la musique, la map floutée derrière.
+local BLEU_MUSIQUE = Color3.fromRGB(120, 170, 255)
+
+-- 🔊 Petits bruits de l'interface
+local SONS = {
+    survol = "rbxasset://sounds/volume_slider.ogg", -- son fourni avec Roblox : marche toujours
+    clic = "rbxassetid://12221967",                 -- le « clic » classique de Roblox
+}
+local sonsModeles = {}
+for nom, id in pairs(SONS) do
+    sonsModeles[nom] = nouveau("Sound", { Name = "MindsetUI_" .. nom, SoundId = id, Volume = 0.5, Parent = SoundService })
+end
+task.spawn(function()
+    pcall(function()
+        ContentProvider:PreloadAsync({ sonsModeles.clic }, function(_, etatChargement)
+            if etatChargement ~= Enum.AssetFetchStatus.Success then
+                sonsModeles.clic.SoundId = SONS.survol -- secours si le clic ne se charge pas
+            end
+        end)
+    end)
+end)
+
+local function jouerSon(nom, vitesse, volume, retard)
+    local modele = sonsModeles[nom]
+    if not modele then
+        return
+    end
+    local function jouer()
+        local son = modele:Clone()
+        son.PlaybackSpeed = vitesse or 1
+        son.Volume = volume or 0.5
+        son.Parent = SoundService
+        son:Play()
+        task.delay(3, function()
+            son:Destroy()
+        end)
+    end
+    if retard and retard > 0 then
+        task.delay(retard, jouer)
+    else
+        jouer()
+    end
+end
+
+-- Survol : chaque carte a sa note (do, ré, mi, sol, la, do), et ça monte si tu enchaînes vite
+local GAMME = { 1, 1.122, 1.26, 1.498, 1.682, 2 }
+local serieSurvol, dernierSurvol = 0, 0
+local function sonSurvol(note)
+    local maintenant = os.clock()
+    serieSurvol = if maintenant - dernierSurvol < 0.7 then math.min(serieSurvol + 1, 8) else 0
+    dernierSurvol = maintenant
+    jouerSon("survol", (GAMME[note] or 1) * (1 + serieSurvol * 0.03), 0.45)
+end
+local function sonClic(note)
+    local base = GAMME[note] or 1
+    jouerSon("clic", 1, 0.7)
+    jouerSon("survol", base * 0.75, 0.5)
+    jouerSon("survol", base * 1.5, 0.4, 0.07)
+    jouerSon("survol", base * 2, 0.3, 0.14)
+end
+
+-- Fond : la map floutée et un peu assombrie
+local flouLobby = nouveau("BlurEffect", { Name = "MindsetFlouLobby", Size = 0, Parent = Lighting })
+local teinteLobby = nouveau("ColorCorrectionEffect", { Name = "MindsetTeinteLobby", Parent = Lighting })
+
+local menu = nouveau("Frame", {
+    Name = "MenuLobby",
+    BackgroundTransparency = 1,
+    Size = UDim2.fromScale(1, 1),
+    Visible = false,
+    ZIndex = 10,
+    Parent = gui,
+})
+local voile = nouveau("Frame", {
+    BackgroundColor3 = NOIR,
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    Size = UDim2.fromScale(1, 1),
+    ZIndex = 10,
+    Parent = menu,
+})
+nouveau("UIGradient", {
+    Rotation = 90,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.2),
+        NumberSequenceKeypoint.new(0.5, 0.6),
+        NumberSequenceKeypoint.new(1, 0.15),
+    }),
+    Parent = voile,
+})
+
+local textesMenu = {}
+local function texteMenu(proprietes)
+    local label = texte(proprietes)
+    table.insert(textesMenu, label)
+    return label
+end
+
+local titreMenu = texteMenu({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.03),
+    Size = UDim2.fromScale(0.86, 0.08),
+    Text = "CHOISIS TON ÉTAT D'ESPRIT",
+    ZIndex = 12,
+    Parent = menu,
+})
+local degradeTitre = nouveau("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, COULEURS.Motivation),
+        ColorSequenceKeypoint.new(0.33, COULEURS.Ego),
+        ColorSequenceKeypoint.new(0.66, COULEURS.Discipline),
+        ColorSequenceKeypoint.new(1, COULEURS.Obsession),
+    }),
+    Parent = titreMenu,
+})
+local echelleTitre = nouveau("UIScale", { Parent = titreMenu })
+local chronoMenu = texteMenu({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.115),
+    Size = UDim2.fromScale(0.3, 0.045),
+    TextColor3 = OR,
+    ZIndex = 12,
+    Parent = menu,
+})
+local echelleChrono = nouveau("UIScale", { Parent = chronoMenu })
+local titreMusique = texteMenu({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.655),
+    Size = UDim2.fromScale(0.6, 0.04),
+    Text = "🎵 VOTE POUR LA MUSIQUE",
+    TextColor3 = BLEU_MUSIQUE,
+    ZIndex = 12,
+    Parent = menu,
+})
+local resume = texteMenu({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.905),
+    Size = UDim2.fromScale(0.8, 0.045),
+    ZIndex = 12,
+    Parent = menu,
+})
+
+local toutesCartes = {} -- les cartes animées (persos + musiques)
+local menuOuvert = false
+local dernierClicPerso = nil
+
+-- 💥 Onde + étincelles qui partent de la carte cliquée
+local function explosion(objet, couleur)
+    local taille = objet.AbsoluteSize
+    local centre = objet.AbsolutePosition + taille / 2 - menu.AbsolutePosition
+    local onde = nouveau("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromOffset(centre.X, centre.Y),
+        Size = UDim2.fromOffset(taille.X, taille.Y),
+        BackgroundTransparency = 1,
+        ZIndex = 19,
+        Parent = menu,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = onde })
+    local trait = nouveau("UIStroke", { Color = couleur, Thickness = 6, Parent = onde })
+    tween(onde, 0.45, { Size = UDim2.fromOffset(taille.X * 1.3, taille.Y * 1.2) })
+    tween(trait, 0.45, { Transparency = 1, Thickness = 1 })
+    task.delay(0.5, function()
+        onde:Destroy()
+    end)
+    for _ = 1, 16 do
+        local angle = math.random() * math.pi * 2
+        local distance = 90 + math.random() * 140
+        local cote = math.random(6, 14)
+        local etincelle = nouveau("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromOffset(centre.X, centre.Y),
+            Size = UDim2.fromOffset(cote, cote),
+            BackgroundColor3 = if math.random() < 0.3 then BLANC else couleur,
+            BorderSizePixel = 0,
+            Rotation = math.random(0, 90),
+            ZIndex = 19,
+            Parent = menu,
+        })
+        if math.random() < 0.5 then
+            nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = etincelle })
+        end
+        local duree = 0.45 + math.random() * 0.35
+        tween(etincelle, duree, {
+            Position = UDim2.fromOffset(centre.X + math.cos(angle) * distance, centre.Y + math.sin(angle) * distance),
+            Size = UDim2.fromOffset(2, 2),
+            BackgroundTransparency = 1,
+            Rotation = etincelle.Rotation + 200,
+        }, Enum.EasingStyle.Quint)
+        task.delay(duree + 0.05, function()
+            etincelle:Destroy()
+        end)
+    end
+end
+
+-- Une carte (perso ou musique) : halo, contour qui brille, badge « choisi », rebond à ressort
+local function creerCarte(parent, couleur, taille, note)
+    local slot = nouveau("Frame", { Size = taille, BackgroundTransparency = 1, ZIndex = 12, Parent = parent })
+    local halo = nouveau("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = couleur,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 12,
+        Parent = slot,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 24), Parent = halo })
+    local carte = nouveau("TextButton", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = BLANC,
+        BackgroundTransparency = 0.06,
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 13,
+        Parent = slot,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 16), Parent = carte })
+    nouveau("UIGradient", {
+        Rotation = 90,
+        Color = ColorSequence.new(couleur:Lerp(NOIR, 0.6), Color3.fromRGB(12, 12, 18)),
+        Parent = carte,
+    })
+    local contour = nouveau("UIStroke", {
+        Color = BLANC,
+        Thickness = 2,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+        Parent = carte,
+    })
+    local reflet = nouveau("UIGradient", {
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, couleur),
+            ColorSequenceKeypoint.new(0.42, couleur),
+            ColorSequenceKeypoint.new(0.5, BLANC),
+            ColorSequenceKeypoint.new(0.58, couleur),
+            ColorSequenceKeypoint.new(1, couleur),
+        }),
+        Parent = contour,
+    })
+    local voileCarte = nouveau("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = NOIR,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ZIndex = 17,
+        Parent = carte,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 16), Parent = voileCarte })
+    local badge = texte({
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0),
+        Size = UDim2.new(0.62, 0, 0, 24),
+        BackgroundTransparency = 0,
+        BackgroundColor3 = couleur,
+        Font = Enum.Font.GothamBlack,
+        Text = "✔ CHOISI",
+        TextStrokeTransparency = 1,
+        Visible = false,
+        ZIndex = 18,
+        Parent = carte,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = badge })
+    nouveau("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4), Parent = badge })
+
+    local c = {
+        slot = slot,
+        halo = halo,
+        carte = carte,
+        echelle = nouveau("UIScale", { Scale = 0, Parent = carte }),
+        contour = contour,
+        reflet = reflet,
+        voile = voileCarte,
+        badge = badge,
+        couleur = couleur,
+        note = note,
+        x = 0, -- taille actuelle (ressort)
+        v = 0, -- vitesse du ressort
+        lift = 0,
+        survole = false,
+        choisi = false,
+        delai = 0,
+    }
+    carte.MouseEnter:Connect(function()
+        if c.survole or not menuOuvert then
+            return
+        end
+        c.survole = true
+        sonSurvol(note)
+        if c.surSurvol then
+            c.surSurvol()
+        end
+    end)
+    carte.MouseLeave:Connect(function()
+        c.survole = false
+        if c.finSurvol then
+            c.finSurvol()
+        end
+    end)
+    if menuOuvert then
+        c.delai = os.clock() + 0.25
+    end
+    table.insert(toutesCartes, c)
+    return c
+end
+
+-- ---------- Les 4 états d'esprit ----------
+local rangeePersos = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.18),
+    Size = UDim2.fromScale(0.92, 0.45),
+    BackgroundTransparency = 1,
+    ZIndex = 12,
+    Parent = menu,
+})
+nouveau("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    HorizontalAlignment = Enum.HorizontalAlignment.Center,
+    VerticalAlignment = Enum.VerticalAlignment.Center,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0.016, 0),
+    Parent = rangeePersos,
+})
+
+local cartes = {}
+local persoChoisi = nil
+local boutonsMusique = {}
+local monVote = nil
+
+local function majResume()
+    local morceaux = {}
+    if persoChoisi then
+        table.insert(morceaux, ICONES[persoChoisi] .. " " .. string.upper(persoChoisi))
+    else
+        table.insert(morceaux, "👆 Choisis ton état d'esprit")
+    end
+    if next(boutonsMusique) then
+        local b = monVote and boutonsMusique[monVote]
+        table.insert(morceaux, if b then "🎵 " .. b.valeur.Value else "🎵 Vote pour une musique")
+    end
+    resume.Text = table.concat(morceaux, "   •   ")
+    resume.TextColor3 = if persoChoisi then COULEURS[persoChoisi] else Color3.fromRGB(200, 200, 215)
+end
+
+local function majSegments(c)
+    for _, s in ipairs(c.segments) do
+        tween(s.seg, 0.25, { BackgroundTransparency = if c.choisi then 0.1 else 0.45 })
+    end
+end
+
+local function choisirPersoAffiche(perso)
+    persoChoisi = perso
+    for nom, c in pairs(cartes) do
+        local avant = c.choisi
+        c.choisi = nom == perso
+        c.badge.Visible = c.choisi
+        if avant ~= c.choisi and not c.survole then
+            majSegments(c)
+        end
+    end
+    majResume()
+end
+
+for i, perso in ipairs(ORDRE_PERSOS) do
+    local couleur = COULEURS[perso]
+    local c = creerCarte(rangeePersos, couleur, UDim2.fromScale(0.235, 1), i)
+    c.slot.LayoutOrder = i
+    local carte = c.carte
+    c.icone = texte({
+        AnchorPoint = Vector2.new(0.5, 0),
+        Position = UDim2.fromScale(0.5, 0.05),
+        Size = UDim2.fromScale(0.6, 0.19),
+        Text = ICONES[perso],
+        TextStrokeTransparency = 1,
+        ZIndex = 15,
+        Parent = carte,
+    })
+    c.echelleIcone = nouveau("UIScale", { Parent = c.icone })
+    texte({
+        AnchorPoint = Vector2.new(0.5, 0),
+        Position = UDim2.fromScale(0.5, 0.245),
+        Size = UDim2.fromScale(0.9, 0.1),
+        Text = string.upper(perso),
+        TextColor3 = couleur,
+        ZIndex = 15,
+        Parent = carte,
+    })
+    texte({
+        AnchorPoint = Vector2.new(0.5, 0),
+        Position = UDim2.fromScale(0.5, 0.345),
+        Size = UDim2.fromScale(0.85, 0.055),
+        Text = DEVISES[perso],
+        Font = Enum.Font.GothamMedium,
+        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextStrokeTransparency = 1,
+        ZIndex = 15,
+        Parent = carte,
+    })
+    nouveau("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0),
+        Position = UDim2.fromScale(0.5, 0.42),
+        Size = UDim2.new(0.7, 0, 0, 2),
+        BackgroundColor3 = couleur,
+        BackgroundTransparency = 0.4,
+        BorderSizePixel = 0,
+        ZIndex = 14,
+        Parent = carte,
+    })
+    for j, ligne in ipairs(COMPETENCES[perso]) do
+        texte({
+            AnchorPoint = Vector2.new(0.5, 0),
+            Position = UDim2.fromScale(0.5, 0.445 + (j - 1) * 0.085),
+            Size = UDim2.fromScale(0.9, 0.07),
+            Text = ligne,
+            Font = Enum.Font.GothamBold,
+            TextColor3 = Color3.fromRGB(235, 235, 245),
+            TextStrokeTransparency = 1,
+            ZIndex = 15,
+            Parent = carte,
+        })
+    end
+    -- jauges DÉBUT / FIN / SÉCURITÉ (5 cases)
+    c.segments = {}
+    for j, nomJauge in ipairs(JAUGES) do
+        local y = 0.64 + (j - 1) * 0.095
+        texte({
+            Position = UDim2.fromScale(0.07, y),
+            Size = UDim2.fromScale(0.36, 0.06),
+            Text = nomJauge,
+            Font = Enum.Font.GothamBold,
+            TextColor3 = Color3.fromRGB(170, 170, 190),
+            TextStrokeTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 15,
+            Parent = carte,
+        })
+        local valeur = NOTES_PERSOS[perso][j]
+        for k = 1, 5 do
+            local allume = k <= valeur
+            local seg = nouveau("Frame", {
+                AnchorPoint = Vector2.new(0, 0.5),
+                Position = UDim2.fromScale(0.45 + (k - 1) * 0.098, y + 0.03),
+                Size = UDim2.fromScale(0.085, 0.04),
+                BackgroundColor3 = if allume then couleur else Color3.fromRGB(45, 45, 60),
+                BackgroundTransparency = if allume then 0.45 else 0.2,
+                BorderSizePixel = 0,
+                ZIndex = 15,
+                Parent = carte,
+            })
+            nouveau("UICorner", { CornerRadius = UDim.new(0, 3), Parent = seg })
+            if allume then
+                table.insert(c.segments, { seg = seg, k = k })
+            end
+        end
+    end
+    -- au survol, les cases s'allument une par une
+    c.surSurvol = function()
+        for _, s in ipairs(c.segments) do
+            task.delay(s.k * 0.045, function()
+                if c.survole then
+                    s.seg.BackgroundTransparency = 0
+                    s.seg.Size = UDim2.fromScale(0.085, 0.065)
+                    tween(s.seg, 0.22, { Size = UDim2.fromScale(0.085, 0.04) }, Enum.EasingStyle.Back)
+                end
+            end)
+        end
+    end
+    c.finSurvol = function()
+        majSegments(c)
+    end
+    carte.Activated:Connect(function()
+        if not menuOuvert then
+            return
+        end
+        dernierClicPerso = perso
+        ChoisirEvent:FireServer(perso)
+        choisirPersoAffiche(perso)
+        c.v -= 6 -- écrasement, puis rebond
+        explosion(carte, couleur)
+        flasher(couleur, 0.3)
+        secousse(0.7)
+        sonClic(i)
+    end)
+    cartes[perso] = c
+end
+
+-- ---------- Vote de la musique ----------
+local rangeeMusiques = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.71),
+    Size = UDim2.fromScale(if surMobile then 0.92 else 0.66, 0.17),
+    BackgroundTransparency = 1,
+    ZIndex = 12,
+    Parent = menu,
+})
+nouveau("UIListLayout", {
+    FillDirection = Enum.FillDirection.Horizontal,
+    HorizontalAlignment = Enum.HorizontalAlignment.Center,
+    VerticalAlignment = Enum.VerticalAlignment.Center,
+    SortOrder = Enum.SortOrder.LayoutOrder,
+    Padding = UDim.new(0.02, 0),
+    Parent = rangeeMusiques,
+})
+
+local function majVotesMusique()
+    local total = 0
+    for _, b in pairs(boutonsMusique) do
+        total += b.valeur:GetAttribute("Votes") or 0
+    end
+    for i, b in pairs(boutonsMusique) do
+        local votes = b.valeur:GetAttribute("Votes") or 0
+        b.votes.Text = votes .. (if votes > 1 then " votes" else " vote")
+        tween(b.remplissage, 0.3, { Size = UDim2.fromScale(if total > 0 then votes / total else 0, 1) }, Enum.EasingStyle.Back)
+        b.choisi = monVote == i
+        b.badge.Visible = b.choisi
+    end
+    majResume()
+end
+
+local function reconstruireMusiques()
+    for _, b in pairs(boutonsMusique) do
+        b.mort = true
+        b.slot:Destroy()
+    end
+    boutonsMusique = {}
+    monVote = nil
+    local valeurs = dossierChoixMusiques:GetChildren()
+    table.sort(valeurs, function(a, b)
+        return (tonumber(a.Name) or 0) < (tonumber(b.Name) or 0)
+    end)
+    for _, valeur in ipairs(valeurs) do
+        local i = tonumber(valeur.Name)
+        if not i then
+            continue
+        end
+        local c = creerCarte(rangeeMusiques, BLEU_MUSIQUE, UDim2.fromScale(1 / #valeurs - 0.02, 1), 3 + i)
+        c.slot.LayoutOrder = i
+        c.badge.Text = "✔ TON VOTE"
+        c.valeur = valeur
+        if menuOuvert then
+            c.delai = os.clock() + 0.3 + i * 0.07
+        end
+        -- petit égaliseur qui danse au survol
+        c.barres = {}
+        for k = 1, 4 do
+            local barreEq = nouveau("Frame", {
+                AnchorPoint = Vector2.new(0, 1),
+                Position = UDim2.fromScale(0.05 + (k - 1) * 0.045, 0.72),
+                Size = UDim2.fromScale(0.03, 0.12),
+                BackgroundColor3 = BLEU_MUSIQUE,
+                BorderSizePixel = 0,
+                ZIndex = 15,
+                Parent = c.carte,
+            })
+            nouveau("UICorner", { CornerRadius = UDim.new(0, 2), Parent = barreEq })
+            table.insert(c.barres, barreEq)
+        end
+        texte({
+            Position = UDim2.fromScale(0.26, 0.1),
+            Size = UDim2.fromScale(0.7, 0.44),
+            Text = valeur.Value,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 15,
+            Parent = c.carte,
+        })
+        c.votes = texte({
+            Position = UDim2.fromScale(0.26, 0.55),
+            Size = UDim2.fromScale(0.45, 0.2),
+            Font = Enum.Font.GothamBold,
+            TextColor3 = OR,
+            TextStrokeTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 15,
+            Parent = c.carte,
+        })
+        local fond = nouveau("Frame", {
+            Position = UDim2.fromScale(0.05, 0.83),
+            Size = UDim2.fromScale(0.9, 0.07),
+            BackgroundColor3 = Color3.fromRGB(40, 40, 55),
+            BorderSizePixel = 0,
+            ZIndex = 15,
+            Parent = c.carte,
+        })
+        nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = fond })
+        c.remplissage = nouveau("Frame", {
+            Size = UDim2.fromScale(0, 1),
+            BackgroundColor3 = OR,
+            BorderSizePixel = 0,
+            ZIndex = 16,
+            Parent = fond,
+        })
+        nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = c.remplissage })
+        c.carte.Activated:Connect(function()
+            if not menuOuvert then
+                return
+            end
+            monVote = i
+            VoterMusiqueEvent:FireServer(i)
+            majVotesMusique()
+            c.v -= 5
+            explosion(c.carte, BLEU_MUSIQUE)
+            flasher(BLEU_MUSIQUE, 0.2)
+            secousse(0.4)
+            sonClic(3 + i)
+        end)
+        valeur:GetAttributeChangedSignal("Votes"):Connect(majVotesMusique)
+        boutonsMusique[i] = c
+    end
+    titreMusique.Visible = next(boutonsMusique) ~= nil
+    majVotesMusique()
+end
+
+-- Le serveur remplace les 3 musiques d'un coup : on attend un poil avant de reconstruire
+local reconstructionPrevue = false
+local function prevoirReconstruction()
+    if reconstructionPrevue then
+        return
+    end
+    reconstructionPrevue = true
+    task.delay(0.1, function()
+        reconstructionPrevue = false
+        reconstruireMusiques()
+    end)
+end
+dossierChoixMusiques.ChildAdded:Connect(prevoirReconstruction)
+dossierChoixMusiques.ChildRemoved:Connect(prevoirReconstruction)
+reconstruireMusiques()
+
+-- ---------- Chrono du menu (tic-tac les 5 dernières secondes) ----------
+ReplicatedStorage:GetAttributeChangedSignal("Temps"):Connect(function()
+    local temps = ReplicatedStorage:GetAttribute("Temps") or 0
+    chronoMenu.Text = if temps > 0 then "⏱️ " .. temps else ""
+    if menuOuvert and temps > 0 and temps <= 5 then
+        chronoMenu.TextColor3 = ROUGE
+        echelleChrono.Scale = 1.4
+        tween(echelleChrono, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+        jouerSon("survol", 0.5 + (6 - temps) * 0.1, 0.35)
+    else
+        chronoMenu.TextColor3 = OR
+    end
+end)
+
+-- ---------- Ouvrir / fermer ----------
+local function ouvrirMenu()
+    if menuOuvert then
+        return
+    end
+    menuOuvert = true
+    menu.Visible = true
+    tween(voile, 0.5, { BackgroundTransparency = 0 })
+    tween(flouLobby, 0.6, { Size = 24 })
+    tween(teinteLobby, 0.6, { Brightness = -0.04, Contrast = 0.12, Saturation = 0.15 })
+    for _, label in ipairs(textesMenu) do
+        tween(label, 0.4, { TextTransparency = 0, TextStrokeTransparency = 0 })
+    end
+    echelleTitre.Scale = 0.4
+    tween(echelleTitre, 0.5, { Scale = 1 }, Enum.EasingStyle.Back)
+    -- les cartes arrivent une par une, avec un petit arpège
+    local depart = os.clock() + 0.15
+    local rang = 0
+    for _, perso in ipairs(ORDRE_PERSOS) do
+        local c = cartes[perso]
+        c.x, c.v = 0, 0
+        c.delai = depart + rang * 0.07
+        jouerSon("survol", 0.7 + rang * 0.1, 0.25, c.delai - os.clock())
+        rang += 1
+    end
+    for i = 1, #toutesCartes do
+        local c = toutesCartes[i]
+        if c.valeur then
+            c.x, c.v = 0, 0
+            c.delai = depart + (rang + (tonumber(c.valeur.Name) or 0)) * 0.07
+        end
+    end
+end
+
+local function fermerMenu()
+    if not menuOuvert then
+        return
+    end
+    menuOuvert = false
+    for _, c in ipairs(toutesCartes) do
+        c.survole = false
+    end
+    tween(voile, 0.4, { BackgroundTransparency = 1 })
+    tween(flouLobby, 0.5, { Size = 0 })
+    tween(teinteLobby, 0.5, { Brightness = 0, Contrast = 0, Saturation = 0 })
+    for _, label in ipairs(textesMenu) do
+        tween(label, 0.3, { TextTransparency = 1, TextStrokeTransparency = 1 })
+    end
+    task.delay(0.5, function()
+        if not menuOuvert then
+            menu.Visible = false
+        end
+    end)
+end
+
+-- ---------- Animation des cartes (à chaque image) ----------
+RunService.RenderStepped:Connect(function(dt)
+    if not menu.Visible then
+        return
+    end
+    local t = os.clock()
+    degradeTitre.Offset = Vector2.new(math.sin(t * 0.9) * 0.35, 0)
+    local quelqueChoseSurvole = false
+    for _, c in ipairs(toutesCartes) do
+        if c.survole and not c.mort then
+            quelqueChoseSurvole = true
+        end
+    end
+    local pas = math.min(dt, 1 / 30)
+    local lisse = math.min(1, dt * 12)
+    local i = 1
+    while i <= #toutesCartes do
+        local c = toutesCartes[i]
+        if c.mort then
+            table.remove(toutesCartes, i)
+            continue
+        end
+        i += 1
+        -- taille visée : grossit au survol, rétrécit un peu quand on survole une autre carte
+        local cible
+        if not menuOuvert or t < c.delai then
+            cible = 0
+        elseif c.survole then
+            cible = 1.07
+        elseif c.choisi then
+            cible = 1.03
+        elseif quelqueChoseSurvole then
+            cible = 0.97
+        else
+            cible = 1
+        end
+        -- ressort : ça dépasse un peu puis ça se stabilise (effet « boing »)
+        c.v += (-(c.x - cible) * 320 - c.v * 19) * pas
+        c.x += c.v * pas
+        c.echelle.Scale = math.max(0, c.x)
+        local apparu = math.clamp(c.x, 0, 1)
+
+        c.lift += ((if c.survole then -12 else 0) - c.lift) * lisse
+        c.carte.Position = UDim2.new(0.5, 0, 0.5, c.lift)
+        local grossi = if c.survole then 26 elseif c.choisi then 14 else 0
+        c.halo.Position = c.carte.Position
+        c.halo.Size = c.halo.Size:Lerp(UDim2.new(c.x, grossi, c.x, grossi), lisse)
+        local opaciteHalo = if c.survole then 0.35 elseif c.choisi then 0.22 + 0.1 * math.sin(t * 5) else 0
+        c.halo.BackgroundTransparency = 1 - opaciteHalo * apparu
+
+        c.contour.Thickness += ((if c.survole then 5 elseif c.choisi then 4 else 2) - c.contour.Thickness) * lisse
+        c.reflet.Rotation = (c.reflet.Rotation + dt * (if c.survole then 260 elseif c.choisi then 110 else 35)) % 360
+        local sombre = quelqueChoseSurvole and not c.survole and not c.choisi
+        c.voile.BackgroundTransparency += ((if sombre then 0.5 else 1) - c.voile.BackgroundTransparency) * lisse
+
+        if c.icone then
+            c.echelleIcone.Scale += ((if c.survole then 1.25 else 1) - c.echelleIcone.Scale) * lisse
+            c.icone.Rotation = if c.survole then math.sin(t * 12) * 9 else c.icone.Rotation * (1 - lisse)
+        end
+        if c.barres then
+            for k, barreEq in ipairs(c.barres) do
+                local hauteur = if c.survole or c.choisi then 0.12 + 0.4 * math.abs(math.sin(t * (5 + k * 1.7) + k)) else 0.12
+                barreEq.Size = barreEq.Size:Lerp(UDim2.fromScale(0.03, hauteur), math.min(1, dt * 20))
+            end
+        end
+    end
+end)
 
 -- ========================== AVATARS SUR LES MARCHES ==========================
 local ANIMS = {
@@ -970,15 +1578,14 @@ task.spawn(function()
     config:GetAttributeChangedSignal("Combo"):Connect(majCombo)
     config:GetAttributeChangedSignal("Perso"):Connect(function()
         local perso = config:GetAttribute("Perso")
-        for nom, c in pairs(cartes) do
-            c.contour.Thickness = if nom == perso then 6 else 2
-            c.carte.BackgroundTransparency = if nom == perso then 0 else 0.1
-        end
-        if perso then
+        choisirPersoAffiche(perso)
+        -- pas de gros texte si tu viens de cliquer la carte (le menu fait déjà le show)
+        if perso and perso ~= dernierClicPerso then
             grosTexte.TextColor3 = COULEURS[perso] or BLANC
             apparaitre(grosTexte, "Tu es : " .. string.upper(perso), 1.4, echelleGros)
         end
     end)
+    choisirPersoAffiche(config:GetAttribute("Perso"))
 end)
 
 -- ========================== SUR LES TEMPS DE LA MUSIQUE ==========================
@@ -1104,8 +1711,13 @@ end)
 -- ========================== PHASES ==========================
 local function majPhase()
     local phase = ReplicatedStorage:GetAttribute("Phase")
-    choix.Visible = phase == "Lobby"
-    choixMusique.Visible = phase == "Lobby" and next(boutonsMusique) ~= nil
+    if phase == "Lobby" then
+        ouvrirMenu()
+    else
+        fermerMenu()
+    end
+    statut.Visible = phase ~= "Lobby" -- le menu a son propre titre et son chrono
+    chrono.Visible = phase ~= "Lobby"
     barre.Visible = phase == "Manche" or phase == "Fin"
     marcheTexte.Visible = phase == "Manche"
     if phase == "Lobby" then
@@ -1218,15 +1830,21 @@ RunService.RenderStepped:Connect(function(dt)
         camera.CameraType = Enum.CameraType.Scriptable
         local suivi = etatSuiviCamera or monEtat
         local focus
-        if suivi and suivi.couloir and suivi.hauteur then
+        local zoom = if etatSuiviCamera then 0.45 else 1
+        local distance = 75 * zoom
+        local vitesseCamera = 5
+        if menuOuvert and not etatSuiviCamera then
+            -- menu du lobby : la caméra se balade doucement le long des escaliers (floutés derrière le menu)
+            focus = positionMarche(2, NB_MARCHES * (0.45 + 0.4 * math.sin(horloge * 0.06)), 3)
+            distance = 100
+            vitesseCamera = 1.2
+        elseif suivi and suivi.couloir and suivi.hauteur then
             focus = positionMarche(suivi.couloir, suivi.marcheAffichee or 0, suivi.hauteur)
         else
             focus = positionMarche(0, 0, 3)
         end
-        local zoom = if etatSuiviCamera then 0.45 else 1
-        local distance = 75 * zoom
         local cible = focus + Vector3.new(7 * zoom, 3, distance)
-        positionCamera = if positionCamera then positionCamera:Lerp(cible, math.min(1, dt * 5)) else cible
+        positionCamera = if positionCamera then positionCamera:Lerp(cible, math.min(1, dt * vitesseCamera)) else cible
         forceSecousse = math.max(0, forceSecousse - dt * 4)
         local tremble = Vector3.new((math.random() - 0.5) * forceSecousse, (math.random() - 0.5) * forceSecousse, 0)
         local roulis = (math.random() - 0.5) * forceSecousse * 0.01
