@@ -319,7 +319,10 @@ local BLEU_MUSIQUE = Color3.fromRGB(120, 170, 255)
 local jouerSon, sonSurvol, sonClic, sonClaque
 do
 local SONS = {
-    survol = "rbxasset://sounds/impact_water.mp3",  -- survol : petit « ploc » de bulle, doux (très accéléré et coupé court)
+    -- survol : un « toc » feutré (le bruit d'atterrissage de Roblox, accéléré et coupé court)
+    --   autres essais possibles : "rbxasset://sounds/impact_water.mp3" (ploc de bulle),
+    --   "rbxasset://sounds/action_footsteps_plastic.mp3" (petit pas sec)
+    survol = "rbxasset://sounds/action_jump_land.mp3",
     tic = "rbxasset://sounds/volume_slider.ogg",    -- tic-tac du chrono + accords du clic
     clic = "rbxassetid://12221967",                 -- le « clic » classique de Roblox
     -- 👋 CLAQUE du check parfait : mets ici l'ID d'un son « slap » / « high five » de la Boutique (Toolbox → Audio)
@@ -390,7 +393,9 @@ sonSurvol = function(note)
     serieSurvol = if maintenant - dernierSurvol < 0.7 then math.min(serieSurvol + 1, 6) else 0
     dernierSurvol = maintenant
     local hauteur = 1 + ((GAMME[note] or 1) - 1) * 0.45
-    jouerSon("survol", 1.9 * hauteur * (1 + serieSurvol * 0.025), 0.28, nil, 0.16)
+    local vitesse = hauteur * (1 + serieSurvol * 0.025)
+    jouerSon("survol", 1.7 * vitesse, 0.45, nil, 0.12)       -- le « toc » doux
+    jouerSon("tic", 2.4 * vitesse, 0.07, 0.015, 0.1)         -- une petite brillance très discrète par-dessus
 end
 sonClic = function(note)
     local base = GAMME[note] or 1
