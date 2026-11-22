@@ -1012,9 +1012,41 @@ local function reconstruireMusiques()
             table.insert(c.barres, barreEq)
         end
         texte({
-            Position = UDim2.fromScale(0.26, 0.1),
-            Size = UDim2.fromScale(0.7, 0.44),
+            Position = UDim2.fromScale(0.26, 0.08),
+            Size = UDim2.fromScale(0.7, 0.32),
             Text = valeur.Value,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 15,
+            Parent = c.carte,
+        })
+        -- le niveau de difficulté : 4 petites barres + le mot, dans la couleur du niveau
+        local NIVEAUX = {
+            { "FACILE", Color3.fromRGB(110, 230, 140) },
+            { "MOYEN", Color3.fromRGB(255, 210, 80) },
+            { "DIFFICILE", Color3.fromRGB(255, 140, 60) },
+            { "EXTRÊME", Color3.fromRGB(255, 70, 90) },
+        }
+        local niveau = math.clamp(valeur:GetAttribute("Difficulte") or 2, 1, 4)
+        local nomNiveau, couleurNiveau = NIVEAUX[niveau][1], NIVEAUX[niveau][2]
+        for k = 1, 4 do
+            local barreNiveau = nouveau("Frame", {
+                AnchorPoint = Vector2.new(0, 1),
+                Position = UDim2.fromScale(0.26 + (k - 1) * 0.028, 0.53),
+                Size = UDim2.fromScale(0.018, 0.04 + k * 0.025),
+                BackgroundColor3 = if k <= niveau then couleurNiveau else Color3.fromRGB(55, 55, 72),
+                BorderSizePixel = 0,
+                ZIndex = 15,
+                Parent = c.carte,
+            })
+            nouveau("UICorner", { CornerRadius = UDim.new(0, 2), Parent = barreNiveau })
+        end
+        texte({
+            Position = UDim2.fromScale(0.38, 0.4),
+            Size = UDim2.fromScale(0.5, 0.14),
+            Text = nomNiveau,
+            Font = Enum.Font.GothamBlack,
+            TextColor3 = couleurNiveau,
+            TextStrokeTransparency = 1,
             TextXAlignment = Enum.TextXAlignment.Left,
             ZIndex = 15,
             Parent = c.carte,
@@ -1915,6 +1947,7 @@ local partition = nil      -- infos de la manche en cours
 local intervalle = 0.5
 local musiqueLancee = false
 local dernierRecalage = 0
+local trainsPerdus = 0 -- combien de fois de suite la musique était perdue (voir la boucle d'affichage)
 
 local function couperMusique(duree)
     tween(musique, duree, { Volume = 0 })
@@ -1932,11 +1965,14 @@ local prochaineNote = 1
 local jeJoue = false
 local dernierePosition = nil
 local compteurNotes = 0
+local clicsManche = 0 -- tes clics pendant la manche (0 = tu n'étais sûrement pas là → AFK)
 
 local function maCouleur()
     return if monEtat then couleurDe(monEtat) else OR
 end
 
+local juger, creerNote
+do
 local function effetTouche(position, verdict)
     local couleur = if verdict == "Parfait" then OR elseif verdict == "Bien" then Color3.fromRGB(120, 255, 160) else ROUGE
     local message = if verdict == "Parfait" then "PARFAIT ✨" elseif verdict == "Bien" then "BIEN" else "RATÉ ✖"
@@ -1975,7 +2011,7 @@ local function effetTouche(position, verdict)
     end
 end
 
-local function juger(index, expire)
+juger = function(index, expire)
     local note = notesActives[index]
     if not note or not partition then
         return
@@ -1992,59 +2028,126 @@ local function juger(index, expire)
     end
     NoteEvent:FireServer(index, verdict)
     effetTouche(note.position, verdict)
-    tween(note.cercle, 0.12, { BackgroundTransparency = 1, Size = UDim2.fromOffset(note.taille * 1.3, note.taille * 1.3) })
+    -- le cercle grossit et s'efface
+    tween(note.echelle, 0.14, { Scale = 1.3 })
+    for _, morceau in ipairs(note.morceaux) do
+        tween(morceau, 0.14, { BackgroundTransparency = 1 })
+    end
     note.anneau:Destroy()
-    task.delay(0.12, function()
+    task.delay(0.15, function()
         note.cercle:Destroy()
     end)
 end
 
-local function creerNote(index, tempsNote)
-    -- une position pas trop loin, pas trop près de la précédente
-    local x, y
-    for _ = 1, 12 do
-        x = 0.15 + math.random() * 0.62
-        y = 0.3 + math.random() * 0.42
-        if not dernierePosition then
-            break
+-- un rond (Frame avec coins arrondis à fond)
+local function rond(proprietes)
+    local frame = nouveau("Frame", proprietes)
+    frame.BorderSizePixel = 0
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = frame })
+    return frame
+end
+
+-- le centre d'une note à l'écran (en pixels)
+local function centreNote(note)
+    return note.cercle.AbsolutePosition + note.cercle.AbsoluteSize / 2
+end
+
+creerNote = function(index, tempsNote)
+    local taille = if surMobile then 110 else 90
+    -- Une position qui ne touche AUCUN autre cercle à l'écran (sinon un clic pourrait en valider deux),
+    -- pas trop loin de la précédente pour que ça reste fluide.
+    local zone = zoneNotes.AbsoluteSize
+    local ecartMin = taille * 1.4
+    local meilleur, meilleurScore = nil, -math.huge
+    for essai = 1, 40 do
+        local candidat = Vector2.new(0.15 + math.random() * 0.62, 0.3 + math.random() * 0.42)
+        local pixels = candidat * zone
+        local plusProche = math.huge
+        for _, autre in pairs(notesActives) do
+            plusProche = math.min(plusProche, (autre.position * zone - pixels).Magnitude)
         end
-        local distance = (Vector2.new(x, y) - dernierePosition).Magnitude
-        if distance > 0.1 and distance < 0.35 then
+        if dernierePosition then
+            plusProche = math.min(plusProche, (dernierePosition * zone - pixels).Magnitude)
+        end
+        local score = math.min(plusProche, ecartMin * 1.5)
+        -- bonus si on reste assez près de la note d'avant (le regard n'a pas à traverser l'écran)
+        if dernierePosition and (candidat - dernierePosition).Magnitude < 0.35 then
+            score += ecartMin * 0.5
+        end
+        if score > meilleurScore then
+            meilleur, meilleurScore = candidat, score
+        end
+        if plusProche >= ecartMin and essai >= 8 then
             break
         end
     end
-    dernierePosition = Vector2.new(x, y)
+    local x, y = meilleur.X, meilleur.Y
+    dernierePosition = meilleur
     compteurNotes += 1
 
+    -- 🎯 le cercle : pas de bordure blanche, un dégradé de la couleur du perso, un halo et un reflet
     local couleur = maCouleur()
-    local taille = if surMobile then 110 else 90
-    local cercle = nouveau("TextButton", {
+    local cercle = nouveau("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(x, y),
         Size = UDim2.fromOffset(taille, taille),
-        BackgroundColor3 = couleur,
         BackgroundTransparency = 1,
-        AutoButtonColor = false,
-        Font = Enum.Font.FredokaOne,
-        TextScaled = true,
-        TextColor3 = BLANC,
-        TextStrokeTransparency = 0,
-        Text = "", -- pas de numéro dans les cercles
         ZIndex = 6,
         Parent = zoneNotes,
     })
-    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cercle })
-    nouveau("UIStroke", { Color = BLANC, Thickness = 4, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = cercle })
-    nouveau("UIPadding", {
-        PaddingTop = UDim.new(0.22, 0),
-        PaddingBottom = UDim.new(0.22, 0),
-        PaddingLeft = UDim.new(0.22, 0),
-        PaddingRight = UDim.new(0.22, 0),
+    local echelleCercle = nouveau("UIScale", { Scale = 0.5, Parent = cercle })
+    local halo = rond({
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(1.32, 1.32),
+        BackgroundColor3 = couleur,
+        BackgroundTransparency = 0.78,
+        ZIndex = 6,
         Parent = cercle,
     })
-    tween(cercle, 0.15, { BackgroundTransparency = 0.1 })
+    local corps = rond({
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = BLANC,
+        BackgroundTransparency = 0.04,
+        ZIndex = 7,
+        Parent = cercle,
+    })
+    nouveau("UIGradient", {
+        Rotation = 90,
+        Color = ColorSequence.new(couleur:Lerp(BLANC, 0.35), couleur:Lerp(NOIR, 0.35)),
+        Parent = corps,
+    })
+    local coeur = rond({
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(0.56, 0.56),
+        BackgroundColor3 = couleur:Lerp(NOIR, 0.55),
+        BackgroundTransparency = 0.35,
+        ZIndex = 8,
+        Parent = cercle,
+    })
+    local point = rond({
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(0.2, 0.2),
+        BackgroundColor3 = couleur:Lerp(BLANC, 0.6),
+        BackgroundTransparency = 0.05,
+        ZIndex = 9,
+        Parent = cercle,
+    })
+    local reflet = rond({
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.34, 0.24),
+        Size = UDim2.fromScale(0.34, 0.16),
+        Rotation = -28,
+        BackgroundColor3 = BLANC,
+        BackgroundTransparency = 0.6,
+        ZIndex = 9,
+        Parent = cercle,
+    })
+    tween(echelleCercle, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
 
-    -- l'anneau qui se resserre : clique quand il touche le cercle !
+    -- l'anneau qui se resserre (de la couleur du perso) : clique quand il touche le cercle !
     local anneau = nouveau("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(x, y),
@@ -2054,18 +2157,49 @@ local function creerNote(index, tempsNote)
         Parent = zoneNotes,
     })
     nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = anneau })
-    nouveau("UIStroke", { Color = couleur, Thickness = 4, Parent = anneau })
+    local traitAnneau = nouveau("UIStroke", { Color = couleur:Lerp(BLANC, 0.25), Thickness = 3, Transparency = 0.6, Parent = anneau })
     local echelle = nouveau("UIScale", { Scale = 3, Parent = anneau })
     local reste = math.max(0.05, partition.debut + tempsNote - maintenantServeur())
     tween(echelle, reste, { Scale = 1 }, Enum.EasingStyle.Linear)
+    tween(traitAnneau, reste, { Transparency = 0, Thickness = 4 }, Enum.EasingStyle.Linear)
 
-    notesActives[index] = { cercle = cercle, anneau = anneau, temps = tempsNote, position = Vector2.new(x, y), taille = taille }
-    cercle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            juger(index, false)
-        end
-    end)
+    notesActives[index] = {
+        cercle = cercle,
+        anneau = anneau,
+        echelle = echelleCercle,
+        morceaux = { halo, corps, coeur, point, reflet },
+        temps = tempsNote,
+        position = Vector2.new(x, y),
+        taille = taille,
+    }
 end
+
+-- 🖱️ UN clic = UNE note au maximum : on prend le cercle sous la souris qui doit être joué le plus tôt.
+-- (avant, chaque cercle écoutait le clic : deux cercles l'un sur l'autre étaient validés ensemble)
+local GuiService = game:GetService("GuiService")
+UserInputService.InputBegan:Connect(function(input)
+    if not jeJoue or not partition then
+        return
+    end
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+        return
+    end
+    clicsManche += 1
+    -- (le jeu ignore la barre du haut de Roblox : on remet la position dans les mêmes coordonnées que les cercles)
+    local decalage = GuiService:GetGuiInset()
+    local clic = Vector2.new(input.Position.X, input.Position.Y) + decalage
+    local choisi, tempsChoisi = nil, math.huge
+    for index, note in pairs(notesActives) do
+        local distance = (centreNote(note) - clic).Magnitude
+        if distance <= note.taille * 0.6 and note.temps < tempsChoisi then
+            choisi, tempsChoisi = index, note.temps
+        end
+    end
+    if choisi then
+        juger(choisi, false)
+    end
+end)
+end -- fin du bloc des notes
 
 local function viderNotes()
     for index, note in pairs(notesActives) do
@@ -2194,6 +2328,7 @@ DebutEvent.OnClientEvent:Connect(function(infos)
     prochaineNote = 1
     dernierTemps = -1
     compteurNotes = 0
+    clicsManche = 0
     dernierePosition = nil
     musiqueLancee = false
     viderNotes()
@@ -2202,6 +2337,8 @@ DebutEvent.OnClientEvent:Connect(function(infos)
     if infos.musique and infos.musique ~= "" then
         musique.SoundId = infos.musique
         musique.Volume = 0.8
+        musique.PlaybackSpeed = 1
+        trainsPerdus = 0
         task.spawn(function()
             pcall(function()
                 ContentProvider:PreloadAsync({ musique }, function(_, statut)
@@ -2251,6 +2388,9 @@ DebutEvent.OnClientEvent:Connect(function(infos)
                 return
             end
             afficherDecompte(tostring(n), couleurs[n])
+            -- glouc... glouc... glouc ! (une bulle, un peu plus aiguë à chaque chiffre)
+            jouerSon("eau", 0.9 + (3 - n) * 0.18, 0.55, nil, 0.28)
+            jouerSon("eau", 1.3 + (3 - n) * 0.22, 0.3, 0.07, 0.2)
             flasher(BLANC, 0.15)
             secousse(0.5)
         end
@@ -2259,7 +2399,9 @@ DebutEvent.OnClientEvent:Connect(function(infos)
             task.wait(attente)
         end
         if partition == infos then
-            afficherDecompte(if jeJoue then "CLIQUE EN RYTHME !" else "👀 SPECTATEUR", OR)
+            afficherDecompte(if jeJoue then "CLIQUE EN RYTHME !" else "SPECTATEUR", OR)
+            jouerSon("eau", 1.7, 0.6, nil, 0.3) -- le dernier glouc, tout aigu
+            jouerSon("eau", 2.3, 0.35, 0.06, 0.25)
             flasher(BLANC, 0.5)
             secousse(1)
         end
@@ -2998,22 +3140,27 @@ end -- fin du bloc des classements
 
 -- ========================== PHASES ==========================
 local menuPrincipalOuvert = true -- au lancement : le menu principal (PLAY / CLASSEMENTS / PARAMÈTRES)
-local boutonReglages -- le petit bouton PARAMÈTRES du lobby (créé plus bas)
+local modeAfk = false -- AFK : on regarde les autres jouer, on n'est pas lancé dans la partie
+local boutonsCoin = {} -- les petits boutons du lobby sous CLASSEMENTS (PARAMÈTRES, AFK, MENU), créés plus bas
+local majBandeauAfk -- (défini plus bas)
 local function majPhase()
     local phase = ReplicatedStorage:GetAttribute("Phase")
     local enMenu = menuPrincipalOuvert -- tant qu'on n'a pas appuyé sur PLAY, on ne voit que le menu principal
-    if phase == "Lobby" and not enMenu then
+    if phase == "Lobby" and not enMenu and not modeAfk then
         ouvrirMenu()
     else
         fermerMenu()
     end
-    statut.Visible = phase ~= "Lobby" and not enMenu -- le menu a son propre titre et son chrono
-    chrono.afficher(phase ~= "Lobby" and not enMenu)
+    statut.Visible = (phase ~= "Lobby" or modeAfk) and not enMenu -- le menu a son propre titre et son chrono
+    chrono.afficher((phase ~= "Lobby" or modeAfk) and not enMenu)
     barre.Visible = (phase == "Manche" or phase == "Fin") and not enMenu
-    marcheTexte.Visible = phase == "Manche" and not enMenu
+    marcheTexte.Visible = phase == "Manche" and not enMenu and not modeAfk
     boutonClassement.Visible = phase ~= "Manche" and not enMenu -- pas pendant qu'on clique les cercles
-    if boutonReglages then
-        boutonReglages.Visible = boutonClassement.Visible
+    for _, bouton in ipairs(boutonsCoin) do
+        bouton.Visible = boutonClassement.Visible
+    end
+    if majBandeauAfk then
+        majBandeauAfk()
     end
     if phase == "Manche" then
         fermerPanneau()
@@ -3089,7 +3236,7 @@ local function boutonMenu(parent, texteBouton, couleur, plein, zIndex)
 end
 
 -- ---------- L'écran titre ----------
-local ecranTitre = nouveau("Frame", {
+local ecranTitre = nouveau("CanvasGroup", { -- (CanvasGroup : on peut fondre tout le menu d'un coup)
     Name = "MenuPrincipal",
     Size = UDim2.fromScale(1, 1),
     BackgroundColor3 = NOIR,
@@ -3139,8 +3286,8 @@ texte({
 })
 local colonne = nouveau("Frame", {
     AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.42),
-    Size = UDim2.new(0, 320, 0, 230),
+    Position = UDim2.fromScale(0.5, 0.4),
+    Size = UDim2.new(0, 320, 0, 330),
     BackgroundTransparency = 1,
     ZIndex = 27,
     Parent = ecranTitre,
@@ -3149,10 +3296,13 @@ nouveau("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim
 local boutonPlay = boutonMenu(colonne, "PLAY", OR, true, 28)
 boutonPlay.LayoutOrder = 1
 boutonPlay.Size = UDim2.new(1, 0, 0, 80)
+local COULEUR_AFK = Color3.fromRGB(140, 200, 255)
+local boutonAfkMenu = boutonMenu(colonne, "AFK  ·  REGARDER", COULEUR_AFK, false, 28)
+boutonAfkMenu.LayoutOrder = 2
 local boutonClassementsMenu = boutonMenu(colonne, "CLASSEMENTS", OR, false, 28)
-boutonClassementsMenu.LayoutOrder = 2
+boutonClassementsMenu.LayoutOrder = 3
 local boutonParametresMenu = boutonMenu(colonne, "PARAMÈTRES", Color3.fromRGB(200, 200, 220), false, 28)
-boutonParametresMenu.LayoutOrder = 3
+boutonParametresMenu.LayoutOrder = 4
 texte({
     AnchorPoint = Vector2.new(0.5, 1),
     Position = UDim2.new(0.5, 0, 1, -24),
@@ -3176,30 +3326,149 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
-boutonPlay.Activated:Connect(function()
-    if not menuPrincipalOuvert then
-        return
-    end
-    sonClic(1)
-    flasher(BLANC, 0.4)
-    menuPrincipalOuvert = false
-    JouerEvent:FireServer()
-    tween(ecranTitre, 0.35, { BackgroundTransparency = 1 })
-    for _, objet in ipairs(ecranTitre:GetDescendants()) do
-        if objet:IsA("TextLabel") or objet:IsA("TextButton") then
-            tween(objet, 0.3, { TextTransparency = 1, BackgroundTransparency = 1 })
-        elseif objet:IsA("UIStroke") then
-            tween(objet, 0.3, { Transparency = 1 })
-        end
-    end
+-- ---------- Le bandeau AFK (en bas) : tu regardes les autres, bouton pour revenir ----------
+local bandeauAfk = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 1),
+    Position = UDim2.new(0.5, 0, 1, -20),
+    Size = UDim2.fromOffset(560, 58),
+    BackgroundColor3 = Color3.fromRGB(12, 14, 24),
+    BackgroundTransparency = 0.1,
+    Visible = false,
+    ZIndex = 24,
+    Parent = gui,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = bandeauAfk })
+nouveau("UIStroke", { Color = COULEUR_AFK, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = bandeauAfk })
+local texteAfk = texte({
+    Position = UDim2.new(0, 26, 0, 12),
+    Size = UDim2.new(1, -230, 1, -24),
+    Text = "MODE AFK  ·  tu regardes les autres jouer",
+    Font = Enum.Font.GothamBold,
+    TextColor3 = COULEUR_AFK,
+    TextStrokeTransparency = 1,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 25,
+    Parent = bandeauAfk,
+})
+local boutonRejoindre = nouveau("TextButton", {
+    AnchorPoint = Vector2.new(1, 0.5),
+    Position = UDim2.new(1, -10, 0.5, 0),
+    Size = UDim2.fromOffset(190, 40),
+    BackgroundColor3 = OR,
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBlack,
+    Text = "REJOINDRE",
+    TextScaled = true,
+    TextColor3 = NOIR,
+    ZIndex = 25,
+    Parent = bandeauAfk,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = boutonRejoindre })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 9), PaddingBottom = UDim.new(0, 9), Parent = boutonRejoindre })
+boutonRejoindre.MouseEnter:Connect(function()
+    sonSurvol(5)
+end)
+majBandeauAfk = function()
+    bandeauAfk.Visible = modeAfk and not menuPrincipalOuvert
+    local phase = ReplicatedStorage:GetAttribute("Phase")
+    texteAfk.Text = if phase == "Manche"
+        then "MODE AFK  ·  tu regardes les autres jouer"
+        else "MODE AFK  ·  tu ne seras pas lancé dans la partie"
+end
+
+-- ---------- Passer d'un mode à l'autre ----------
+local function fermerEcranTitre()
+    tween(ecranTitre, 0.35, { GroupTransparency = 1 })
     tween(flouLobby, 0.5, { Size = 0 })
     task.delay(0.36, function()
-        ecranTitre.Visible = false
+        if not menuPrincipalOuvert then
+            ecranTitre.Visible = false
+        end
     end)
+end
+
+-- PLAY / REJOINDRE : on participe aux prochaines manches
+local function allerJouer()
+    sonClic(1)
+    flasher(BLANC, 0.4)
+    local depuisMenu = menuPrincipalOuvert
+    menuPrincipalOuvert = false
+    modeAfk = false
+    JouerEvent:FireServer(true)
+    if depuisMenu then
+        fermerEcranTitre()
+    end
     majPhase() -- on arrive dans le lobby (ou en spectateur si une manche est en cours)
     if ReplicatedStorage:GetAttribute("Phase") ~= "Lobby" then
         grosTexte.TextColor3 = OR
         apparaitre(grosTexte, "Une manche est en cours : tu joues à la prochaine !", 3, echelleGros)
+    end
+end
+
+-- AFK : on regarde les autres, on n'est pas lancé dans la partie
+local function passerAfk(raison)
+    local depuisMenu = menuPrincipalOuvert
+    menuPrincipalOuvert = false
+    modeAfk = true
+    JouerEvent:FireServer(false)
+    if depuisMenu then
+        fermerEcranTitre()
+    end
+    majPhase()
+    if raison then
+        grosTexte.TextColor3 = COULEUR_AFK
+        apparaitre(grosTexte, raison, 3, echelleGros)
+    end
+end
+
+-- MENU : retour à l'écran titre (on n'est plus lancé dans la partie non plus)
+local function retourMenu()
+    sonClic(2)
+    menuPrincipalOuvert = true
+    modeAfk = false
+    JouerEvent:FireServer(false)
+    fermerPanneau()
+    ecranTitre.Visible = true
+    ecranTitre.GroupTransparency = 1
+    tween(ecranTitre, 0.35, { GroupTransparency = 0 })
+    tween(flouLobby, 0.5, { Size = 24 })
+    majPhase()
+end
+
+boutonPlay.Activated:Connect(function()
+    if menuPrincipalOuvert then
+        allerJouer()
+    end
+end)
+boutonAfkMenu.Activated:Connect(function()
+    if menuPrincipalOuvert then
+        sonClic(3)
+        passerAfk(nil)
+    end
+end)
+boutonRejoindre.Activated:Connect(function()
+    if modeAfk then
+        allerJouer()
+    end
+end)
+
+-- AFK tout seul : si tu ne touches plus à rien pendant 2 minutes (Roblox nous prévient),
+-- ou si tu as laissé passer toute une manche sans cliquer une seule fois.
+joueur.Idled:Connect(function()
+    if not modeAfk and not menuPrincipalOuvert then
+        passerAfk("Tu es parti ? MODE AFK activé")
+    end
+end)
+local jouaitCetteManche = false
+ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(function()
+    local phase = ReplicatedStorage:GetAttribute("Phase")
+    if phase == "Manche" then
+        jouaitCetteManche = monEtat ~= nil and monEtat.config:GetAttribute("EnJeu") == true
+    elseif phase == "Fin" and jouaitCetteManche then
+        jouaitCetteManche = false
+        if clicsManche == 0 and not modeAfk and not menuPrincipalOuvert then
+            passerAfk("Aucun clic de toute la manche : MODE AFK activé")
+        end
     end
 end)
 boutonClassementsMenu.Activated:Connect(function()
@@ -3438,31 +3707,50 @@ boutonFermerReglages.Activated:Connect(function()
 end)
 fondReglages.Activated:Connect(fermerReglages)
 
--- le petit bouton PARAMÈTRES dans le lobby (sous CLASSEMENTS)
-boutonReglages = nouveau("TextButton", {
-    Position = UDim2.new(0, 20, 0, 122),
-    Size = UDim2.fromOffset(200, 40),
-    BackgroundColor3 = Color3.fromRGB(14, 14, 22),
-    BackgroundTransparency = 0.1,
-    AutoButtonColor = false,
-    Font = Enum.Font.GothamBlack,
-    Text = "PARAMÈTRES",
-    TextScaled = true,
-    TextColor3 = Color3.fromRGB(200, 200, 220),
-    Visible = false,
-    ZIndex = 25,
-    Parent = gui,
-})
-nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = boutonReglages })
-nouveau("UIStroke", { Color = Color3.fromRGB(200, 200, 220), Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = boutonReglages })
-nouveau("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), Parent = boutonReglages })
-boutonReglages.MouseEnter:Connect(function()
-    sonSurvol(4)
-end)
-boutonReglages.Activated:Connect(function()
+-- les petits boutons du lobby, sous CLASSEMENTS : PARAMÈTRES, AFK, MENU (retour à l'écran titre)
+local function boutonCoin(y, texteBouton, couleur, action)
+    local bouton = nouveau("TextButton", {
+        Position = UDim2.new(0, 20, 0, y),
+        Size = UDim2.fromOffset(200, 40),
+        BackgroundColor3 = Color3.fromRGB(14, 14, 22),
+        BackgroundTransparency = 0.1,
+        AutoButtonColor = false,
+        Font = Enum.Font.GothamBlack,
+        Text = texteBouton,
+        TextScaled = true,
+        TextColor3 = couleur,
+        Visible = false,
+        ZIndex = 25,
+        Parent = gui,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = bouton })
+    nouveau("UIStroke", { Color = couleur, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = bouton })
+    nouveau("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), Parent = bouton })
+    local echelle = nouveau("UIScale", { Parent = bouton })
+    bouton.MouseEnter:Connect(function()
+        sonSurvol(4)
+        tween(echelle, 0.2, { Scale = 1.06 }, Enum.EasingStyle.Back)
+    end)
+    bouton.MouseLeave:Connect(function()
+        tween(echelle, 0.2, { Scale = 1 })
+    end)
+    bouton.Activated:Connect(action)
+    table.insert(boutonsCoin, bouton)
+    return bouton
+end
+boutonCoin(122, "PARAMÈTRES", Color3.fromRGB(200, 200, 220), function()
     sonClic(4)
     ouvrirReglages()
 end)
+boutonCoin(170, "AFK", COULEUR_AFK, function()
+    if modeAfk then
+        allerJouer()
+    else
+        sonClic(3)
+        passerAfk(nil)
+    end
+end)
+boutonCoin(218, "MENU", Color3.fromRGB(255, 120, 120), retourMenu)
 
 -- les paramètres sauvegardés (le serveur les met dans l'attribut « Reglages » du joueur)
 local function chargerReglages()
@@ -3811,7 +4099,24 @@ RunService.RenderStepped:Connect(function(dt)
             decalage = Vector3.new(0, 1.2, 0)
             distance = 22
             vitesseCamera = 4
-        elseif menuOuvert or menuPrincipalOuvert then
+        elseif modeAfk and not menuPrincipalOuvert and partition and not jeJoue then
+            -- AFK / spectateur pendant une manche : la caméra suit celui qui est en tête
+            local enTete = nil
+            for _, etat in pairs(avatars) do
+                if etat.config:GetAttribute("EnJeu") and etat.couloir and etat.hauteur
+                    and (not enTete or (etat.marcheAffichee or 0) > (enTete.marcheAffichee or 0)) then
+                    enTete = etat
+                end
+            end
+            if enTete then
+                focus = positionMarche(enTete.couloir, enTete.marcheAffichee or 0, enTete.hauteur)
+                vitesseCamera = 3
+            else
+                focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
+                distance = 100
+                vitesseCamera = 1.2
+            end
+        elseif menuOuvert or menuPrincipalOuvert or modeAfk then
             -- menu du lobby : la caméra se balade doucement le long des escaliers (floutés derrière le menu)
             focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
             distance = 100
@@ -3848,10 +4153,22 @@ RunService.RenderStepped:Connect(function(dt)
                 musiqueLancee = true
                 musique.TimePosition = attendu
                 musique:Play()
-            elseif horloge - dernierRecalage > 1 then
+            elseif horloge - dernierRecalage > 0.5 and musique.IsPlaying then
+                -- On recolle la musique au rythme SANS la faire sauter (sauter = la musique saccade) :
+                -- on l'accélère ou la ralentit très légèrement (2 % max, inaudible) pour qu'elle rattrape.
+                -- On ne saute que si elle est vraiment perdue (plus de 0,4 s d'écart deux fois de suite).
                 dernierRecalage = horloge
-                if musique.IsPlaying and math.abs(musique.TimePosition - attendu) > 0.08 then
-                    musique.TimePosition = attendu -- on recolle la musique au rythme
+                local ecart = musique.TimePosition - attendu
+                if math.abs(ecart) > 0.4 then
+                    trainsPerdus += 1
+                    if trainsPerdus >= 2 then
+                        trainsPerdus = 0
+                        musique.TimePosition = attendu
+                        musique.PlaybackSpeed = 1
+                    end
+                else
+                    trainsPerdus = 0
+                    musique.PlaybackSpeed = if math.abs(ecart) > 0.03 then 1 - math.clamp(ecart * 0.5, -0.02, 0.02) else 1
                 end
             end
         elseif ecoule >= partition.duree + 4 and musique.IsPlaying then

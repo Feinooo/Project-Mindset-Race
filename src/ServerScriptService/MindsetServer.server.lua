@@ -343,10 +343,12 @@ task.spawn(function()
 end)
 
 -- PLAY : le joueur quitte le menu principal et participe aux prochaines manches
-JouerEvent.OnServerEvent:Connect(function(joueur)
+-- PLAY (true) : le joueur participe aux prochaines manches.
+-- AFK / retour au menu (false) : il regarde les autres jouer, sans être lancé dans la partie.
+JouerEvent.OnServerEvent:Connect(function(joueur, participe)
     local g = grimpeurDesJoueurs[joueur]
     if g then
-        g:SetAttribute("Pret", true)
+        g:SetAttribute("Pret", participe ~= false)
     end
 end)
 
@@ -828,6 +830,20 @@ local function compterVotes()
     return comptes
 end
 
+-- Niveau de difficulté affiché sur la carte de vote : d'après le tempo (et le moment dur du drop).
+-- Tu peux le forcer dans CONFIG.MUSIQUES avec difficulte = 1 (facile) à 4 (extrême).
+local function difficulteDe(m)
+    if type(m.difficulte) == "number" then
+        return math.clamp(math.floor(m.difficulte), 1, 4)
+    end
+    local bpm = m.bpm or 120
+    local niveau = if bpm < 90 then 1 elseif bpm < 105 then 2 elseif bpm < 130 then 3 else 4
+    if m.drop and CONFIG.DENSITE_DROP >= 0.8 then
+        niveau = math.min(4, niveau + 1)
+    end
+    return niveau
+end
+
 local function proposerMusiques()
     votesMusique = {}
     propositions = {}
@@ -845,6 +861,7 @@ local function proposerMusiques()
         local valeur = creer("StringValue", { Name = tostring(i), Value = m.nom or ("Musique " .. i) })
         valeur:SetAttribute("Votes", 0)
         valeur:SetAttribute("Cle", cleMusique(m)) -- pour afficher le record de la musique sur sa carte
+        valeur:SetAttribute("Difficulte", difficulteDe(m)) -- 1 facile, 2 moyen, 3 difficile, 4 extrême
         valeur.Parent = dossierChoixMusiques
     end
     -- on rafraîchit les records affichés sur les cartes (persos + musiques proposées)
