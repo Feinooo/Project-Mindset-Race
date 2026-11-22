@@ -26,20 +26,20 @@ local CONFIG = {
     --   id       = l'ID Roblox du son, ex. "rbxassetid://1234567890"
     --              ⚠ une musique avec id = "" est ignorée (pas encore mise en ligne)
     --   nom      = le nom affiché sur le bouton de vote
-    --   bpm      = le tempo de la musique (130 = valeur provisoire)
+    --   bpm      = le tempo de la musique (mesuré avec un analyseur de MP3)
     --   debut    = à quelle seconde du son la manche commence (0 = au tout début de la musique)
     --   drop     = à quelle seconde du son arrive le DROP = le moment DUR (plein de cercles)
     --              → marque-le avec l'outil : Play dans Studio, touche B (pas de drop = enlève « drop = ... »)
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
     -- (les anciennes musiques sont dans l'historique git, commit 19623be)
     MUSIQUES = {
-        { id = "rbxassetid://74842327948915", nom = "BUFÓN!", bpm = 130, debut = 0, drop = 9.57, decalage = 0 },
-        { id = "rbxassetid://134372266822247", nom = "MONTAGE SENNTANA", bpm = 130, debut = 0, drop = 20.22, decalage = 0 },
-        { id = "rbxassetid://117822777228038", nom = "ME VS ME", bpm = 130, debut = 0, drop = 19.14, decalage = 0 },
-        { id = "rbxassetid://84227603413943", nom = "NO ERA AMOR", bpm = 130, debut = 0, drop = 10.21, decalage = 0 },
-        { id = "rbxassetid://80140071567818", nom = "EMPIRE", bpm = 130, debut = 0, drop = 23.38, decalage = 0 },
-        { id = "rbxassetid://135464211325455", nom = "TIKI TIKI", bpm = 130, debut = 0, drop = 8.68, decalage = 0 },
-        { id = "rbxassetid://127965945833744", nom = "Your Next Opponent Is You", bpm = 130, debut = 0, drop = 20.11, decalage = 0 },
+        { id = "rbxassetid://74842327948915", nom = "BUFÓN!", bpm = 82, debut = 0, drop = 9.57, decalage = 0 },
+        { id = "rbxassetid://134372266822247", nom = "MONTAGE SENNTANA", bpm = 95, debut = 0, drop = 20.22, decalage = 0 },
+        { id = "rbxassetid://117822777228038", nom = "ME VS ME", bpm = 120, debut = 0, drop = 19.14, decalage = 0 },
+        { id = "rbxassetid://84227603413943", nom = "NO ERA AMOR", bpm = 103, debut = 0, drop = 10.21, decalage = 0 },
+        { id = "rbxassetid://80140071567818", nom = "EMPIRE", bpm = 93, debut = 0, drop = 23.38, decalage = 0 },
+        { id = "rbxassetid://135464211325455", nom = "TIKI TIKI", bpm = 84, debut = 0, drop = 8.68, decalage = 0 },
+        { id = "rbxassetid://127965945833744", nom = "Your Next Opponent Is You", bpm = 143, debut = 0, drop = 20.11, decalage = 0 },
     },
 }
 -- ===========================================================================
