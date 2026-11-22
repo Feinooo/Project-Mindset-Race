@@ -1973,7 +1973,7 @@ local function maCouleur()
 end
 
 local juger, creerNote
-local dernierClicUtilise = nil -- le dernier clic qui a validé une note (un clic = une note)
+local dernierClicUtilise = 0 -- l'heure du dernier clic qui a validé une note (un clic = une note)
 do
 local function effetTouche(position, verdict)
     local couleur = if verdict == "Parfait" then OR elseif verdict == "Bien" then Color3.fromRGB(120, 255, 160) else ROUGE
@@ -2088,8 +2088,8 @@ creerNote = function(index, tempsNote)
     dernierePosition = meilleur
     compteurNotes += 1
 
-    -- 🕹️ le cercle, style BOUTON D'ARCADE RÉTRO : couleurs pleines (pas de dégradé), gros contour sombre,
-    -- un socle plus foncé en dessous (effet 3D) et un reflet en « pixels » carrés.
+    -- 💠 le cercle, style NÉON : un disque sombre et brillant, un anneau lumineux de la couleur du perso,
+    -- un halo qui « respire » autour et un cœur lumineux au centre (aucune bordure blanche).
     local couleur = maCouleur()
     local cercle = nouveau("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -2100,60 +2100,61 @@ creerNote = function(index, tempsNote)
         Parent = zoneNotes,
     })
     local echelleCercle = nouveau("UIScale", { Scale = 0.5, Parent = cercle })
-    local CONTOUR = Color3.fromRGB(14, 12, 24)
-    local function pixel(px, py, cote, couleurPixel, zIndex)
-        local p = nouveau("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.fromScale(px, py),
-            Size = UDim2.fromScale(cote, cote),
-            BackgroundColor3 = couleurPixel,
-            BorderSizePixel = 0,
-            ZIndex = zIndex,
-            Parent = cercle,
-        })
-        return p
-    end
-    -- contour sombre (autour du bouton ET de son socle)
-    local contour = rond({
+    -- le halo flou autour (2 couches de plus en plus transparentes)
+    local halo1 = rond({
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.54),
-        Size = UDim2.fromScale(1.14, 1.2),
-        BackgroundColor3 = CONTOUR,
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(1.45, 1.45),
+        BackgroundColor3 = couleur,
+        BackgroundTransparency = 0.88,
         ZIndex = 6,
         Parent = cercle,
     })
-    -- le socle : le bord du bouton vu de côté
-    local socle = rond({
+    local halo2 = rond({
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.58),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(1.22, 1.22),
+        BackgroundColor3 = couleur,
+        BackgroundTransparency = 0.75,
+        ZIndex = 6,
+        Parent = cercle,
+    })
+    -- le disque : sombre, teinté de la couleur, avec l'anneau néon
+    local disque = rond({
         Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = couleur:Lerp(NOIR, 0.5),
+        BackgroundColor3 = couleur:Lerp(NOIR, 0.78),
+        BackgroundTransparency = 0.05,
         ZIndex = 7,
         Parent = cercle,
     })
-    -- le dessus du bouton
-    local corps = rond({
+    nouveau("UIGradient", {
+        Rotation = 90,
+        Color = ColorSequence.new(couleur:Lerp(NOIR, 0.55), couleur:Lerp(NOIR, 0.9)),
+        Parent = disque,
+    })
+    nouveau("UIStroke", { Color = couleur:Lerp(BLANC, 0.15), Thickness = 5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = disque })
+    -- un fin anneau intérieur
+    local anneauInterieur = rond({
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = couleur,
+        Size = UDim2.fromScale(0.6, 0.6),
+        BackgroundTransparency = 1,
         ZIndex = 8,
         Parent = cercle,
     })
-    -- un anneau plus clair à l'intérieur (le « dôme » du bouton)
-    local dome = rond({
+    nouveau("UIStroke", { Color = couleur, Thickness = 2, Transparency = 0.35, Parent = anneauInterieur })
+    -- le cœur lumineux
+    local coeur = rond({
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(0.66, 0.66),
-        BackgroundColor3 = couleur:Lerp(BLANC, 0.28),
+        Size = UDim2.fromScale(0.26, 0.26),
+        BackgroundColor3 = couleur:Lerp(BLANC, 0.45),
         ZIndex = 9,
         Parent = cercle,
     })
-    -- reflet en pixels carrés, en haut à gauche
-    local reflet1 = pixel(0.3, 0.3, 0.12, BLANC, 10)
-    local reflet2 = pixel(0.42, 0.22, 0.09, BLANC, 10)
-    local reflet3 = pixel(0.22, 0.42, 0.07, couleur:Lerp(BLANC, 0.7), 10)
-    local morceaux = { contour, socle, corps, dome, reflet1, reflet2, reflet3 }
+    local morceaux = { halo1, halo2, disque, coeur }
+    -- le halo respire au rythme de l'approche
+    tween(halo1, 0.5, { Size = UDim2.fromScale(1.6, 1.6) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
     tween(echelleCercle, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
 
     -- 🖱️ la zone de clic : un bouton invisible un peu plus grand que le cercle (plus facile à toucher).
@@ -2172,10 +2173,14 @@ creerNote = function(index, tempsNote)
         if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
             return
         end
-        if input == dernierClicUtilise then
-            return -- ce clic a déjà validé une autre note
+        -- un même clic ne valide qu'une note : deux notes validées à moins de 30 ms d'écart,
+        -- c'est forcément le même clic (⚠ Roblox réutilise le même objet pour tous les clics de souris,
+        -- c'est pour ça qu'on compare l'heure et pas l'objet du clic)
+        local maintenant = os.clock()
+        if maintenant - dernierClicUtilise < 0.03 then
+            return
         end
-        dernierClicUtilise = input
+        dernierClicUtilise = maintenant
         juger(index, false)
     end)
 
@@ -2370,24 +2375,7 @@ DebutEvent.OnClientEvent:Connect(function(infos)
         end)
     end
 
-    -- 💥 le DROP : le moment dur, plein de cercles d'un coup
-    if infos.drop then
-        task.spawn(function()
-            local attente = infos.debut + infos.drop - 0.6 - maintenantServeur()
-            if attente > 0 then
-                task.wait(attente)
-            end
-            if partition ~= infos or attente < -1 then
-                return
-            end
-            grosTexte.TextColor3 = ROUGE
-            apparaitre(grosTexte, "DROP !", 1.4, echelleGros)
-            flasher(BLANC, 0.5)
-            secousse(1.6)
-            fovPulse = math.min(fovPulse, -5)
-            jouerSon("boum", 0.7, 0.35, nil, 0.6)
-        end)
-    end
+    -- (le drop n'est pas annoncé : juste plein de cercles d'un coup, sans boum ni texte)
 
     -- décompte 3, 2, 1
     task.spawn(function()
@@ -3383,12 +3371,17 @@ nouveau("UIPadding", { PaddingTop = UDim.new(0, 9), PaddingBottom = UDim.new(0, 
 boutonRejoindre.MouseEnter:Connect(function()
     sonSurvol(5)
 end)
-majBandeauAfk = function()
+-- regarde = le nom de celui que la caméra suit (pendant une manche)
+majBandeauAfk = function(regarde)
     bandeauAfk.Visible = modeAfk and not menuPrincipalOuvert
     local phase = ReplicatedStorage:GetAttribute("Phase")
-    texteAfk.Text = if phase == "Manche"
-        then "MODE AFK  ·  tu regardes les autres jouer"
-        else "MODE AFK  ·  tu ne seras pas lancé dans la partie"
+    if phase == "Manche" and regarde then
+        texteAfk.Text = "MODE AFK  ·  tu regardes : " .. regarde
+    elseif phase == "Manche" then
+        texteAfk.Text = "MODE AFK  ·  tu regardes les autres jouer"
+    else
+        texteAfk.Text = "MODE AFK  ·  tu ne seras pas lancé dans la partie"
+    end
 end
 
 -- ---------- Passer d'un mode à l'autre ----------
@@ -4004,6 +3997,7 @@ end -- fin du bloc de l'écran de fin
 -- ========================== BOUCLE D'AFFICHAGE ==========================
 local positionCamera = nil
 local pointsCarte = {} -- [config] = point sur la mini-carte
+local dernierSuiviAfk = nil -- celui que la caméra suit en mode AFK
 
 RunService.RenderStepped:Connect(function(dt)
     local horloge = os.clock()
@@ -4104,6 +4098,9 @@ RunService.RenderStepped:Connect(function(dt)
         local distance = 75
         local vitesseCamera = 5
         local suiviModele = etatSuiviCamera and etatSuiviCamera.modele
+        if not partition then
+            dernierSuiviAfk = nil -- nouvelle manche : on réaffichera le nom de celui qu'on suit
+        end
         if focusCheck then
             focus = focusCheck
             decalage = Vector3.new(0, 1, 0)
@@ -4126,6 +4123,11 @@ RunService.RenderStepped:Connect(function(dt)
             if enTete then
                 focus = positionMarche(enTete.couloir, enTete.marcheAffichee or 0, enTete.hauteur)
                 vitesseCamera = 3
+                distance = 58 -- un peu plus près pour bien le voir jouer
+                if enTete ~= dernierSuiviAfk then
+                    dernierSuiviAfk = enTete
+                    majBandeauAfk(tostring(enTete.config:GetAttribute("Nom")) .. " (en tête)")
+                end
             else
                 focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
                 distance = 100
