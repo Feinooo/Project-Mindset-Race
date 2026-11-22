@@ -12,7 +12,9 @@ local CONFIG = {
     ATTENTE_LOBBY = 15,   -- secondes pour choisir son perso
     PREPARATION = 4,      -- secondes de décompte avant la musique
     DUREE_MANCHE = 60,    -- durée d'une manche (secondes de musique)
-    NB_MARCHES = 100,     -- marches jusqu'au sommet
+    -- (plus de sommet : les escaliers sont infinis, le plus haut à la fin gagne)
+    DUREE_DANSE = 8,      -- secondes où le gagnant danse pour farm l'aura à la fin
+    AURA_PAR_PAS = 1,     -- aura gagnée à chaque pas de danse du gagnant
     NB_COULOIRS = 8,      -- grimpeurs affichés en même temps (mets le même nombre en « Max joueurs »)
     COUREURS_MIN = 4,     -- des bots complètent jusqu'à ce nombre
 
@@ -67,7 +69,6 @@ local GEO = { X0 = 0, Y0 = 300, Z0 = 0, HAUTEUR = 1.6, PROFONDEUR = 3, ECART = 7
 for nom, valeur in pairs(GEO) do
     ReplicatedStorage:SetAttribute("Geo" .. nom, valeur)
 end
-ReplicatedStorage:SetAttribute("NbMarches", CONFIG.NB_MARCHES)
 ReplicatedStorage:SetAttribute("NbCouloirs", CONFIG.NB_COULOIRS)
 
 local function positionMarche(couloir, marche)
@@ -90,10 +91,14 @@ local ChoisirEvent = remote("Choisir")     -- client -> serveur : choix du perso
 local EvenementEvent = remote("Evenement") -- serveur -> clients : sommet atteint, vainqueur...
 local FinEvent = remote("Fin")             -- serveur -> joueur : son écran de fin
 local VoterMusiqueEvent = remote("VoterMusique") -- client -> serveur : vote pour une des 3 musiques
+local DanserEvent = remote("Danser")       -- client -> serveur : le gagnant fait un pas de danse (farm d'aura)
+local ClassementFonction = creer("RemoteFunction", { Name = "Classement", Parent = dossierRemotes }) -- top 10 d'un classement
 
 local dossierGrimpeurs = creer("Folder", { Name = "Grimpeurs", Parent = ReplicatedStorage })
--- Les musiques proposées au vote (StringValue "1", "2", "3" : Value = nom, attribut Votes)
+-- Les musiques proposées au vote (StringValue "1", "2", "3" : Value = nom, attributs Votes et Cle)
 local dossierChoixMusiques = creer("Folder", { Name = "ChoixMusiques", Parent = ReplicatedStorage })
+-- Les classements (un par état d'esprit, un par musique) : StringValue, attributs Type, Top1Nom, Top1Score
+local dossierClassements = creer("Folder", { Name = "Classements", Parent = ReplicatedStorage })
 dossierRemotes.Parent = ReplicatedStorage
 
 -- 🎵 Testeur BPM (touche B) : en Studio seulement, on partage la liste des musiques avec le testeur
@@ -126,86 +131,12 @@ local function setTemps(secondes)
 end
 
 -- ========================== LA SCÈNE 2D ==========================
-local scene = creer("Folder", { Name = "MindsetScene", Parent = workspace })
-local N, H, D = CONFIG.NB_MARCHES, GEO.HAUTEUR, GEO.PROFONDEUR
-
-local function bloc(proprietes)
-    proprietes.Anchored = true
-    proprietes.TopSurface = Enum.SurfaceType.Smooth
-    proprietes.BottomSurface = Enum.SurfaceType.Smooth
-    proprietes.Parent = proprietes.Parent or scene
-    return creer("Part", proprietes)
+-- Les escaliers sont INFINIS : c'est chaque client qui construit les marches autour de sa caméra
+-- (voir le script client, partie « ESCALIERS »). On enlève une éventuelle vieille scène.
+local scene = workspace:FindFirstChild("MindsetScene")
+if scene then
+    scene:Destroy()
 end
-
-for couloir = 0, CONFIG.NB_COULOIRS - 1 do
-    local dossier = creer("Folder", { Name = "Couloir" .. couloir, Parent = scene })
-    local z = GEO.Z0 - couloir * GEO.ECART
-    for i = 0, N do
-        local largeur, x = D, GEO.X0 + (i + 0.5) * D
-        if i == 0 then
-            largeur = D * 4
-            x = GEO.X0 + D - largeur / 2
-        elseif i == N then
-            largeur = D * 4
-            x = GEO.X0 + N * D + largeur / 2
-        end
-        bloc({
-            Name = "Marche" .. i,
-            Size = Vector3.new(largeur, H, 5),
-            Position = Vector3.new(x, GEO.Y0 + i * H - H / 2, z),
-            Color = if i == N then Color3.fromRGB(255, 210, 60) else Color3.fromRGB(235, 235, 245),
-            Material = if i == N then Enum.Material.Neon else Enum.Material.SmoothPlastic,
-            CastShadow = false,
-            Parent = dossier,
-        })
-    end
-    -- Ligne néon le long des marches (le client la colore avec la couleur du perso)
-    local dx, dy = N * D, N * H
-    bloc({
-        Name = "Ligne",
-        Size = Vector3.new(math.sqrt(dx * dx + dy * dy), 0.35, 0.35),
-        CFrame = CFrame.new(GEO.X0 + dx / 2, GEO.Y0 + dy / 2, z + 2.6) * CFrame.Angles(0, 0, math.atan2(dy, dx)),
-        Color = Color3.fromRGB(200, 200, 210),
-        Material = Enum.Material.Neon,
-        CanCollide = false,
-        CastShadow = false,
-        Parent = dossier,
-    })
-end
-
--- Fond noir + poussière d'aura qui flotte
-local centreScene = Vector3.new(GEO.X0 + N * D / 2, GEO.Y0 + N * H / 2, 0)
-local fondZ = GEO.Z0 - CONFIG.NB_COULOIRS * GEO.ECART - 15
-bloc({
-    Name = "Fond",
-    Size = Vector3.new(900, 600, 2),
-    Position = Vector3.new(centreScene.X, centreScene.Y, fondZ),
-    Color = Color3.fromRGB(8, 8, 14),
-    Material = Enum.Material.SmoothPlastic,
-    CastShadow = false,
-})
-local poussiere = bloc({
-    Name = "Poussiere",
-    Size = Vector3.new(500, 300, 1),
-    Position = Vector3.new(centreScene.X, centreScene.Y, fondZ + 8),
-    Transparency = 1,
-    CanCollide = false,
-})
-creer("ParticleEmitter", {
-    Rate = 60,
-    Lifetime = NumberRange.new(6, 10),
-    Speed = NumberRange.new(1, 3),
-    SpreadAngle = Vector2.new(180, 180),
-    Size = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(0.5, 0.7),
-        NumberSequenceKeypoint.new(1, 0),
-    }),
-    Transparency = NumberSequence.new(0.3),
-    LightEmission = 1,
-    Color = ColorSequence.new(Color3.fromRGB(200, 200, 255)),
-    Parent = poussiere,
-})
 
 -- Lumière : nuit, scène bien éclairée, néons qui brillent
 Lighting.ClockTime = 0
@@ -533,15 +464,10 @@ local function appliquer(g, verdict, progression)
         end
     end
 
-    local marche = math.clamp((g:GetAttribute("Marche") or 0) + gain, 0, CONFIG.NB_MARCHES)
+    local marche = math.max(0, (g:GetAttribute("Marche") or 0) + gain) -- pas de plafond : ça monte à l'infini
     g:SetAttribute("Combo", combo)
     g:SetAttribute("NiveauAura", if combo >= 50 then 3 elseif combo >= 25 then 2 elseif combo >= 10 then 1 else 0)
     g:SetAttribute("Marche", marche)
-
-    if marche >= CONFIG.NB_MARCHES and not stats.sommetA then
-        stats.sommetA = os.clock()
-        EvenementEvent:FireAllClients("Sommet", g:GetAttribute("Nom"), perso)
-    end
 
     local joueur = joueurDuGrimpeur[g]
     if joueur and verdict ~= "Rate" then
@@ -571,6 +497,33 @@ NoteEvent.OnServerEvent:Connect(function(joueur, index, verdict)
     appliquer(g, verdict, tempsNote / CONFIG.DUREE_MANCHE)
 end)
 
+-- ========================== DANSE DU GAGNANT (farm d'aura) ==========================
+-- À la fin, le(s) premier(s) dansent : chaque clic / Espace = un pas de danse = de l'aura.
+local danse = nil -- { gagnants = {[config] = true}, fin = heure serveur, dernier = {[config] = os.clock()} }
+
+local function pasDeDanse(g)
+    local n = (g:GetAttribute("AuraFarmee") or 0) + 1
+    g:SetAttribute("AuraFarmee", n)
+    g:SetAttribute("Danse", 1 + math.floor(n / 10) % 3) -- change de danse tous les 10 pas
+    local joueurDanseur = joueurDuGrimpeur[g]
+    if joueurDanseur then
+        ajouterStat(joueurDanseur, "Aura", CONFIG.AURA_PAR_PAS)
+    end
+end
+
+DanserEvent.OnServerEvent:Connect(function(danseur)
+    local g = grimpeurDesJoueurs[danseur]
+    if not danse or not g or not danse.gagnants[g] or workspace:GetServerTimeNow() > danse.fin then
+        return
+    end
+    local maintenant = os.clock()
+    if maintenant - (danse.dernier[g] or 0) < 0.08 then
+        return -- max ~12 pas par seconde, pas d'autoclicker
+    end
+    danse.dernier[g] = maintenant
+    pasDeDanse(g)
+end)
+
 -- ========================== PARTITION ==========================
 -- Une note par temps (2 temps au début pour s'échauffer), et quelques doubles notes à la fin.
 local function genererPartition(musique)
@@ -590,6 +543,179 @@ local function genererPartition(musique)
     end
     return notes
 end
+
+-- ========================== CLASSEMENTS (records de marches) ==========================
+-- Un classement par état d'esprit (toutes musiques) et un par musique (tous états d'esprit).
+-- Le score = le plus de marches montées en UNE partie. Sauvegardé dans des OrderedDataStore
+-- (il faut publier le jeu) ; sans ça, on garde quand même les records de la session du serveur.
+local tableaux = {} -- [cle] = { store, session = {[userId] = score}, charges = {[userId] = true}, cache, cacheA, valeur }
+local alerteClassement = false
+
+local function cleMusique(m)
+    return "M_" .. (string.match(m.id, "%d+") or string.gsub(m.nom or "?", "%W", ""))
+end
+
+local function creerTableau(cle, nom, typeTableau)
+    local t = { session = {}, charges = {}, cache = nil, cacheA = -math.huge }
+    local ok, store = pcall(function()
+        return DataStoreService:GetOrderedDataStore("MindsetStairs_Record_" .. cle)
+    end)
+    if ok then
+        t.store = store
+    end
+    local valeur = Instance.new("StringValue")
+    valeur.Name = cle
+    valeur.Value = nom
+    valeur:SetAttribute("Type", typeTableau)
+    valeur:SetAttribute("Top1Nom", "")
+    valeur:SetAttribute("Top1Score", 0)
+    valeur.Parent = dossierClassements
+    t.valeur = valeur
+    tableaux[cle] = t
+end
+for ordre, perso in ipairs(ORDRE_PERSOS) do
+    creerTableau("P_" .. perso, string.upper(perso), "Perso")
+    tableaux["P_" .. perso].valeur:SetAttribute("Ordre", ordre)
+end
+for ordre, m in ipairs(CONFIG.MUSIQUES) do
+    if m.id ~= "" and not tableaux[cleMusique(m)] then
+        creerTableau(cleMusique(m), m.nom or ("Musique " .. ordre), "Musique")
+        tableaux[cleMusique(m)].valeur:SetAttribute("Ordre", ordre)
+    end
+end
+
+local function alerte(erreur)
+    if not alerteClassement then
+        alerteClassement = true
+        warn("🏆 Classements : sauvegarde indisponible (publie le jeu + accès Studio aux services API). On garde les records de la session. ", erreur)
+    end
+end
+
+local nomsCache = {}
+local function nomDe(userId)
+    local present = Players:GetPlayerByUserId(userId)
+    if present then
+        nomsCache[userId] = present.DisplayName
+    end
+    if nomsCache[userId] then
+        return nomsCache[userId]
+    end
+    local ok, nom = pcall(function()
+        return Players:GetNameFromUserIdAsync(userId)
+    end)
+    nomsCache[userId] = if ok and nom then nom else ("Joueur " .. userId)
+    return nomsCache[userId]
+end
+
+-- Top 10 d'un classement (gardé 30 s en mémoire pour ne pas spammer la sauvegarde)
+local function lireClassement(cle)
+    local t = tableaux[cle]
+    if not t then
+        return {}
+    end
+    if t.cache and os.clock() - t.cacheA < 30 then
+        return t.cache
+    end
+    local scores = {}
+    if t.store then
+        local ok, page = pcall(function()
+            return t.store:GetSortedAsync(false, 10):GetCurrentPage()
+        end)
+        if ok then
+            for _, ligne in ipairs(page) do
+                local id = tonumber(ligne.key)
+                if id then
+                    scores[id] = ligne.value
+                end
+            end
+        else
+            alerte(page)
+        end
+    end
+    for id, score in pairs(t.session) do
+        if score > (scores[id] or 0) then
+            scores[id] = score
+        end
+    end
+    local liste = {}
+    for id, score in pairs(scores) do
+        table.insert(liste, { id = id, score = score })
+    end
+    table.sort(liste, function(a, b)
+        return a.score > b.score
+    end)
+    local resultat = {}
+    for i = 1, math.min(10, #liste) do
+        resultat[i] = { nom = nomDe(liste[i].id), score = liste[i].score, userId = liste[i].id }
+    end
+    t.cache, t.cacheA = resultat, os.clock()
+    t.valeur:SetAttribute("Top1Nom", if resultat[1] then resultat[1].nom else "")
+    t.valeur:SetAttribute("Top1Score", if resultat[1] then resultat[1].score else 0)
+    return resultat
+end
+
+-- Le record perso d'un joueur dans un classement
+local function recordDe(cle, userId)
+    local t = tableaux[cle]
+    if not t then
+        return 0
+    end
+    if t.store and not t.charges[userId] then
+        t.charges[userId] = true
+        local ok, valeur = pcall(function()
+            return t.store:GetAsync(tostring(userId))
+        end)
+        if ok and valeur and valeur > (t.session[userId] or 0) then
+            t.session[userId] = valeur
+        elseif not ok then
+            alerte(valeur)
+        end
+    end
+    return t.session[userId] or 0
+end
+
+-- Enregistre un score ; renvoie true si c'est un nouveau record perso
+local function enregistrerRecord(cle, joueur, score)
+    local t = tableaux[cle]
+    if not t or score <= 0 then
+        return false
+    end
+    local nouveau = score > recordDe(cle, joueur.UserId)
+    if nouveau then
+        t.session[joueur.UserId] = score
+        t.cache = nil
+    end
+    if t.store and nouveau then
+        local ok, erreur = pcall(function()
+            t.store:UpdateAsync(tostring(joueur.UserId), function(ancien)
+                if (ancien or 0) >= score then
+                    return nil -- on garde l'ancien, il est meilleur
+                end
+                return score
+            end)
+        end)
+        if not ok then
+            alerte(erreur)
+        end
+    end
+    return nouveau
+end
+
+local dernierAppelClassement = {}
+ClassementFonction.OnServerInvoke = function(demandeur, cle)
+    if typeof(cle) ~= "string" or not tableaux[cle] then
+        return nil
+    end
+    local maintenant = os.clock()
+    if maintenant - (dernierAppelClassement[demandeur] or 0) < 0.25 then
+        task.wait(0.25) -- anti-spam
+    end
+    dernierAppelClassement[demandeur] = os.clock()
+    return { liste = lireClassement(cle), moi = recordDe(cle, demandeur.UserId) }
+end
+Players.PlayerRemoving:Connect(function(parti)
+    dernierAppelClassement[parti] = nil
+end)
 
 -- ========================== VOTE DE LA MUSIQUE ==========================
 local propositions = {}   -- les musiques proposées pendant ce lobby
@@ -628,9 +754,20 @@ local function proposerMusiques()
         table.insert(propositions, table.remove(dispo, math.random(1, #dispo)))
     end
     for i, m in ipairs(propositions) do
-        local valeur = creer("StringValue", { Name = tostring(i), Value = m.nom or ("Musique " .. i), Parent = dossierChoixMusiques })
+        local valeur = creer("StringValue", { Name = tostring(i), Value = m.nom or ("Musique " .. i) })
         valeur:SetAttribute("Votes", 0)
+        valeur:SetAttribute("Cle", cleMusique(m)) -- pour afficher le record de la musique sur sa carte
+        valeur.Parent = dossierChoixMusiques
     end
+    -- on rafraîchit les records affichés sur les cartes (persos + musiques proposées)
+    task.spawn(function()
+        for _, perso in ipairs(ORDRE_PERSOS) do
+            lireClassement("P_" .. perso)
+        end
+        for _, m in ipairs(propositions) do
+            lireClassement(cleMusique(m))
+        end
+    end)
 end
 
 -- La plus votée gagne (égalité ou aucun vote : tirage au sort entre les ex æquo)
@@ -687,6 +824,8 @@ while true do
         g:SetAttribute("Combo", 0)
         g:SetAttribute("NiveauAura", 0)
         g:SetAttribute("EnJeu", false)
+        g:SetAttribute("Danse", 0)
+        g:SetAttribute("AuraFarmee", 0)
     end
     setStatut(if #propositions > 0 then "🧠 Choisis ton état d'esprit et vote pour la musique !" else "🧠 Choisis ton état d'esprit !")
     compteARebours(CONFIG.ATTENTE_LOBBY)
@@ -792,7 +931,7 @@ while true do
         end
     end
 
-    -- 5) FIN : classement, cinématique du vainqueur, écrans de fin
+    -- 5) FIN : le plus haut gagne. Égalité au sommet = CHECK PARFAIT entre les deux, puis ils dansent.
     setPhase("Fin")
     local classement = {}
     for _, g in ipairs(participants) do
@@ -801,50 +940,117 @@ while true do
         end
     end
     table.sort(classement, function(a, b)
-        local sa, sb = manche.stats[a].sommetA, manche.stats[b].sommetA
-        if sa and sb then
-            return sa < sb
+        local ma, mb = a:GetAttribute("Marche") or 0, b:GetAttribute("Marche") or 0
+        if ma ~= mb then
+            return ma > mb
         end
-        if sa ~= sb then
-            return sa ~= nil
-        end
-        return (a:GetAttribute("Marche") or 0) > (b:GetAttribute("Marche") or 0)
+        return (a:GetAttribute("Ordre") or 0) < (b:GetAttribute("Ordre") or 0)
     end)
 
-    local vainqueur = classement[1]
-    if vainqueur then
-        setStatut("👑 " .. vainqueur:GetAttribute("Nom") .. " GAGNE avec " .. string.upper(vainqueur:GetAttribute("Perso")) .. " !")
-        EvenementEvent:FireAllClients("Vainqueur", vainqueur)
-        local joueurGagnant = joueurDuGrimpeur[vainqueur]
+    local meilleur = if classement[1] then classement[1]:GetAttribute("Marche") or 0 else 0
+    local gagnants = {}
+    for _, g in ipairs(classement) do
+        if (g:GetAttribute("Marche") or 0) == meilleur then
+            table.insert(gagnants, g)
+        end
+    end
+    local function nomDuGrimpeur(g)
+        return tostring(g:GetAttribute("Nom"))
+    end
+
+    for _, g in ipairs(gagnants) do
+        local joueurGagnant = joueurDuGrimpeur[g]
         if joueurGagnant then
             ajouterStat(joueurGagnant, "Victoires", 1)
             ajouterStat(joueurGagnant, "Aura", 25)
         end
     end
 
-    task.wait(4) -- le temps de la cinématique du vainqueur
+    -- les records (en tâche de fond : la sauvegarde peut prendre un peu de temps)
+    local nouveauxRecords = {}
+    for _, g in ipairs(classement) do
+        local joueurRecord = joueurDuGrimpeur[g]
+        if joueurRecord then
+            local score = g:GetAttribute("Marche") or 0
+            local perso = g:GetAttribute("Perso")
+            task.spawn(function()
+                local recordPerso = enregistrerRecord("P_" .. tostring(perso), joueurRecord, score)
+                local recordMusique = musique.id ~= "" and enregistrerRecord(cleMusique(musique), joueurRecord, score)
+                nouveauxRecords[g] = recordPerso or recordMusique
+            end)
+        end
+    end
 
-    for place, g in ipairs(classement) do
-        local joueur = joueurDuGrimpeur[g]
-        if joueur and joueur.Parent then
+    if #gagnants >= 2 then
+        setStatut("ÉGALITÉ ! " .. nomDuGrimpeur(gagnants[1]) .. " & " .. nomDuGrimpeur(gagnants[2]) .. " — " .. meilleur .. " marches")
+        EvenementEvent:FireAllClients("Check", gagnants[1], gagnants[2])
+        task.wait(2.6) -- le temps du check
+    elseif gagnants[1] then
+        local g = gagnants[1]
+        setStatut("👑 " .. nomDuGrimpeur(g) .. " GAGNE avec " .. string.upper(tostring(g:GetAttribute("Perso"))) .. " — " .. meilleur .. " marches !")
+        EvenementEvent:FireAllClients("Vainqueur", g)
+        task.wait(2)
+    end
+
+    -- la danse : le(s) gagnant(s) farment l'aura
+    if #gagnants > 0 then
+        danse = { gagnants = {}, fin = workspace:GetServerTimeNow() + CONFIG.DUREE_DANSE, dernier = {} }
+        for _, g in ipairs(gagnants) do
+            danse.gagnants[g] = true
+            g:SetAttribute("Danse", 1)
+        end
+        EvenementEvent:FireAllClients("Danse", gagnants, danse.fin)
+        while workspace:GetServerTimeNow() < danse.fin do
+            task.wait(0.15)
+            for _, g in ipairs(gagnants) do
+                if g.Parent and g:GetAttribute("Bot") and math.random() < 0.6 then
+                    pasDeDanse(g) -- les bots dansent tout seuls
+                end
+            end
+        end
+        for _, g in ipairs(gagnants) do
+            if g.Parent then
+                g:SetAttribute("Danse", 0)
+            end
+        end
+        danse = nil
+    end
+
+    local nomsGagnants = {}
+    for _, g in ipairs(gagnants) do
+        table.insert(nomsGagnants, nomDuGrimpeur(g))
+    end
+    for _, g in ipairs(classement) do
+        local joueurFin = joueurDuGrimpeur[g]
+        if joueurFin and joueurFin.Parent then
             local stats = manche.stats[g]
             local total = stats.parfaits + stats.biens + stats.rates
-            FinEvent:FireClient(joueur, {
+            local marches = g:GetAttribute("Marche") or 0
+            local place = 1
+            for _, autre in ipairs(classement) do
+                if (autre:GetAttribute("Marche") or 0) > marches then
+                    place += 1
+                end
+            end
+            FinEvent:FireClient(joueurFin, {
                 perso = g:GetAttribute("Perso"),
                 place = place,
+                egalite = place == 1 and #gagnants >= 2,
                 total = #classement,
-                marches = g:GetAttribute("Marche") or 0,
-                nbMarches = CONFIG.NB_MARCHES,
+                marches = marches,
+                record = recordDe("P_" .. tostring(g:GetAttribute("Perso")), joueurFin.UserId),
+                nouveauRecord = nouveauxRecords[g] == true,
+                auraFarmee = g:GetAttribute("AuraFarmee") or 0,
                 parfaits = stats.parfaits,
                 biens = stats.biens,
                 rates = stats.rates,
                 comboMax = stats.comboMax,
                 precision = if total > 0 then math.floor((stats.parfaits + stats.biens) / total * 100) else 0,
-                gagnant = if vainqueur then vainqueur:GetAttribute("Nom") else "personne",
+                gagnant = if #nomsGagnants > 0 then table.concat(nomsGagnants, " & ") else "personne",
             })
         end
     end
-    compteARebours(8)
+    compteARebours(7)
 
     -- 6) ON RANGE
     for _, g in ipairs(bots) do

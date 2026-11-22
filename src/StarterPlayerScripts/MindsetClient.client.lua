@@ -21,8 +21,11 @@ local ChoisirEvent = remotes:WaitForChild("Choisir")
 local EvenementEvent = remotes:WaitForChild("Evenement")
 local FinEvent = remotes:WaitForChild("Fin")
 local VoterMusiqueEvent = remotes:WaitForChild("VoterMusique")
+local DanserEvent = remotes:WaitForChild("Danser")
+local ClassementFonction = remotes:WaitForChild("Classement")
 local dossierGrimpeurs = ReplicatedStorage:WaitForChild("Grimpeurs")
 local dossierChoixMusiques = ReplicatedStorage:WaitForChild("ChoixMusiques")
+local dossierClassements = ReplicatedStorage:WaitForChild("Classements")
 
 local GEO = {
     X0 = ReplicatedStorage:GetAttribute("GeoX0"),
@@ -32,7 +35,6 @@ local GEO = {
     PROFONDEUR = ReplicatedStorage:GetAttribute("GeoPROFONDEUR"),
     ECART = ReplicatedStorage:GetAttribute("GeoECART"),
 }
-local NB_MARCHES = ReplicatedStorage:GetAttribute("NbMarches")
 local NB_COULOIRS = ReplicatedStorage:GetAttribute("NbCouloirs")
 
 local COULEURS = {
@@ -43,7 +45,6 @@ local COULEURS = {
 }
 local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" }
 -- Ce qui s'affiche sur les cartes du menu (les vraies règles sont dans le script serveur)
-local ICONES = { Motivation = "🔥", Ego = "👑", Discipline = "🧱", Obsession = "👁️" }
 local DEVISES = {
     Motivation = "Le feu du départ",
     Ego = "Le roi du combo",
@@ -51,10 +52,10 @@ local DEVISES = {
     Obsession = "Le monstre de la fin",
 }
 local COMPETENCES = {
-    Motivation = { "⚡ +2 marches par note au début", "⚠️ Rate ensuite = -2" },
-    Ego = { "💅 Combo 10+ : PARFAIT = +2", "⚠️ Une erreur = -2" },
-    Discipline = { "🧱 +1 par note, toujours", "🛡️ Ne redescend JAMAIS" },
-    Obsession = { "🐢 Début : que les PARFAIT", "🚀 2e moitié : +2 par note" },
+    Motivation = { "+2 marches par note au début", "Rate ensuite = -2" },
+    Ego = { "Combo 10+ : PARFAIT = +2", "Une erreur = -2" },
+    Discipline = { "+1 par note, toujours", "Ne redescend JAMAIS" },
+    Obsession = { "Début : que les PARFAIT", "2e moitié : +2 par note" },
 }
 local JAUGES = { "DÉBUT", "FIN", "SÉCURITÉ" }
 local NOTES_PERSOS = { -- sur 5
@@ -239,7 +240,8 @@ local barre = nouveau("Frame", {
     Parent = gui,
 })
 nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = barre })
-texte({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -4), Size = UDim2.fromOffset(40, 28), Text = "👑", ZIndex = 3, Parent = barre })
+-- en haut de la mini-carte : la marche du premier (l'échelle s'adapte, les escaliers sont infinis)
+local hautBarre = texte({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -4), Size = UDim2.fromOffset(50, 24), TextColor3 = OR, ZIndex = 3, Parent = barre })
 
 -- Écran de fin
 local ecranFin = nouveau("Frame", {
@@ -313,25 +315,45 @@ end
 local BLEU_MUSIQUE = Color3.fromRGB(120, 170, 255)
 
 -- 🔊 Petits bruits de l'interface
+-- (les « rbxasset:// » sont fournis avec Roblox : ils marchent toujours, même jeu pas publié)
+local jouerSon, sonSurvol, sonClic, sonClaque
+do
 local SONS = {
-    survol = "rbxasset://sounds/volume_slider.ogg", -- son fourni avec Roblox : marche toujours
+    survol = "rbxasset://sounds/impact_water.mp3",  -- survol : petit « ploc » de bulle, doux (très accéléré et coupé court)
+    tic = "rbxasset://sounds/volume_slider.ogg",    -- tic-tac du chrono + accords du clic
     clic = "rbxassetid://12221967",                 -- le « clic » classique de Roblox
+    -- 👋 CLAQUE du check parfait : mets ici l'ID d'un son « slap » / « high five » de la Boutique (Toolbox → Audio)
+    --    pour un rendu parfait. Laisse "" : on fabrique une claque avec les sons de Roblox.
+    claque = "",
+    boum = "rbxasset://sounds/impact_explosion_03.mp3",
+    pose = "rbxasset://sounds/action_jump_land.mp3",
 }
 local sonsModeles = {}
 for nom, id in pairs(SONS) do
-    sonsModeles[nom] = nouveau("Sound", { Name = "MindsetUI_" .. nom, SoundId = id, Volume = 0.5, Parent = SoundService })
+    if id ~= "" then
+        sonsModeles[nom] = nouveau("Sound", { Name = "MindsetUI_" .. nom, SoundId = id, Volume = 0.5, Parent = SoundService })
+    end
 end
 task.spawn(function()
     pcall(function()
-        ContentProvider:PreloadAsync({ sonsModeles.clic }, function(_, etatChargement)
+        local aCharger = { sonsModeles.clic }
+        if sonsModeles.claque then
+            table.insert(aCharger, sonsModeles.claque)
+        end
+        ContentProvider:PreloadAsync(aCharger, function(id, etatChargement)
             if etatChargement ~= Enum.AssetFetchStatus.Success then
-                sonsModeles.clic.SoundId = SONS.survol -- secours si le clic ne se charge pas
+                if id == SONS.clic then
+                    sonsModeles.clic.SoundId = SONS.tic -- secours si le clic ne se charge pas
+                elseif id == SONS.claque then
+                    sonsModeles.claque = nil -- on fabriquera la claque nous-mêmes
+                end
             end
         end)
     end)
 end)
 
-local function jouerSon(nom, vitesse, volume, retard)
+-- coupe = au bout de combien de secondes on coupe le son (en fondu), pour garder juste l'attaque
+jouerSon = function(nom, vitesse, volume, retard, coupe)
     local modele = sonsModeles[nom]
     if not modele then
         return
@@ -342,7 +364,14 @@ local function jouerSon(nom, vitesse, volume, retard)
         son.Volume = volume or 0.5
         son.Parent = SoundService
         son:Play()
-        task.delay(3, function()
+        if coupe then
+            task.delay(coupe, function()
+                if son.Parent then
+                    tween(son, 0.08, { Volume = 0 })
+                end
+            end)
+        end
+        task.delay(if coupe then coupe + 0.15 else 3, function()
             son:Destroy()
         end)
     end
@@ -353,22 +382,34 @@ local function jouerSon(nom, vitesse, volume, retard)
     end
 end
 
--- Survol : chaque carte a sa note (do, ré, mi, sol, la, do), et ça monte si tu enchaînes vite
-local GAMME = { 1, 1.122, 1.26, 1.498, 1.682, 2 }
+-- Survol : un « ploc » doux, un peu plus aigu pour chaque carte, et qui monte si tu enchaînes vite
+local GAMME = { 1, 1.122, 1.26, 1.498, 1.682, 2, 2.245 }
 local serieSurvol, dernierSurvol = 0, 0
-local function sonSurvol(note)
+sonSurvol = function(note)
     local maintenant = os.clock()
-    serieSurvol = if maintenant - dernierSurvol < 0.7 then math.min(serieSurvol + 1, 8) else 0
+    serieSurvol = if maintenant - dernierSurvol < 0.7 then math.min(serieSurvol + 1, 6) else 0
     dernierSurvol = maintenant
-    jouerSon("survol", (GAMME[note] or 1) * (1 + serieSurvol * 0.03), 0.45)
+    local hauteur = 1 + ((GAMME[note] or 1) - 1) * 0.45
+    jouerSon("survol", 1.9 * hauteur * (1 + serieSurvol * 0.025), 0.28, nil, 0.16)
 end
-local function sonClic(note)
+sonClic = function(note)
     local base = GAMME[note] or 1
     jouerSon("clic", 1, 0.7)
-    jouerSon("survol", base * 0.75, 0.5)
-    jouerSon("survol", base * 1.5, 0.4, 0.07)
-    jouerSon("survol", base * 2, 0.3, 0.14)
+    jouerSon("tic", base * 0.75, 0.5)
+    jouerSon("tic", base * 1.5, 0.4, 0.07)
+    jouerSon("tic", base * 2, 0.3, 0.14)
 end
+-- 👋 La claque du check parfait
+sonClaque = function()
+    if sonsModeles.claque then
+        jouerSon("claque", 1, 1)
+    else
+        jouerSon("boum", 3.2, 0.55, nil, 0.12) -- l'attaque sèche d'une explosion, très aiguë = « clac »
+        jouerSon("pose", 2.4, 1, nil, 0.15)
+        jouerSon("tic", 0.6, 0.5)
+    end
+end
+end -- fin du bloc des sons
 
 -- Fond : la map floutée et un peu assombrie
 local flouLobby = nouveau("BlurEffect", { Name = "MindsetFlouLobby", Size = 0, Parent = Lighting })
@@ -438,7 +479,7 @@ local titreMusique = texteMenu({
     AnchorPoint = Vector2.new(0.5, 0),
     Position = UDim2.fromScale(0.5, 0.655),
     Size = UDim2.fromScale(0.6, 0.04),
-    Text = "🎵 VOTE POUR LA MUSIQUE",
+    Text = "VOTE POUR LA MUSIQUE",
     TextColor3 = BLEU_MUSIQUE,
     ZIndex = 12,
     Parent = menu,
@@ -454,6 +495,8 @@ local resume = texteMenu({
 local toutesCartes = {} -- les cartes animées (persos + musiques)
 local menuOuvert = false
 local dernierClicPerso = nil
+local panneauOuvert = false -- le panneau des classements est ouvert (les cartes ne réagissent plus)
+local majRecordsCartes -- défini plus bas (records affichés sur les cartes)
 
 -- 💥 Onde + étincelles qui partent de la carte cliquée
 local function explosion(objet, couleur)
@@ -567,7 +610,7 @@ local function creerCarte(parent, couleur, taille, note)
         BackgroundTransparency = 0,
         BackgroundColor3 = couleur,
         Font = Enum.Font.GothamBlack,
-        Text = "✔ CHOISI",
+        Text = "CHOISI",
         TextStrokeTransparency = 1,
         Visible = false,
         ZIndex = 18,
@@ -595,7 +638,7 @@ local function creerCarte(parent, couleur, taille, note)
         delai = 0,
     }
     carte.MouseEnter:Connect(function()
-        if c.survole or not menuOuvert then
+        if c.survole or not menuOuvert or panneauOuvert then
             return
         end
         c.survole = true
@@ -643,13 +686,13 @@ local monVote = nil
 local function majResume()
     local morceaux = {}
     if persoChoisi then
-        table.insert(morceaux, ICONES[persoChoisi] .. " " .. string.upper(persoChoisi))
+        table.insert(morceaux, string.upper(persoChoisi))
     else
-        table.insert(morceaux, "👆 Choisis ton état d'esprit")
+        table.insert(morceaux, "Choisis ton état d'esprit")
     end
     if next(boutonsMusique) then
         local b = monVote and boutonsMusique[monVote]
-        table.insert(morceaux, if b then "🎵 " .. b.valeur.Value else "🎵 Vote pour une musique")
+        table.insert(morceaux, if b then b.valeur.Value else "Vote pour une musique")
     end
     resume.Text = table.concat(morceaux, "   •   ")
     resume.TextColor3 = if persoChoisi then COULEURS[persoChoisi] else Color3.fromRGB(200, 200, 215)
@@ -679,28 +722,20 @@ for i, perso in ipairs(ORDRE_PERSOS) do
     local c = creerCarte(rangeePersos, couleur, UDim2.fromScale(0.235, 1), i)
     c.slot.LayoutOrder = i
     local carte = c.carte
+    -- le nom en grand en haut de la carte (plus d'icône)
     c.icone = texte({
         AnchorPoint = Vector2.new(0.5, 0),
-        Position = UDim2.fromScale(0.5, 0.05),
-        Size = UDim2.fromScale(0.6, 0.19),
-        Text = ICONES[perso],
-        TextStrokeTransparency = 1,
+        Position = UDim2.fromScale(0.5, 0.07),
+        Size = UDim2.fromScale(0.9, 0.13),
+        Text = string.upper(perso),
+        TextColor3 = couleur,
         ZIndex = 15,
         Parent = carte,
     })
     c.echelleIcone = nouveau("UIScale", { Parent = c.icone })
     texte({
         AnchorPoint = Vector2.new(0.5, 0),
-        Position = UDim2.fromScale(0.5, 0.245),
-        Size = UDim2.fromScale(0.9, 0.1),
-        Text = string.upper(perso),
-        TextColor3 = couleur,
-        ZIndex = 15,
-        Parent = carte,
-    })
-    texte({
-        AnchorPoint = Vector2.new(0.5, 0),
-        Position = UDim2.fromScale(0.5, 0.345),
+        Position = UDim2.fromScale(0.5, 0.21),
         Size = UDim2.fromScale(0.85, 0.055),
         Text = DEVISES[perso],
         Font = Enum.Font.GothamMedium,
@@ -711,7 +746,7 @@ for i, perso in ipairs(ORDRE_PERSOS) do
     })
     nouveau("Frame", {
         AnchorPoint = Vector2.new(0.5, 0),
-        Position = UDim2.fromScale(0.5, 0.42),
+        Position = UDim2.fromScale(0.5, 0.29),
         Size = UDim2.new(0.7, 0, 0, 2),
         BackgroundColor3 = couleur,
         BackgroundTransparency = 0.4,
@@ -722,7 +757,7 @@ for i, perso in ipairs(ORDRE_PERSOS) do
     for j, ligne in ipairs(COMPETENCES[perso]) do
         texte({
             AnchorPoint = Vector2.new(0.5, 0),
-            Position = UDim2.fromScale(0.5, 0.445 + (j - 1) * 0.085),
+            Position = UDim2.fromScale(0.5, 0.32 + (j - 1) * 0.085),
             Size = UDim2.fromScale(0.9, 0.07),
             Text = ligne,
             Font = Enum.Font.GothamBold,
@@ -732,10 +767,22 @@ for i, perso in ipairs(ORDRE_PERSOS) do
             Parent = carte,
         })
     end
+    -- le record de cet état d'esprit (tous joueurs)
+    c.record = texte({
+        AnchorPoint = Vector2.new(0.5, 0),
+        Position = UDim2.fromScale(0.5, 0.85),
+        Size = UDim2.fromScale(0.86, 0.055),
+        Text = "RECORD : —",
+        Font = Enum.Font.GothamBold,
+        TextColor3 = OR,
+        TextStrokeTransparency = 1,
+        ZIndex = 15,
+        Parent = carte,
+    })
     -- jauges DÉBUT / FIN / SÉCURITÉ (5 cases)
     c.segments = {}
     for j, nomJauge in ipairs(JAUGES) do
-        local y = 0.64 + (j - 1) * 0.095
+        local y = 0.53 + (j - 1) * 0.095
         texte({
             Position = UDim2.fromScale(0.07, y),
             Size = UDim2.fromScale(0.36, 0.06),
@@ -848,7 +895,7 @@ local function reconstruireMusiques()
         end
         local c = creerCarte(rangeeMusiques, BLEU_MUSIQUE, UDim2.fromScale(1 / #valeurs - 0.02, 1), 3 + i)
         c.slot.LayoutOrder = i
-        c.badge.Text = "✔ TON VOTE"
+        c.badge.Text = "TON VOTE"
         c.valeur = valeur
         if menuOuvert then
             c.delai = os.clock() + 0.3 + i * 0.07
@@ -878,7 +925,7 @@ local function reconstruireMusiques()
         })
         c.votes = texte({
             Position = UDim2.fromScale(0.26, 0.55),
-            Size = UDim2.fromScale(0.45, 0.2),
+            Size = UDim2.fromScale(0.3, 0.2),
             Font = Enum.Font.GothamBold,
             TextColor3 = OR,
             TextStrokeTransparency = 1,
@@ -886,6 +933,20 @@ local function reconstruireMusiques()
             ZIndex = 15,
             Parent = c.carte,
         })
+        -- le record de la musique (tous états d'esprit)
+        c.record = texte({
+            Position = UDim2.fromScale(0.56, 0.57),
+            Size = UDim2.fromScale(0.4, 0.16),
+            Font = Enum.Font.GothamBold,
+            TextColor3 = Color3.fromRGB(200, 200, 215),
+            TextStrokeTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            ZIndex = 15,
+            Parent = c.carte,
+        })
+        valeur:GetAttributeChangedSignal("Cle"):Connect(function()
+            majRecordsCartes()
+        end)
         local fond = nouveau("Frame", {
             Position = UDim2.fromScale(0.05, 0.83),
             Size = UDim2.fromScale(0.9, 0.07),
@@ -921,6 +982,37 @@ local function reconstruireMusiques()
     end
     titreMusique.Visible = next(boutonsMusique) ~= nil
     majVotesMusique()
+    majRecordsCartes()
+end
+
+-- Les records affichés sur les cartes (le serveur les met dans ReplicatedStorage.Classements)
+local function texteRecord(cle)
+    local valeur = cle and dossierClassements:FindFirstChild(cle)
+    local score = if valeur then valeur:GetAttribute("Top1Score") or 0 else 0
+    if score <= 0 then
+        return "RECORD : —"
+    end
+    return "RECORD : " .. score .. "  •  " .. tostring(valeur:GetAttribute("Top1Nom"))
+end
+majRecordsCartes = function()
+    for perso, c in pairs(cartes) do
+        if c.record then
+            c.record.Text = texteRecord("P_" .. perso)
+        end
+    end
+    for _, b in pairs(boutonsMusique) do
+        if b.record then
+            b.record.Text = texteRecord(b.valeur:GetAttribute("Cle"))
+        end
+    end
+end
+local function suivreClassement(valeur)
+    valeur.AttributeChanged:Connect(majRecordsCartes)
+    majRecordsCartes()
+end
+dossierClassements.ChildAdded:Connect(suivreClassement)
+for _, valeur in ipairs(dossierClassements:GetChildren()) do
+    suivreClassement(valeur)
 end
 
 -- Le serveur remplace les 3 musiques d'un coup : on attend un poil avant de reconstruire
@@ -942,12 +1034,12 @@ reconstruireMusiques()
 -- ---------- Chrono du menu (tic-tac les 5 dernières secondes) ----------
 ReplicatedStorage:GetAttributeChangedSignal("Temps"):Connect(function()
     local temps = ReplicatedStorage:GetAttribute("Temps") or 0
-    chronoMenu.Text = if temps > 0 then "⏱️ " .. temps else ""
+    chronoMenu.Text = if temps > 0 then tostring(temps) else ""
     if menuOuvert and temps > 0 and temps <= 5 then
         chronoMenu.TextColor3 = ROUGE
         echelleChrono.Scale = 1.4
         tween(echelleChrono, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
-        jouerSon("survol", 0.5 + (6 - temps) * 0.1, 0.35)
+        jouerSon("tic", 0.5 + (6 - temps) * 0.1, 0.35)
     else
         chronoMenu.TextColor3 = OR
     end
@@ -975,7 +1067,7 @@ local function ouvrirMenu()
         local c = cartes[perso]
         c.x, c.v = 0, 0
         c.delai = depart + rang * 0.07
-        jouerSon("survol", 0.7 + rang * 0.1, 0.25, c.delai - os.clock())
+        jouerSon("survol", 1.6 + rang * 0.15, 0.2, c.delai - os.clock(), 0.16)
         rang += 1
     end
     for i = 1, #toutesCartes do
@@ -1064,8 +1156,7 @@ RunService.RenderStepped:Connect(function(dt)
         c.voile.BackgroundTransparency += ((if sombre then 0.5 else 1) - c.voile.BackgroundTransparency) * lisse
 
         if c.icone then
-            c.echelleIcone.Scale += ((if c.survole then 1.25 else 1) - c.echelleIcone.Scale) * lisse
-            c.icone.Rotation = if c.survole then math.sin(t * 12) * 9 else c.icone.Rotation * (1 - lisse)
+            c.echelleIcone.Scale += ((if c.survole then 1.12 else 1) - c.echelleIcone.Scale) * lisse
         end
         if c.barres then
             for k, barreEq in ipairs(c.barres) do
@@ -1076,11 +1167,200 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
+-- ========================== ESCALIERS INFINIS ==========================
+-- Il n'y a plus de sommet : on ne construit que les marches autour de la caméra,
+-- et on recycle celles qui sortent de l'écran. Comme ça, ça peut monter à l'infini.
+-- (tout est dans un bloc do ... end : Luau limite le nombre de variables locales d'un script)
+local sceneLocale = nouveau("Folder", { Name = "MindsetSceneLocale", Parent = workspace })
+local couloirs = {}  -- [couloir] = { marches = {[numero] = part}, ligne = part }
+local FOND_Z = GEO.Z0 - NB_COULOIRS * GEO.ECART - 15
+local majEscaliers, allumerMarche, eclats, ondeSol, fondScene, poussiere
+do
+local MARCHES_DERRIERE, MARCHES_DEVANT = 40, 50
+local BLANC_MARCHE = Color3.fromRGB(235, 235, 245)
+local reserve = {}   -- marches recyclées
+
+local function blocLocal(proprietes)
+    proprietes.Anchored = true
+    proprietes.CanCollide = false
+    proprietes.CanQuery = false
+    proprietes.CanTouch = false
+    proprietes.CastShadow = false
+    proprietes.TopSurface = Enum.SurfaceType.Smooth
+    proprietes.BottomSurface = Enum.SurfaceType.Smooth
+    proprietes.Parent = proprietes.Parent or sceneLocale
+    return nouveau("Part", proprietes)
+end
+
+-- couleur de base d'une marche : tous les 10 un peu dorée (avec son numéro), tous les 50 en néon
+local function lookMarche(numero)
+    if numero > 0 and numero % 50 == 0 then
+        return OR, Enum.Material.Neon
+    elseif numero > 0 and numero % 10 == 0 then
+        return Color3.fromRGB(255, 236, 175), Enum.Material.SmoothPlastic
+    end
+    return BLANC_MARCHE, Enum.Material.SmoothPlastic
+end
+
+local function placerMarche(couloir, numero)
+    local part = table.remove(reserve)
+    if not part then
+        part = blocLocal({ Name = "Marche" })
+        local panneau = nouveau("SurfaceGui", {
+            Name = "Numero",
+            Face = Enum.NormalId.Back, -- la face tournée vers la caméra
+            SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
+            PixelsPerStud = 40,
+            LightInfluence = 0,
+            Parent = part,
+        })
+        texte({ Size = UDim2.fromScale(1, 0.45), TextColor3 = Color3.fromRGB(60, 50, 20), TextStrokeTransparency = 1, Parent = panneau })
+    end
+    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
+    local largeur, x = D, GEO.X0 + (numero + 0.5) * D
+    if numero == 0 then
+        largeur = D * 4
+        x = GEO.X0 + D - largeur / 2
+    end
+    local z = GEO.Z0 - couloir * GEO.ECART
+    -- des marches « pleines » (3 de haut) pour que ça ressemble à un vrai escalier
+    part.Size = Vector3.new(largeur, H * 3, 5)
+    part.Position = Vector3.new(x, GEO.Y0 + numero * H - H * 1.5, z)
+    local couleur, matiere = lookMarche(numero)
+    part.Color = couleur
+    part.Material = matiere
+    part:SetAttribute("Allumage", (part:GetAttribute("Allumage") or 0) + 1) -- annule un allumage en cours
+    local panneau = part:FindFirstChild("Numero")
+    if panneau then
+        panneau.Enabled = numero > 0 and numero % 10 == 0
+        panneau:FindFirstChildOfClass("TextLabel").Text = tostring(numero)
+    end
+    return part
+end
+
+for couloir = 0, NB_COULOIRS - 1 do
+    couloirs[couloir] = {
+        marches = {},
+        -- ligne néon le long des marches (colorée avec la couleur du perso du couloir)
+        ligne = blocLocal({ Name = "Ligne", Size = Vector3.new(1, 0.35, 0.35), Color = Color3.fromRGB(70, 70, 80), Material = Enum.Material.Neon }),
+    }
+end
+
+local fenetreA, fenetreB = nil, nil
+majEscaliers = function(marcheCentre)
+    local a = math.max(0, math.floor(marcheCentre) - MARCHES_DERRIERE)
+    local b = math.max(a + 10, math.floor(marcheCentre) + MARCHES_DEVANT)
+    if a == fenetreA and b == fenetreB then
+        return
+    end
+    fenetreA, fenetreB = a, b
+    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
+    for couloir, co in pairs(couloirs) do
+        for numero, part in pairs(co.marches) do
+            if numero < a or numero > b then
+                co.marches[numero] = nil
+                part.Position = Vector3.new(0, -1000, 0)
+                table.insert(reserve, part)
+            end
+        end
+        for numero = a, b do
+            if not co.marches[numero] then
+                co.marches[numero] = placerMarche(couloir, numero)
+            end
+        end
+        local z = GEO.Z0 - couloir * GEO.ECART
+        local debut = Vector3.new(GEO.X0 + a * D, GEO.Y0 + a * H, z + 2.6)
+        local fin = Vector3.new(GEO.X0 + (b + 1) * D, GEO.Y0 + (b + 1) * H, z + 2.6)
+        co.ligne.Size = Vector3.new((fin - debut).Magnitude, 0.35, 0.35)
+        co.ligne.CFrame = CFrame.new((debut + fin) / 2) * CFrame.Angles(0, 0, math.atan2(H, D))
+    end
+end
+majEscaliers(0)
+
+-- La marche brille quand on atterrit dessus
+allumerMarche = function(couloir, numero, couleur)
+    local co = couloir and couloirs[couloir]
+    local part = co and co.marches[numero]
+    if not part then
+        return
+    end
+    local allumage = (part:GetAttribute("Allumage") or 0) + 1
+    part:SetAttribute("Allumage", allumage)
+    local base, matiere = lookMarche(numero)
+    part.Color = couleur
+    part.Material = Enum.Material.Neon
+    tween(part, 0.45, { Color = base:Lerp(couleur, 0.15) })
+    task.delay(0.45, function()
+        if part:GetAttribute("Allumage") == allumage then
+            part.Color = base
+            part.Material = matiere
+        end
+    end)
+end
+
+-- Fond noir + poussière d'aura : ils suivent la caméra (les escaliers n'ont pas de fin)
+fondScene = blocLocal({ Name = "Fond", Size = Vector3.new(900, 600, 2), Color = Color3.fromRGB(8, 8, 14), Material = Enum.Material.SmoothPlastic })
+poussiere = blocLocal({ Name = "Poussiere", Size = Vector3.new(500, 300, 1), Transparency = 1 })
+nouveau("ParticleEmitter", {
+    Rate = 60,
+    Lifetime = NumberRange.new(6, 10),
+    Speed = NumberRange.new(1, 3),
+    SpreadAngle = Vector2.new(180, 180),
+    Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(0.5, 0.7),
+        NumberSequenceKeypoint.new(1, 0),
+    }),
+    Transparency = NumberSequence.new(0.3),
+    LightEmission = 1,
+    Color = ColorSequence.new(Color3.fromRGB(200, 200, 255)),
+    Parent = poussiere,
+})
+
+-- Éclats (petites étincelles 3D) et onde au sol : pour les atterrissages, la danse et le check
+local porteEclats = blocLocal({ Name = "Eclats", Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1 })
+local emetteurEclats = nouveau("ParticleEmitter", {
+    Rate = 0,
+    Lifetime = NumberRange.new(0.3, 0.7),
+    Speed = NumberRange.new(6, 16),
+    SpreadAngle = Vector2.new(180, 180),
+    Drag = 4,
+    Acceleration = Vector3.new(0, -12, 0),
+    Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 0) }),
+    LightEmission = 1,
+    Parent = porteEclats,
+})
+eclats = function(position, couleur, nombre, vitesse)
+    porteEclats.Position = position
+    emetteurEclats.Color = ColorSequence.new(couleur, BLANC)
+    emetteurEclats.Speed = NumberRange.new(6 * (vitesse or 1), 16 * (vitesse or 1))
+    emetteurEclats:Emit(nombre)
+end
+ondeSol = function(position, couleur, taille, vertical)
+    local onde = blocLocal({
+        Name = "Onde",
+        Shape = Enum.PartType.Cylinder,
+        Material = Enum.Material.Neon,
+        Color = couleur,
+        Transparency = 0.15,
+        Size = Vector3.new(0.12, 1, 1),
+        -- à plat sur la marche, ou face à la caméra (vertical)
+        CFrame = CFrame.new(position) * (if vertical then CFrame.Angles(0, math.pi / 2, 0) else CFrame.Angles(0, 0, math.pi / 2)),
+    })
+    tween(onde, 0.4, { Size = Vector3.new(0.12, taille, taille), Transparency = 1 })
+    task.delay(0.42, function()
+        onde:Destroy()
+    end)
+end
+end -- fin du bloc des escaliers
+
 -- ========================== AVATARS SUR LES MARCHES ==========================
 local ANIMS = {
     attente = "rbxassetid://507766388", -- animations R15 par défaut de Roblox
     saut = "rbxassetid://507765000",
     chute = "rbxassetid://507767968",
+    -- les 3 danses de base de Roblox (/e dance, /e dance2, /e dance3)
+    danses = { "rbxassetid://507771019", "rbxassetid://507776043", "rbxassetid://507777268" },
 }
 local avatars = {}  -- [config] = état de l'avatar
 local monEtat = nil
@@ -1129,8 +1409,53 @@ local function chargerAnims(etat)
     etat.animAttente = charger(ANIMS.attente, Enum.AnimationPriority.Action, true)
     etat.animSaut = charger(ANIMS.saut, Enum.AnimationPriority.Action2, false)
     etat.animChute = charger(ANIMS.chute, Enum.AnimationPriority.Action2, true)
+    etat.animDanses = {}
+    for i, id in ipairs(ANIMS.danses) do
+        etat.animDanses[i] = charger(id, Enum.AnimationPriority.Action3, true)
+    end
+    etat.danseJouee = 0
     if etat.animAttente then
         etat.animAttente:Play()
+    end
+
+    -- traînée lumineuse pendant les sauts
+    local racine = etat.modele:FindFirstChild("HumanoidRootPart")
+    if racine then
+        local a0 = nouveau("Attachment", { Name = "MindsetTrainee0", Position = Vector3.new(0, 1, 0), Parent = racine })
+        local a1 = nouveau("Attachment", { Name = "MindsetTrainee1", Position = Vector3.new(0, -1.2, 0), Parent = racine })
+        etat.trainee = nouveau("Trail", {
+            Name = "MindsetTrainee",
+            Attachment0 = a0,
+            Attachment1 = a1,
+            Lifetime = 0.22,
+            MinLength = 0.05,
+            FaceCamera = true,
+            LightEmission = 1,
+            Transparency = NumberSequence.new(0.3, 1),
+            Color = ColorSequence.new(couleurDe(etat)),
+            Enabled = false,
+            Parent = racine,
+        })
+    end
+end
+
+-- La danse du gagnant (attribut « Danse » : 0 = rien, 1/2/3 = la danse jouée)
+local function majDanse(etat)
+    if not etat.animDanses then
+        return
+    end
+    local n = etat.config:GetAttribute("Danse") or 0
+    if n == etat.danseJouee then
+        return
+    end
+    local avant = etat.animDanses[etat.danseJouee]
+    if avant then
+        avant:Stop(0.25)
+    end
+    etat.danseJouee = n
+    local piste = etat.animDanses[n]
+    if piste then
+        piste:Play(0.25)
     end
 end
 
@@ -1142,6 +1467,9 @@ local function majEtiquette(etat)
     local combo = etat.config:GetAttribute("Combo") or 0
     etat.etiquettePerso.Text = if perso then string.upper(perso) else "???"
     etat.etiquettePerso.TextColor3 = couleurDe(etat)
+    if etat.trainee then
+        etat.trainee.Color = ColorSequence.new(couleurDe(etat))
+    end
     local nom = etat.config:GetAttribute("Nom") or ""
     etat.etiquetteNom.Text = if combo >= 5 then nom .. "  •  x" .. combo else nom
 end
@@ -1235,18 +1563,18 @@ local function majCouloirs()
             occupants[etat.couloir] = etat
         end
     end
-    local scene = workspace:FindFirstChild("MindsetScene")
-    for couloir = 0, NB_COULOIRS - 1 do
-        local dossier = scene and scene:FindFirstChild("Couloir" .. couloir)
-        local ligne = dossier and dossier:FindFirstChild("Ligne")
-        if ligne then
-            ligne.Color = if occupants[couloir] then couleurDe(occupants[couloir]) else Color3.fromRGB(70, 70, 80)
-        end
+    for couloir, co in pairs(couloirs) do
+        co.ligne.Color = if occupants[couloir] then couleurDe(occupants[couloir]) else Color3.fromRGB(70, 70, 80)
     end
 end
 
 local effetsMoi -- défini plus bas (réactions quand TU montes/descends)
 
+-- Une marche montée AVEC STYLE :
+--   +1 normal  : petit bond penché en avant
+--   tous les 5 de combo : une vrille (tour complet sur lui-même)
+--   +2 ou plus : un SALTO avant
+-- et à l'atterrissage : la marche s'allume, onde au sol et étincelles.
 local function nouvelleMarche(etat)
     local cible = etat.config:GetAttribute("Marche") or 0
     local depart = etat.marcheAffichee or cible
@@ -1254,13 +1582,31 @@ local function nouvelleMarche(etat)
         return
     end
     local monte = cible > depart
+    if not monte and depart - cible > 6 then
+        -- grosse remise à zéro (nouvelle partie) : on le pose direct en bas, sans animation
+        etat.saut = nil
+        etat.marcheAffichee = cible
+        return
+    end
+    local ecart = math.abs(cible - depart)
+    local combo = etat.config:GetAttribute("Combo") or 0
+    local figure = "simple"
+    if monte and ecart >= 1.5 then
+        figure = "salto"
+    elseif monte and combo > 0 and combo % 5 == 0 then
+        figure = "vrille"
+    end
     etat.saut = {
         de = depart,
         a = cible,
         debut = os.clock(),
-        duree = math.min(0.4, 0.16 + 0.04 * math.abs(cible - depart)),
+        duree = if figure == "salto" then 0.42 elseif figure == "vrille" then 0.36 elseif monte then 0.26 else 0.3,
         monte = monte,
+        figure = figure,
     }
+    if etat.trainee and monte then
+        etat.trainee.Enabled = true
+    end
     if monte and etat.animSaut then
         etat.animSaut:Play(0.05)
     elseif not monte and etat.animChute then
@@ -1270,6 +1616,55 @@ local function nouvelleMarche(etat)
         effetsMoi(depart, cible)
     end
 end
+
+local function atterrir(etat, saut)
+    if etat.trainee then
+        etat.trainee.Enabled = false
+    end
+    if not etat.couloir then
+        return
+    end
+    local numero = math.floor(saut.a + 0.5)
+    local couleur = if saut.monte then couleurDe(etat) else ROUGE
+    allumerMarche(etat.couloir, numero, couleur)
+    if saut.monte then
+        local sol = positionMarche(etat.couloir, numero, 0.1)
+        ondeSol(sol, couleur, if saut.figure == "salto" then 7 else 4.5)
+        eclats(sol, couleur, if saut.figure == "simple" then 5 else 12)
+        if etat.estMoi then
+            fovPulse = math.min(fovPulse, if saut.figure == "salto" then -2.5 else -0.8)
+            if saut.figure ~= "simple" then
+                secousse(0.5)
+            end
+        end
+    end
+end
+
+-- « +1 AURA » qui s'envole au-dessus du danseur
+local function popupAura(etat)
+    local tete = etat.modele and (etat.modele:FindFirstChild("Head") or etat.modele:FindFirstChild("HumanoidRootPart"))
+    if not tete then
+        return
+    end
+    local couleur = couleurDe(etat)
+    local decalX = (math.random() - 0.5) * 3
+    local bulle = nouveau("BillboardGui", {
+        Size = UDim2.fromOffset(140, 40),
+        StudsOffsetWorldSpace = Vector3.new(decalX, 4.5, 0),
+        AlwaysOnTop = true,
+        LightInfluence = 0,
+        MaxDistance = 3000,
+        Parent = tete,
+    })
+    local label = texte({ Size = UDim2.fromScale(1, 1), Text = "+1 AURA", TextColor3 = if math.random() < 0.3 then OR else couleur, Parent = bulle })
+    tween(bulle, 0.8, { StudsOffsetWorldSpace = Vector3.new(decalX * 1.4, 8, 0) }, Enum.EasingStyle.Quint)
+    tween(label, 0.8, { TextTransparency = 1, TextStrokeTransparency = 1 }, Enum.EasingStyle.Quint)
+    task.delay(0.8, function()
+        bulle:Destroy()
+    end)
+    eclats(tete.Position, couleur, 4, 0.6)
+end
+local surAuraFarmee -- défini plus bas (compteur à l'écran quand c'est TOI qui danses)
 
 local function ajouterGrimpeur(config)
     if avatars[config] then
@@ -1292,6 +1687,8 @@ local function ajouterGrimpeur(config)
         etat.modele = valeur and valeur.Value
         etat.hauteur = nil
         etat.animAttente, etat.animSaut, etat.animChute = nil, nil, nil
+        etat.animDanses, etat.danseJouee, etat.trainee = nil, 0, nil
+        etat.cinematique, etat.c0Origine = nil, nil
         etat.effets = {}
         etat.niveauAffiche = 0
         local modele = etat.modele
@@ -1306,6 +1703,7 @@ local function ajouterGrimpeur(config)
             chargerAnims(etat)
             creerEtiquette(etat)
             majAuraAvatar(etat)
+            majDanse(etat)
         end)
     end
     if valeur then
@@ -1325,6 +1723,18 @@ local function ajouterGrimpeur(config)
     end)
     config:GetAttributeChangedSignal("NiveauAura"):Connect(function()
         majAuraAvatar(etat)
+    end)
+    config:GetAttributeChangedSignal("Danse"):Connect(function()
+        majDanse(etat)
+    end)
+    config:GetAttributeChangedSignal("AuraFarmee"):Connect(function()
+        local n = config:GetAttribute("AuraFarmee") or 0
+        if n > 0 then
+            popupAura(etat)
+            if etat.estMoi and surAuraFarmee then
+                surAuraFarmee(n)
+            end
+        end
     end)
     majCouloirs()
 end
@@ -1519,7 +1929,7 @@ effetsMoi = function(depart, cible)
         apparaitre(auraTexte, "💀 -" .. math.floor(depart - cible + 0.5) .. " MARCHE" .. (if depart - cible > 1.5 then "S" else ""), 0.8)
         return
     end
-    if math.floor(cible / 10) > math.floor(depart / 10) and cible < NB_MARCHES then
+    if math.floor(cible / 10) > math.floor(depart / 10) then
         grosTexte.TextColor3 = maCouleur()
         apparaitre(grosTexte, "🪜 " .. math.floor(cible / 10) * 10 .. " MARCHES !", 1, echelleGros)
         flasher(maCouleur(), 0.3)
@@ -1679,15 +2089,254 @@ DebutEvent.OnClientEvent:Connect(function(infos)
     end)
 end)
 
+-- ========================== CHECK PARFAIT (égalité) ==========================
+-- Deux joueurs ex æquo à la fin : ils s'élancent l'un vers l'autre, se tapent dans la main en l'air
+-- (CLAC !), et redescendent côte à côte, face à face.
+local focusCheck = nil -- si défini, la caméra regarde ce point
+local jouerCheck
+do
+local function moteurEpaule(modele, cote)
+    local nomR15 = if cote == "D" then "RightShoulder" else "LeftShoulder"
+    local nomR6 = if cote == "D" then "Right Shoulder" else "Left Shoulder"
+    local moteur = modele:FindFirstChild(nomR15, true) or modele:FindFirstChild(nomR6, true)
+    if moteur and moteur:IsA("Motor6D") then
+        return moteur, moteur.Name == nomR6
+    end
+    return nil, false
+end
+
+-- lève le bras (force 0 = bras le long du corps, 1 = bras tendu vers le haut et l'avant)
+local function leverBras(etat, cote, force)
+    local moteur, estR6 = moteurEpaule(etat.modele, cote)
+    if not moteur then
+        return
+    end
+    etat.c0Origine = etat.c0Origine or {}
+    if not etat.c0Origine[moteur] then
+        etat.c0Origine[moteur] = moteur.C0
+    end
+    local angle = math.rad(150) * force
+    local rotation
+    if estR6 then
+        rotation = CFrame.Angles(0, 0, if cote == "D" then angle else -angle)
+    else
+        rotation = CFrame.Angles(angle, 0, 0)
+    end
+    moteur.C0 = etat.c0Origine[moteur] * rotation
+end
+
+local function baisserBras(etat)
+    for moteur, c0 in pairs(etat.c0Origine or {}) do
+        if moteur.Parent then
+            moteur.C0 = c0
+        end
+    end
+    etat.c0Origine = nil
+end
+
+local function versCF(position, sens, tour)
+    return CFrame.lookAt(position, position + Vector3.new(sens, 0, 0)) * CFrame.Angles(0, tour or 0, 0)
+end
+
+local function clacParfait(point, couleurA, couleurB)
+    sonClaque()
+    flasher(BLANC, 0.85)
+    secousse(2.5)
+    fovPulse = -7
+    flou.Size = 12
+    tween(flou, 0.5, { Size = 0 })
+    eclats(point, couleurA, 30, 1.4)
+    eclats(point, couleurB, 30, 1.4)
+    eclats(point, OR, 20, 2)
+    ondeSol(point, BLANC, 12, true)
+    task.delay(0.08, function()
+        ondeSol(point, OR, 8, true)
+    end)
+    grosTexte.TextColor3 = OR
+    apparaitre(grosTexte, "CHECK PARFAIT !", 2, echelleGros)
+end
+
+jouerCheck = function(configA, configB)
+    local a, b = avatars[configA], avatars[configB]
+    if not (a and b and a.modele and b.modele and a.hauteur and b.hauteur and a.couloir and b.couloir) then
+        return
+    end
+    if b.couloir < a.couloir then
+        a, b = b, a -- « a » est celui de devant : ils se rejoignent dans son couloir
+    end
+    local m = math.floor((a.config:GetAttribute("Marche") or 0) + 0.5)
+    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
+    local departA = positionMarche(a.couloir, m, a.hauteur)
+    local departB = positionMarche(b.couloir, m, b.hauteur)
+    local xMilieu = GEO.X0 + (m + 1) * D
+    local yPied = GEO.Y0 + m * H + 4.5 -- ils sautent à 4,5 studs au-dessus de la marche
+    local hautA = Vector3.new(xMilieu - 1.1, yPied + a.hauteur, departA.Z)
+    local hautB = Vector3.new(xMilieu + 1.1, yPied + b.hauteur, departA.Z)
+    local finA = positionMarche(a.couloir, m, a.hauteur)
+    local finB = positionMarche(a.couloir, m + 1, b.hauteur) -- B atterrit sur la marche d'après, face à A
+    local pointClac = Vector3.new(xMilieu, yPied + math.max(a.hauteur, b.hauteur) + 2.6, departA.Z + 0.6)
+    focusCheck = Vector3.new(xMilieu, yPied + 1, departA.Z)
+
+    for _, etat in ipairs({ a, b }) do
+        etat.saut = nil
+        if etat.animAttente then
+            etat.animAttente:Stop(0.1)
+        end
+        if etat.trainee then
+            etat.trainee.Enabled = true
+        end
+    end
+
+    local t0 = os.clock()
+    local function trajectoire(etat, depart, haut, fin, cote, tourne)
+        etat.cinematique = function(horloge)
+            local t = horloge - t0
+            local position, bras, tour
+            if t < 0.35 then -- il se baisse pour prendre son élan
+                local k = t / 0.35
+                position = depart - Vector3.new(0, 0.7 * math.sin(k * math.pi / 2), 0)
+                bras, tour = 0.25 * k, 0
+            elseif t < 0.85 then -- le bond
+                local k = (t - 0.35) / 0.5
+                local doux = 1 - (1 - k) ^ 3
+                position = (depart - Vector3.new(0, 0.7, 0)):Lerp(haut, doux)
+                bras, tour = 0.25 + 0.75 * doux, (if tourne then math.pi * doux else 0)
+            elseif t < 1.35 then -- suspendus en l'air après le CLAC
+                local k = (t - 0.85) / 0.5
+                position = haut + Vector3.new(0, math.sin(k * math.pi) * 0.3, 0)
+                bras, tour = 1, (if tourne then math.pi else 0)
+            elseif t < 1.85 then -- ils redescendent
+                local k = (t - 1.35) / 0.5
+                position = haut:Lerp(fin, k * k) + Vector3.new(0, math.sin(k * math.pi) * 0.8, 0)
+                bras, tour = 1 - k, (if tourne then math.pi else 0)
+            else
+                return nil
+            end
+            leverBras(etat, cote, bras)
+            return versCF(position, 1, tour)
+        end
+        etat.finCinematique = function()
+            baisserBras(etat)
+            if etat.trainee then
+                etat.trainee.Enabled = false
+            end
+            if etat.animAttente then
+                etat.animAttente:Play(0.2)
+            end
+            etat.positionForcee = { couloir = a.couloir, marche = if etat == a then m else m + 1, sens = if tourne then -1 else 1 }
+            allumerMarche(a.couloir, etat.positionForcee.marche, couleurDe(etat))
+            local sol = positionMarche(a.couloir, etat.positionForcee.marche, 0.1)
+            ondeSol(sol, couleurDe(etat), 6)
+            eclats(sol, couleurDe(etat), 10)
+            secousse(0.6)
+        end
+    end
+    -- A lève le bras droit, B (qui se retourne) lève le gauche : les deux mains sont côté caméra
+    trajectoire(a, departA, hautA, finA, "D", false)
+    trajectoire(b, departB, hautB, finB, "G", true)
+    task.delay(0.85, function()
+        clacParfait(pointClac, couleurDe(a), couleurDe(b))
+    end)
+end
+end -- fin du bloc du check
+
+-- ========================== DANSE DU GAGNANT ==========================
+local arreterDanseUI, demarrerDanseUI
+do
+local uiDanse =nouveau("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), Visible = false, ZIndex = 34, Parent = gui })
+local boutonDanse = nouveau("TextButton", {
+    AnchorPoint = Vector2.new(0.5, 1),
+    Position = UDim2.new(0.5, 0, 0.86, 0),
+    Size = UDim2.fromOffset(if surMobile then 300 else 340, 84),
+    BackgroundColor3 = OR,
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBlack,
+    Text = "DANSE !",
+    TextScaled = true,
+    TextColor3 = NOIR,
+    ZIndex = 36,
+    Parent = uiDanse,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = boutonDanse })
+nouveau("UIStroke", { Color = BLANC, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = boutonDanse })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 14), PaddingBottom = UDim.new(0, 14), Parent = boutonDanse })
+local echelleBoutonDanse = nouveau("UIScale", { Parent = boutonDanse })
+texte({
+    AnchorPoint = Vector2.new(0.5, 1),
+    Position = UDim2.new(0.5, 0, 0.86, -92),
+    Size = UDim2.new(0.6, 0, 0, 28),
+    Text = if surMobile then "Tape sur DANSE pour farm l'aura !" else "Clique sur DANSE ou appuie sur ESPACE pour farm l'aura !",
+    ZIndex = 36,
+    Parent = uiDanse,
+})
+local compteurDanse = texte({
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.36),
+    Size = UDim2.new(0.6, 0, 0, 60),
+    TextColor3 = OR,
+    Text = "",
+    ZIndex = 36,
+    Parent = uiDanse,
+})
+local echelleCompteurDanse = nouveau("UIScale", { Parent = compteurDanse })
+local danseActive, danseFin = false, 0
+
+arreterDanseUI = function()
+    danseActive = false
+    uiDanse.Visible = false
+end
+demarrerDanseUI = function(fin)
+    danseActive, danseFin = true, fin
+    compteurDanse.Text = "FARM TON AURA !"
+    uiDanse.Visible = true
+    echelleBoutonDanse.Scale = 0
+    tween(echelleBoutonDanse, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+end
+-- le bouton DANSE pulse, et disparaît tout seul à la fin de la danse
+RunService.RenderStepped:Connect(function()
+    if danseActive then
+        if maintenantServeur() > danseFin then
+            arreterDanseUI()
+        else
+            boutonDanse.Rotation = math.sin(os.clock() * 9) * 3
+        end
+    end
+end)
+
+local function danser()
+    if not danseActive or maintenantServeur() > danseFin then
+        return
+    end
+    DanserEvent:FireServer()
+    echelleBoutonDanse.Scale = 0.86
+    tween(echelleBoutonDanse, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+    jouerSon("survol", 1.7 + math.random() * 0.6, 0.25, nil, 0.16)
+end
+boutonDanse.Activated:Connect(danser)
+UserInputService.InputBegan:Connect(function(input, gere)
+    if input.KeyCode == Enum.KeyCode.Space and danseActive and not gere then
+        danser()
+    end
+end)
+
+surAuraFarmee = function(n)
+    compteurDanse.Text = "+" .. n .. " AURA FARMÉE"
+    echelleCompteurDanse.Scale = 1.25
+    tween(echelleCompteurDanse, 0.15, { Scale = 1 })
+    if n % 10 == 0 then
+        -- changement de danse : petit boost
+        flasher(OR, 0.25)
+        secousse(0.8)
+        fovPulse = math.min(fovPulse, -3)
+        jouerSon("tic", 1.5, 0.4)
+        jouerSon("tic", 2, 0.3, 0.06)
+    end
+end
+end -- fin du bloc de la danse
+
 -- ========================== ÉVÉNEMENTS ==========================
 EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
-    if typeEvt == "Sommet" then
-        local couleur = COULEURS[b] or OR
-        grosTexte.TextColor3 = couleur
-        apparaitre(grosTexte, "👑 " .. tostring(a) .. " A ATTEINT LE SOMMET !", 2, echelleGros)
-        flasher(OR, 0.4)
-        secousse(1.5)
-    elseif typeEvt == "Vainqueur" then
+    if typeEvt == "Vainqueur" then
         local etat = avatars[a]
         jeJoue = false
         viderNotes()
@@ -1700,13 +2349,396 @@ EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
             grosTexte.TextColor3 = couleurDe(etat)
             apparaitre(
                 grosTexte,
-                "👑 " .. tostring(etat.config:GetAttribute("Nom")) .. " — " .. string.upper(tostring(etat.config:GetAttribute("Perso"))),
-                3.8,
+                tostring(etat.config:GetAttribute("Nom")) .. " — " .. string.upper(tostring(etat.config:GetAttribute("Perso"))),
+                2.2,
                 echelleGros
             )
         end
+    elseif typeEvt == "Check" then
+        jeJoue = false
+        viderNotes()
+        modeCinema(true)
+        tween(effetAura, 0.5, { Saturation = -1, Contrast = 0.4 })
+        grosTexte.TextColor3 = BLANC
+        apparaitre(grosTexte, "ÉGALITÉ !", 0.8, echelleGros)
+        jouerCheck(a, b)
+    elseif typeEvt == "Danse" then
+        -- a = la liste des gagnants, b = l'heure (serveur) de fin de la danse
+        tween(effetAura, 0.6, { Saturation = 0.15, Contrast = 0.15 })
+        local jeDanse = false
+        local noms = {}
+        for _, config in ipairs(a or {}) do
+            table.insert(noms, tostring(config:GetAttribute("Nom")))
+            if monEtat and config == monEtat.config then
+                jeDanse = true
+            end
+        end
+        if jeDanse then
+            demarrerDanseUI(b or (maintenantServeur() + 8))
+        else
+            grosTexte.TextColor3 = OR
+            apparaitre(grosTexte, table.concat(noms, " & ") .. " FARM L'AURA", 2.5, echelleGros)
+        end
     end
 end)
+
+-- ========================== CLASSEMENTS ==========================
+local boutonClassement, fermerPanneau
+do
+boutonClassement = nouveau("TextButton", {
+    Position = UDim2.new(0, 20, 0, 70),
+    Size = UDim2.fromOffset(200, 44),
+    BackgroundColor3 = Color3.fromRGB(14, 14, 22),
+    BackgroundTransparency = 0.1,
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBlack,
+    Text = "CLASSEMENTS",
+    TextScaled = true,
+    TextColor3 = OR,
+    ZIndex = 25,
+    Parent = gui,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = boutonClassement })
+nouveau("UIStroke", { Color = OR, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = boutonClassement })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), Parent = boutonClassement })
+local echelleBoutonClassement = nouveau("UIScale", { Parent = boutonClassement })
+boutonClassement.MouseEnter:Connect(function()
+    sonSurvol(6)
+    tween(echelleBoutonClassement, 0.2, { Scale = 1.06 }, Enum.EasingStyle.Back)
+end)
+boutonClassement.MouseLeave:Connect(function()
+    tween(echelleBoutonClassement, 0.2, { Scale = 1 })
+end)
+
+local fondPanneau = nouveau("TextButton", { -- clic à côté du panneau = fermer
+    Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = NOIR,
+    BackgroundTransparency = 1,
+    AutoButtonColor = false,
+    Text = "",
+    Visible = false,
+    ZIndex = 40,
+    Parent = gui,
+})
+local panneau = nouveau("TextButton", { -- bouton « vide » : un clic sur le panneau ne le ferme pas
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromScale(0.92, 0.88),
+    BackgroundColor3 = Color3.fromRGB(12, 12, 18),
+    AutoButtonColor = false,
+    Text = "",
+    ZIndex = 41,
+    Parent = fondPanneau,
+})
+nouveau("UISizeConstraint", { MaxSize = Vector2.new(660, 620), Parent = panneau })
+nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = panneau })
+nouveau("UIStroke", { Color = OR, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = panneau })
+local echellePanneau = nouveau("UIScale", { Parent = panneau })
+texte({
+    Position = UDim2.new(0, 20, 0, 14),
+    Size = UDim2.new(1, -150, 0, 38),
+    Text = "CLASSEMENTS",
+    TextColor3 = OR,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 42,
+    Parent = panneau,
+})
+texte({
+    Position = UDim2.new(0, 20, 0, 54),
+    Size = UDim2.new(1, -40, 0, 18),
+    Text = "Le plus de marches montées en une partie",
+    Font = Enum.Font.GothamMedium,
+    TextColor3 = Color3.fromRGB(170, 170, 190),
+    TextStrokeTransparency = 1,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    ZIndex = 42,
+    Parent = panneau,
+})
+local boutonFermer = nouveau("TextButton", {
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -16, 0, 16),
+    Size = UDim2.fromOffset(110, 34),
+    BackgroundColor3 = Color3.fromRGB(40, 40, 55),
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBlack,
+    Text = "FERMER",
+    TextScaled = true,
+    TextColor3 = BLANC,
+    ZIndex = 42,
+    Parent = panneau,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = boutonFermer })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), Parent = boutonFermer })
+
+local function titreRangee(y, message)
+    texte({
+        Position = UDim2.new(0, 20, 0, y),
+        Size = UDim2.new(1, -40, 0, 16),
+        Text = message,
+        Font = Enum.Font.GothamBlack,
+        TextColor3 = Color3.fromRGB(140, 140, 160),
+        TextStrokeTransparency = 1,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 42,
+        Parent = panneau,
+    })
+end
+titreRangee(84, "ÉTATS D'ESPRIT")
+local rangeeOngletsPersos = nouveau("Frame", {
+    Position = UDim2.new(0, 20, 0, 104),
+    Size = UDim2.new(1, -40, 0, 36),
+    BackgroundTransparency = 1,
+    ZIndex = 42,
+    Parent = panneau,
+})
+nouveau("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6), Parent = rangeeOngletsPersos })
+titreRangee(150, "MUSIQUES")
+local rangeeOngletsMusiques = nouveau("ScrollingFrame", {
+    Position = UDim2.new(0, 20, 0, 170),
+    Size = UDim2.new(1, -40, 0, 44),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.X,
+    ScrollingDirection = Enum.ScrollingDirection.X,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = BLEU_MUSIQUE,
+    ZIndex = 42,
+    Parent = panneau,
+})
+nouveau("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6), Parent = rangeeOngletsMusiques })
+
+local listeClassement = nouveau("ScrollingFrame", {
+    Position = UDim2.new(0, 20, 0, 224),
+    Size = UDim2.new(1, -40, 1, -284),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollingDirection = Enum.ScrollingDirection.Y,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = OR,
+    ZIndex = 42,
+    Parent = panneau,
+})
+nouveau("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4), Parent = listeClassement })
+local etatListe = texte({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.new(0.5, 0, 0, 260),
+    Size = UDim2.new(1, -60, 0, 24),
+    Font = Enum.Font.GothamBold,
+    TextColor3 = Color3.fromRGB(170, 170, 190),
+    TextStrokeTransparency = 1,
+    ZIndex = 43,
+    Parent = panneau,
+})
+local monRecordTexte = texte({
+    AnchorPoint = Vector2.new(0.5, 1),
+    Position = UDim2.new(0.5, 0, 1, -14),
+    Size = UDim2.new(1, -40, 0, 30),
+    TextColor3 = OR,
+    ZIndex = 42,
+    Parent = panneau,
+})
+
+local onglets = {} -- [cle] = { bouton, couleur }
+local ongletChoisi = nil
+local demandeClassement = 0
+local COULEURS_PODIUM = { OR, Color3.fromRGB(210, 215, 230), Color3.fromRGB(220, 140, 80) }
+
+local function styleOnglets()
+    for cle, o in pairs(onglets) do
+        local choisi = cle == ongletChoisi
+        tween(o.bouton, 0.2, { BackgroundColor3 = if choisi then o.couleur else Color3.fromRGB(24, 24, 34) })
+        o.bouton.TextColor3 = if choisi then NOIR else o.couleur
+    end
+end
+
+local function ligneClassement(rang, nom, score, estMoi)
+    local ligne = nouveau("Frame", {
+        Size = UDim2.new(1, -8, 0, 34),
+        BackgroundTransparency = 1,
+        LayoutOrder = rang,
+        ZIndex = 42,
+        Parent = listeClassement,
+    })
+    -- le contenu glisse depuis la droite, une ligne après l'autre
+    local contenu = nouveau("Frame", {
+        Position = UDim2.new(0, 60, 0, 0),
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = if estMoi then Color3.fromRGB(60, 52, 20) elseif rang % 2 == 1 then Color3.fromRGB(26, 26, 38) else Color3.fromRGB(20, 20, 30),
+        BackgroundTransparency = 1,
+        ZIndex = 42,
+        Parent = ligne,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 8), Parent = contenu })
+    if estMoi then
+        nouveau("UIStroke", { Color = OR, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = contenu })
+    end
+    local couleurRang = COULEURS_PODIUM[rang] or Color3.fromRGB(170, 170, 190)
+    local labels = {
+        texte({ Position = UDim2.new(0, 10, 0, 5), Size = UDim2.new(0, 40, 1, -10), Text = tostring(rang), TextColor3 = couleurRang, ZIndex = 43, Parent = contenu }),
+        texte({
+            Position = UDim2.new(0, 60, 0, 6),
+            Size = UDim2.new(1, -200, 1, -12),
+            Text = nom,
+            Font = Enum.Font.GothamBold,
+            TextStrokeTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 43,
+            Parent = contenu,
+        }),
+        texte({
+            AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.new(1, -12, 0, 5),
+            Size = UDim2.new(0, 130, 1, -10),
+            Text = score .. " marches",
+            TextColor3 = couleurRang,
+            TextXAlignment = Enum.TextXAlignment.Right,
+            ZIndex = 43,
+            Parent = contenu,
+        }),
+    }
+    for _, label in ipairs(labels) do
+        label.TextTransparency = 1
+        label.TextStrokeTransparency = 1
+    end
+    task.delay(rang * 0.035, function()
+        tween(contenu, 0.35, { Position = UDim2.new(), BackgroundTransparency = 0 }, Enum.EasingStyle.Quint)
+        for i, label in ipairs(labels) do
+            tween(label, 0.3, { TextTransparency = 0, TextStrokeTransparency = if i == 2 then 1 else 0.4 })
+        end
+    end)
+end
+
+local function afficherClassement(cle)
+    ongletChoisi = cle
+    styleOnglets()
+    demandeClassement += 1
+    local numero = demandeClassement
+    for _, enfant in ipairs(listeClassement:GetChildren()) do
+        if enfant:IsA("Frame") then
+            enfant:Destroy()
+        end
+    end
+    etatListe.Text = "Chargement..."
+    etatListe.Visible = true
+    monRecordTexte.Text = ""
+    task.spawn(function()
+        local ok, resultat = pcall(function()
+            return ClassementFonction:InvokeServer(cle)
+        end)
+        if numero ~= demandeClassement then
+            return -- on a changé d'onglet entre temps
+        end
+        if not ok or type(resultat) ~= "table" then
+            etatListe.Text = "Classement indisponible pour le moment"
+            return
+        end
+        local lignes = resultat.liste or {}
+        etatListe.Visible = #lignes == 0
+        etatListe.Text = "Personne pour l'instant. Sois le premier !"
+        for rang, l in ipairs(lignes) do
+            ligneClassement(rang, tostring(l.nom), l.score or 0, l.userId == joueur.UserId)
+        end
+        local moi = resultat.moi or 0
+        monRecordTexte.Text = if moi > 0 then "TON RECORD : " .. moi .. " marches" else "TON RECORD : pas encore"
+    end)
+end
+
+local function creerOnglet(valeur)
+    if onglets[valeur.Name] then
+        return
+    end
+    local estPerso = valeur:GetAttribute("Type") == "Perso"
+    local couleur = if estPerso then (COULEURS[string.sub(valeur.Name, 3)] or OR) else BLEU_MUSIQUE
+    local bouton = nouveau("TextButton", {
+        Size = if estPerso then UDim2.new(0.25, -5, 1, 0) else UDim2.new(0, 0, 1, -8),
+        AutomaticSize = if estPerso then Enum.AutomaticSize.None else Enum.AutomaticSize.X,
+        BackgroundColor3 = Color3.fromRGB(24, 24, 34),
+        AutoButtonColor = false,
+        Font = Enum.Font.GothamBlack,
+        Text = valeur.Value,
+        TextScaled = estPerso,
+        TextSize = 15,
+        TextColor3 = couleur,
+        LayoutOrder = valeur:GetAttribute("Ordre") or 99,
+        ZIndex = 43,
+        Parent = if estPerso then rangeeOngletsPersos else rangeeOngletsMusiques,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = bouton })
+    nouveau("UIStroke", { Color = couleur, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = bouton })
+    nouveau("UIPadding", {
+        PaddingTop = UDim.new(0, 8),
+        PaddingBottom = UDim.new(0, 8),
+        PaddingLeft = UDim.new(0, 12),
+        PaddingRight = UDim.new(0, 12),
+        Parent = bouton,
+    })
+    local echelle = nouveau("UIScale", { Parent = bouton })
+    local note = if estPerso then (valeur:GetAttribute("Ordre") or 1) else 5
+    bouton.MouseEnter:Connect(function()
+        sonSurvol(note)
+        tween(echelle, 0.18, { Scale = 1.06 }, Enum.EasingStyle.Back)
+    end)
+    bouton.MouseLeave:Connect(function()
+        tween(echelle, 0.18, { Scale = 1 })
+    end)
+    bouton.Activated:Connect(function()
+        echelle.Scale = 0.9
+        tween(echelle, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+        sonClic(note)
+        afficherClassement(valeur.Name)
+    end)
+    onglets[valeur.Name] = { bouton = bouton, couleur = couleur }
+end
+dossierClassements.ChildAdded:Connect(creerOnglet)
+for _, valeur in ipairs(dossierClassements:GetChildren()) do
+    creerOnglet(valeur)
+end
+
+local function ouvrirPanneau()
+    if panneauOuvert then
+        return
+    end
+    panneauOuvert = true
+    for _, c in ipairs(toutesCartes) do
+        c.survole = false
+    end
+    fondPanneau.Visible = true
+    fondPanneau.BackgroundTransparency = 1
+    tween(fondPanneau, 0.3, { BackgroundTransparency = 0.45 })
+    echellePanneau.Scale = 0.75
+    tween(echellePanneau, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+    afficherClassement(ongletChoisi or ("P_" .. (persoChoisi or "Motivation")))
+end
+fermerPanneau = function()
+    if not panneauOuvert then
+        return
+    end
+    panneauOuvert = false
+    tween(fondPanneau, 0.2, { BackgroundTransparency = 1 })
+    tween(echellePanneau, 0.2, { Scale = 0.8 })
+    task.delay(0.2, function()
+        if not panneauOuvert then
+            fondPanneau.Visible = false
+        end
+    end)
+end
+boutonClassement.Activated:Connect(function()
+    sonClic(6)
+    if panneauOuvert then
+        fermerPanneau()
+    else
+        ouvrirPanneau()
+    end
+end)
+boutonFermer.Activated:Connect(function()
+    sonClic(1)
+    fermerPanneau()
+end)
+fondPanneau.Activated:Connect(fermerPanneau)
+end -- fin du bloc des classements
 
 -- ========================== PHASES ==========================
 local function majPhase()
@@ -1720,10 +2752,25 @@ local function majPhase()
     chrono.Visible = phase ~= "Lobby"
     barre.Visible = phase == "Manche" or phase == "Fin"
     marcheTexte.Visible = phase == "Manche"
+    boutonClassement.Visible = phase ~= "Manche" -- pas pendant qu'on clique les cercles
+    if phase == "Manche" then
+        fermerPanneau()
+    end
     if phase == "Lobby" then
         partition = nil
         jeJoue = false
         etatSuiviCamera = nil
+        focusCheck = nil
+        arreterDanseUI()
+        for _, etat in pairs(avatars) do
+            if etat.cinematique then
+                etat.cinematique = nil
+                if etat.finCinematique then
+                    etat.finCinematique()
+                end
+            end
+            etat.positionForcee = nil
+        end
         viderNotes()
         modeCinema(false)
         modeAura = false
@@ -1764,18 +2811,29 @@ local function statDrole(data)
 end
 
 FinEvent.OnClientEvent:Connect(function(data)
+    arreterDanseUI()
     local couleur = COULEURS[data.perso] or BLANC
     finTitre.Text = "TU ES : " .. string.upper(data.perso)
     finTitre.TextColor3 = couleur
     contourFin.Color = couleur
-    finPlace.Text = (if data.place == 1 then "👑 1er" else "🏁 " .. data.place .. "e") .. " sur " .. data.total
-    finDetails.Text = "🪜 " .. data.marches .. " / " .. data.nbMarches .. " marches   🎯 " .. data.precision .. " %\n"
-        .. "✨ " .. data.parfaits .. " parfaits   🔥 combo max x" .. data.comboMax .. "\n👑 Gagnant : " .. data.gagnant
+    local place = if data.place == 1 then (if data.egalite then "👑 1er ex æquo" else "👑 1er") else "🏁 " .. data.place .. "e"
+    finPlace.Text = place .. " sur " .. data.total .. "   •   " .. data.marches .. " marches"
+    local ligneRecord = if data.nouveauRecord then "🏆 NOUVEAU RECORD : " .. data.record .. " !" else "🏆 Ton record : " .. (data.record or 0)
+    local ligneAura = if (data.auraFarmee or 0) > 0 then "   ✨ +" .. data.auraFarmee .. " aura farmée" else ""
+    finDetails.Text = "🎯 " .. data.precision .. " %   ✨ " .. data.parfaits .. " parfaits   🔥 combo max x" .. data.comboMax .. "\n"
+        .. ligneRecord .. ligneAura .. "\n👑 Gagnant : " .. data.gagnant
     finDrole.Text = statDrole(data)
     ecranFin.Visible = true
     echelleFin.Scale = 0.6
     tween(echelleFin, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
-    task.delay(7.5, function()
+    if data.nouveauRecord then
+        flasher(OR, 0.4)
+        jouerSon("tic", 1, 0.4)
+        jouerSon("tic", 1.26, 0.4, 0.08)
+        jouerSon("tic", 1.5, 0.4, 0.16)
+        jouerSon("tic", 2, 0.4, 0.24)
+    end
+    task.delay(6.5, function()
         ecranFin.Visible = false
     end)
 end)
@@ -1787,55 +2845,85 @@ local pointsCarte = {} -- [config] = point sur la mini-carte
 RunService.RenderStepped:Connect(function(dt)
     local horloge = os.clock()
 
-    -- 1) Les avatars sautent de marche en marche
+    -- 1) Les avatars sautent de marche en marche (avec style)
     for _, etat in pairs(avatars) do
         local modele = etat.modele
         if modele and modele.Parent and etat.hauteur then
-            local m = etat.config:GetAttribute("Marche") or 0
-            local arc, inclinaison = 0, 0
-            if etat.saut then
-                local s = etat.saut
-                local t = math.clamp((horloge - s.debut) / s.duree, 0, 1)
-                local lisse = t * t * (3 - 2 * t)
-                m = s.de + (s.a - s.de) * lisse
-                if s.monte then
-                    arc = math.sin(math.pi * t) * (1.2 + 0.25 * math.abs(s.a - s.de))
-                else
-                    arc = math.sin(math.pi * t) * 0.6
-                    inclinaison = math.sin(math.pi * t) * 0.6 -- il bascule en arrière
-                end
-                if t >= 1 then
-                    etat.saut = nil
-                    if etat.animSaut then
-                        etat.animSaut:Stop(0.1)
-                    end
-                    if etat.animChute then
-                        etat.animChute:Stop(0.15)
-                    end
+            local cfCinematique = etat.cinematique and etat.cinematique(horloge)
+            if etat.cinematique and not cfCinematique then
+                -- fin de la cinématique (check parfait)
+                etat.cinematique = nil
+                if etat.finCinematique then
+                    etat.finCinematique()
                 end
             end
-            etat.marcheAffichee = m
-            if etat.couloir then
-                local position = positionMarche(etat.couloir, m, etat.hauteur) + Vector3.new(0, arc, 0)
-                modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(1, 0, 0)) * CFrame.Angles(inclinaison, 0, 0))
+            if cfCinematique then
+                modele:PivotTo(cfCinematique)
             else
-                modele:PivotTo(CFrame.new(0, -500, 0)) -- plus de place : caché
+                local m = etat.config:GetAttribute("Marche") or 0
+                local arc, rotation = 0, CFrame.identity
+                if etat.saut then
+                    local s = etat.saut
+                    local t = math.clamp((horloge - s.debut) / s.duree, 0, 1)
+                    local lisse = t * t * (3 - 2 * t)
+                    m = s.de + (s.a - s.de) * lisse
+                    local bosse = math.sin(math.pi * t)
+                    if s.monte then
+                        arc = bosse * (1.4 + 0.5 * math.abs(s.a - s.de))
+                        if s.figure == "salto" then
+                            rotation = CFrame.Angles(-2 * math.pi * lisse, 0, 0) -- salto avant
+                        elseif s.figure == "vrille" then
+                            rotation = CFrame.Angles(-bosse * 0.2, 2 * math.pi * lisse, 0) -- tour sur lui-même
+                        else
+                            rotation = CFrame.Angles(-bosse * 0.35, 0, 0) -- penché en avant, élan
+                        end
+                    else
+                        arc = bosse * 0.6
+                        rotation = CFrame.Angles(bosse * 0.6, 0, 0) -- il bascule en arrière
+                    end
+                    if t >= 1 then
+                        etat.saut = nil
+                        if etat.animSaut then
+                            etat.animSaut:Stop(0.1)
+                        end
+                        if etat.animChute then
+                            etat.animChute:Stop(0.15)
+                        end
+                        atterrir(etat, s)
+                    end
+                end
+                etat.marcheAffichee = m
+                local forcee = etat.positionForcee
+                local couloir = if forcee then forcee.couloir else etat.couloir
+                if forcee then
+                    m = forcee.marche
+                end
+                if couloir then
+                    local position = positionMarche(couloir, m, etat.hauteur) + Vector3.new(0, arc, 0)
+                    local sens = if forcee then forcee.sens else 1
+                    modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(sens, 0, 0)) * rotation)
+                else
+                    modele:PivotTo(CFrame.new(0, -500, 0)) -- plus de place : caché
+                end
             end
         end
     end
 
-    -- 2) Caméra 2D : vue de côté qui suit ton avatar (ou le vainqueur)
+    -- 2) Caméra 2D : vue de côté qui suit ton avatar (ou le vainqueur, ou le check)
     local camera = workspace.CurrentCamera
     if camera then
         camera.CameraType = Enum.CameraType.Scriptable
         local suivi = etatSuiviCamera or monEtat
         local focus
-        local zoom = if etatSuiviCamera then 0.45 else 1
+        local zoom = if etatSuiviCamera or focusCheck then 0.45 else 1
         local distance = 75 * zoom
         local vitesseCamera = 5
-        if menuOuvert and not etatSuiviCamera then
+        if focusCheck then
+            focus = focusCheck
+            distance = 40
+        elseif menuOuvert and not etatSuiviCamera then
             -- menu du lobby : la caméra se balade doucement le long des escaliers (floutés derrière le menu)
-            focus = positionMarche(2, NB_MARCHES * (0.45 + 0.4 * math.sin(horloge * 0.06)), 3)
+            focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
             distance = 100
             vitesseCamera = 1.2
         elseif suivi and suivi.couloir and suivi.hauteur then
@@ -1852,6 +2940,11 @@ RunService.RenderStepped:Connect(function(dt)
         camera.CFrame = CFrame.lookAt(oeil, oeil - Vector3.new(0, 0, 1)) * CFrame.Angles(0, 0, roulis)
         fovPulse += (0 - fovPulse) * math.min(1, dt * 8)
         camera.FieldOfView = FOV_BASE + fovPulse
+
+        -- les escaliers infinis se construisent autour de la caméra, le fond la suit
+        majEscaliers((positionCamera.X - GEO.X0) / GEO.PROFONDEUR)
+        fondScene.Position = Vector3.new(positionCamera.X, positionCamera.Y, FOND_Z)
+        poussiere.Position = Vector3.new(positionCamera.X, positionCamera.Y, FOND_Z + 8)
     end
 
     -- 3) Musique, temps et notes
@@ -1899,10 +2992,17 @@ RunService.RenderStepped:Connect(function(dt)
 
     -- 4) Compteur de marches + mini-carte
     if monEtat then
-        marcheTexte.Text = "🪜 " .. (monEtat.config:GetAttribute("Marche") or 0) .. " / " .. NB_MARCHES
+        marcheTexte.Text = "🪜 " .. (monEtat.config:GetAttribute("Marche") or 0) .. " marches"
         marcheTexte.TextColor3 = maCouleur()
     end
     if barre.Visible then
+        -- pas de sommet : le haut de la barre = le premier (au moins 10 marches)
+        local plusHaut = 0
+        for _, etat in pairs(avatars) do
+            plusHaut = math.max(plusHaut, etat.config:GetAttribute("Marche") or 0)
+        end
+        hautBarre.Text = tostring(plusHaut)
+        local echelleBarre = math.max(10, plusHaut)
         for config, etat in pairs(avatars) do
             local point = pointsCarte[config]
             if not point then
@@ -1918,7 +3018,7 @@ RunService.RenderStepped:Connect(function(dt)
             local taille = if etat.estMoi then 22 else 14
             point.Size = UDim2.fromOffset(taille, taille)
             point.BackgroundColor3 = couleurDe(etat)
-            point.Position = UDim2.fromScale(0.5, 1 - math.clamp((etat.marcheAffichee or 0) / NB_MARCHES, 0, 1))
+            point.Position = UDim2.fromScale(0.5, 1 - math.clamp((etat.marcheAffichee or 0) / echelleBarre, 0, 1))
             point.ZIndex = if etat.estMoi then 5 else 4
         end
         for config, point in pairs(pointsCarte) do
