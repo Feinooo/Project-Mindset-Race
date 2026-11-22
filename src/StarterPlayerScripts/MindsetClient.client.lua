@@ -295,6 +295,7 @@ local auraTexte = texte({
     Parent = gui,
 })
 local decompte = texte({
+    Font = Enum.Font.Arcade, -- chiffres du décompte en police rétro
     AnchorPoint = Vector2.new(0.5, 0.5),
     Position = UDim2.fromScale(0.5, 0.45),
     Size = UDim2.fromScale(0.5, 0.3),
@@ -1976,12 +1977,13 @@ local dernierClicUtilise = nil -- le dernier clic qui a validé une note (un cli
 do
 local function effetTouche(position, verdict)
     local couleur = if verdict == "Parfait" then OR elseif verdict == "Bien" then Color3.fromRGB(120, 255, 160) else ROUGE
-    local message = if verdict == "Parfait" then "PARFAIT ✨" elseif verdict == "Bien" then "BIEN" else "RATÉ ✖"
+    local message = if verdict == "Parfait" then "PARFAIT !" elseif verdict == "Bien" then "BIEN" else "RATE"
     local popup = texte({
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(position.X, position.Y - 0.06),
         Size = UDim2.fromOffset(200, 44),
         Text = message,
+        Font = Enum.Font.Arcade, -- police rétro
         TextColor3 = couleur,
         ZIndex = 8,
         Parent = zoneNotes,
@@ -2086,7 +2088,8 @@ creerNote = function(index, tempsNote)
     dernierePosition = meilleur
     compteurNotes += 1
 
-    -- 🎯 le cercle : pas de bordure blanche, un dégradé de la couleur du perso, un halo et un reflet
+    -- 🕹️ le cercle, style BOUTON D'ARCADE RÉTRO : couleurs pleines (pas de dégradé), gros contour sombre,
+    -- un socle plus foncé en dessous (effet 3D) et un reflet en « pixels » carrés.
     local couleur = maCouleur()
     local cercle = nouveau("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -2097,55 +2100,60 @@ creerNote = function(index, tempsNote)
         Parent = zoneNotes,
     })
     local echelleCercle = nouveau("UIScale", { Scale = 0.5, Parent = cercle })
-    local halo = rond({
+    local CONTOUR = Color3.fromRGB(14, 12, 24)
+    local function pixel(px, py, cote, couleurPixel, zIndex)
+        local p = nouveau("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(px, py),
+            Size = UDim2.fromScale(cote, cote),
+            BackgroundColor3 = couleurPixel,
+            BorderSizePixel = 0,
+            ZIndex = zIndex,
+            Parent = cercle,
+        })
+        return p
+    end
+    -- contour sombre (autour du bouton ET de son socle)
+    local contour = rond({
         AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(1.32, 1.32),
-        BackgroundColor3 = couleur,
-        BackgroundTransparency = 0.78,
+        Position = UDim2.fromScale(0.5, 0.54),
+        Size = UDim2.fromScale(1.14, 1.2),
+        BackgroundColor3 = CONTOUR,
         ZIndex = 6,
         Parent = cercle,
     })
-    local corps = rond({
+    -- le socle : le bord du bouton vu de côté
+    local socle = rond({
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.58),
         Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = BLANC,
-        BackgroundTransparency = 0.04,
+        BackgroundColor3 = couleur:Lerp(NOIR, 0.5),
         ZIndex = 7,
         Parent = cercle,
     })
-    nouveau("UIGradient", {
-        Rotation = 90,
-        Color = ColorSequence.new(couleur:Lerp(BLANC, 0.35), couleur:Lerp(NOIR, 0.35)),
-        Parent = corps,
-    })
-    local coeur = rond({
+    -- le dessus du bouton
+    local corps = rond({
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(0.56, 0.56),
-        BackgroundColor3 = couleur:Lerp(NOIR, 0.55),
-        BackgroundTransparency = 0.35,
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = couleur,
         ZIndex = 8,
         Parent = cercle,
     })
-    local point = rond({
+    -- un anneau plus clair à l'intérieur (le « dôme » du bouton)
+    local dome = rond({
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(0.2, 0.2),
-        BackgroundColor3 = couleur:Lerp(BLANC, 0.6),
-        BackgroundTransparency = 0.05,
+        Size = UDim2.fromScale(0.66, 0.66),
+        BackgroundColor3 = couleur:Lerp(BLANC, 0.28),
         ZIndex = 9,
         Parent = cercle,
     })
-    local reflet = rond({
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.34, 0.24),
-        Size = UDim2.fromScale(0.34, 0.16),
-        Rotation = -28,
-        BackgroundColor3 = BLANC,
-        BackgroundTransparency = 0.6,
-        ZIndex = 9,
-        Parent = cercle,
-    })
+    -- reflet en pixels carrés, en haut à gauche
+    local reflet1 = pixel(0.3, 0.3, 0.12, BLANC, 10)
+    local reflet2 = pixel(0.42, 0.22, 0.09, BLANC, 10)
+    local reflet3 = pixel(0.22, 0.42, 0.07, couleur:Lerp(BLANC, 0.7), 10)
+    local morceaux = { contour, socle, corps, dome, reflet1, reflet2, reflet3 }
     tween(echelleCercle, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
 
     -- 🖱️ la zone de clic : un bouton invisible un peu plus grand que le cercle (plus facile à toucher).
@@ -2157,7 +2165,7 @@ creerNote = function(index, tempsNote)
         BackgroundTransparency = 1,
         AutoButtonColor = false,
         Text = "",
-        ZIndex = 10,
+        ZIndex = 12,
         Parent = cercle,
     })
     zoneClic.InputBegan:Connect(function(input)
@@ -2191,7 +2199,7 @@ creerNote = function(index, tempsNote)
         cercle = cercle,
         anneau = anneau,
         echelle = echelleCercle,
-        morceaux = { halo, corps, coeur, point, reflet },
+        morceaux = morceaux,
         temps = tempsNote,
         position = Vector2.new(x, y),
         taille = taille,
@@ -2393,9 +2401,9 @@ DebutEvent.OnClientEvent:Connect(function(infos)
                 return
             end
             afficherDecompte(tostring(n), couleurs[n])
-            -- glouc... glouc... glouc ! (une bulle, un peu plus aiguë à chaque chiffre)
-            jouerSon("eau", 0.9 + (3 - n) * 0.18, 0.55, nil, 0.28)
-            jouerSon("eau", 1.3 + (3 - n) * 0.22, 0.3, 0.07, 0.2)
+            -- bip... bip... bip... façon borne d'arcade (deux notes à l'octave = son « 8 bits »)
+            jouerSon("tic", 0.75, 0.7, nil, 0.16)
+            jouerSon("tic", 1.5, 0.35, nil, 0.16)
             flasher(BLANC, 0.15)
             secousse(0.5)
         end
@@ -2405,8 +2413,10 @@ DebutEvent.OnClientEvent:Connect(function(infos)
         end
         if partition == infos then
             afficherDecompte(if jeJoue then "CLIQUE EN RYTHME !" else "SPECTATEUR", OR)
-            jouerSon("eau", 1.7, 0.6, nil, 0.3) -- le dernier glouc, tout aigu
-            jouerSon("eau", 2.3, 0.35, 0.06, 0.25)
+            -- le dernier bip, plus aigu et plus long : GO !
+            jouerSon("tic", 1.5, 0.7, nil, 0.4)
+            jouerSon("tic", 3, 0.35, nil, 0.4)
+            jouerSon("tic", 2, 0.3, 0.08, 0.3)
             flasher(BLANC, 0.5)
             secousse(1)
         end
