@@ -189,7 +189,37 @@ end
 local HttpService = game:GetService("HttpService")
 local reglagesJoueurs = {} -- [joueur] = { musique = 0..1, bruitages = 0..1, secousses = bool, flashs = bool }
 
-local function chargerJoueur(joueur, stats)
+-- 📊 Les stats du joueur.
+--   En haut à droite (leaderstats) : TEMPS passé sur le jeu, MARCHES gravies (au total), VICTOIRES.
+--   Cachées (StatsCachees) : l'Aura (elle continue de monter et d'être sauvegardée) et les secondes déjà jouées.
+local arrivees = {} -- [joueur] = os.clock() de son arrivée
+
+local function chercherStat(joueur, nom)
+    for _, dossier in ipairs({ "leaderstats", "StatsCachees" }) do
+        local stats = joueur and joueur:FindFirstChild(dossier)
+        local valeur = stats and stats:FindFirstChild(nom)
+        if valeur then
+            return valeur
+        end
+    end
+    return nil
+end
+
+-- secondes jouées au total = celles des fois d'avant (sauvegardées) + celles de maintenant
+local function tempsTotal(joueur)
+    local base = chercherStat(joueur, "Secondes")
+    return (if base then base.Value else 0) + math.floor(os.clock() - (arrivees[joueur] or os.clock()))
+end
+
+local function formatTemps(secondes)
+    local minutes = secondes // 60
+    if minutes < 60 then
+        return minutes .. " min"
+    end
+    return string.format("%dh%02d", minutes // 60, minutes % 60)
+end
+
+local function chargerJoueur(joueur)
     if not sauvegarde then
         return
     end
@@ -201,8 +231,11 @@ local function chargerJoueur(joueur, stats)
     end
     if ok then
         donnees = donnees or {}
-        stats.Victoires.Value += donnees.victoires or 0
-        stats.Aura.Value += donnees.aura or 0
+        chercherStat(joueur, "Victoires").Value += donnees.victoires or 0
+        chercherStat(joueur, "Marches").Value += donnees.marches or 0
+        chercherStat(joueur, "Aura").Value += donnees.aura or 0
+        chercherStat(joueur, "Secondes").Value += donnees.temps or 0
+        chercherStat(joueur, "Temps").Value = formatTemps(tempsTotal(joueur))
         if type(donnees.reglages) == "table" then
             reglagesJoueurs[joueur] = donnees.reglages
             joueur:SetAttribute("Reglages", HttpService:JSONEncode(donnees.reglages))
@@ -214,20 +247,21 @@ local function chargerJoueur(joueur, stats)
 end
 
 local function sauverJoueur(joueur)
-    if not donneesChargees[joueur] then
+    if not donneesChargees[joueur] or not chercherStat(joueur, "Victoires") then
         return
     end
-    local stats = joueur:FindFirstChild("leaderstats")
-    if not stats then
-        return
-    end
-    local victoires, aura = stats.Victoires.Value, stats.Aura.Value
+    local victoires = chercherStat(joueur, "Victoires").Value
+    local marches = chercherStat(joueur, "Marches").Value
+    local aura = chercherStat(joueur, "Aura").Value
+    local temps = tempsTotal(joueur)
     local reglages = reglagesJoueurs[joueur]
     essayer(function()
         sauvegarde:UpdateAsync("joueur_" .. joueur.UserId, function(anciennes)
             local donnees = anciennes or {}
             donnees.victoires = victoires
+            donnees.marches = marches
             donnees.aura = aura
+            donnees.temps = temps
             donnees.reglages = reglages or donnees.reglages
             return donnees
         end)
@@ -235,12 +269,24 @@ local function sauverJoueur(joueur)
 end
 
 local function ajouterStat(joueur, nom, nombre)
-    local stats = joueur and joueur:FindFirstChild("leaderstats")
-    local valeur = stats and stats:FindFirstChild(nom)
+    local valeur = chercherStat(joueur, nom)
     if valeur then
         valeur.Value += nombre
     end
 end
+
+-- le temps en haut à droite se met à jour toutes les 5 secondes
+task.spawn(function()
+    while true do
+        task.wait(5)
+        for joueur in pairs(arrivees) do
+            local temps = chercherStat(joueur, "Temps")
+            if temps then
+                temps.Value = formatTemps(tempsTotal(joueur))
+            end
+        end
+    end
+end)
 
 -- ========================== GRIMPEURS ==========================
 -- Chaque grimpeur (joueur ou bot) = une Configuration dans ReplicatedStorage.Grimpeurs,
@@ -284,10 +330,18 @@ local function preparerAvatar(modele, ordre)
 end
 
 local function joueurArrive(joueur)
-    local stats = creer("Folder", { Name = "leaderstats", Parent = joueur })
+    arrivees[joueur] = os.clock()
+    -- en haut à droite, dans cet ordre : TEMPS, MARCHES, VICTOIRES
+    local stats = Instance.new("Folder")
+    stats.Name = "leaderstats"
+    creer("StringValue", { Name = "Temps", Value = "0 min", Parent = stats })
+    creer("IntValue", { Name = "Marches", Parent = stats })
     creer("IntValue", { Name = "Victoires", Parent = stats })
-    creer("IntValue", { Name = "Aura", Parent = stats })
-    task.spawn(chargerJoueur, joueur, stats)
+    stats.Parent = joueur
+    local cachees = creer("Folder", { Name = "StatsCachees", Parent = joueur })
+    creer("IntValue", { Name = "Aura", Parent = cachees })
+    creer("IntValue", { Name = "Secondes", Parent = cachees })
+    task.spawn(chargerJoueur, joueur)
 
     local g = nouveauGrimpeur(joueur.DisplayName, nil, joueur.Character, joueur)
     grimpeurDesJoueurs[joueur] = g
@@ -311,6 +365,7 @@ Players.PlayerRemoving:Connect(function(joueur)
     sauverJoueur(joueur)
     donneesChargees[joueur] = nil
     reglagesJoueurs[joueur] = nil
+    arrivees[joueur] = nil
     local g = grimpeurDesJoueurs[joueur]
     if g then
         joueurDuGrimpeur[g] = nil
@@ -1078,6 +1133,7 @@ while true do
         local joueurRecord = joueurDuGrimpeur[g]
         if joueurRecord then
             local score = g:GetAttribute("Marche") or 0
+            ajouterStat(joueurRecord, "Marches", score) -- marches gravies au total (en haut à droite)
             local perso = g:GetAttribute("Perso")
             task.spawn(function()
                 local recordPerso = enregistrerRecord("P_" .. tostring(perso), joueurRecord, score)
