@@ -3276,30 +3276,42 @@ nouveau("UIGradient", {
     }),
     Parent = ecranTitre,
 })
+-- le titre du jeu (le même que sur Roblox), chaque état d'esprit dans sa couleur, sur 2 lignes
+local function enCouleur(mot, couleur)
+    local function octet(x)
+        return math.floor(x * 255 + 0.5)
+    end
+    return string.format('<font color="#%02X%02X%02X">%s</font>', octet(couleur.R), octet(couleur.G), octet(couleur.B), mot)
+end
+local VS = '<font color="#DCDCE6"> vs </font>'
 local titre = texte({
     AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.14),
-    Size = UDim2.fromScale(0.8, 0.14),
-    Text = "MINDSET STAIRS",
-    TextStrokeTransparency = 1,
+    Position = UDim2.fromScale(0.5, 0.07),
+    Size = UDim2.fromScale(0.86, 0.22),
+    RichText = true,
+    Font = Enum.Font.GothamBlack,
+    Text = enCouleur("EGO", COULEURS.Ego) .. VS .. enCouleur("DISCIPLINE", COULEURS.Discipline) .. "\n"
+        .. VS .. enCouleur("OBSESSION", COULEURS.Obsession) .. VS .. enCouleur("MOTIVATION", COULEURS.Motivation),
+    TextStrokeTransparency = 0,
+    TextStrokeColor3 = Color3.fromRGB(12, 8, 24),
     ZIndex = 27,
     Parent = ecranTitre,
 })
+-- (dégradé blanc : il ne change pas les couleurs, juste un léger reflet qui bouge)
 local degrade = nouveau("UIGradient", {
     Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, COULEURS.Motivation),
-        ColorSequenceKeypoint.new(0.33, COULEURS.Ego),
-        ColorSequenceKeypoint.new(0.66, COULEURS.Discipline),
-        ColorSequenceKeypoint.new(1, COULEURS.Obsession),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(215, 215, 215)),
+        ColorSequenceKeypoint.new(0.5, BLANC),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(215, 215, 215)),
     }),
     Parent = titre,
 })
 local echelleTitreMenu = nouveau("UIScale", { Parent = titre })
 texte({
     AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.29),
+    Position = UDim2.fromScale(0.5, 0.31),
     Size = UDim2.fromScale(0.7, 0.04),
-    Text = "MOTIVATION  ·  EGO  ·  DISCIPLINE  ·  OBSESSION",
+    Text = "CLIMB THE INFINITE STAIRS  ·  FARM YOUR AURA",
     Font = Enum.Font.GothamBold,
     TextColor3 = Color3.fromRGB(200, 200, 215),
     TextStrokeTransparency = 1,
