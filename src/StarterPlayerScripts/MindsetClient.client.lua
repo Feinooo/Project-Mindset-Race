@@ -1972,6 +1972,7 @@ local function maCouleur()
 end
 
 local juger, creerNote
+local dernierClicUtilise = nil -- le dernier clic qui a validé une note (un clic = une note)
 do
 local function effetTouche(position, verdict)
     local couleur = if verdict == "Parfait" then OR elseif verdict == "Bien" then Color3.fromRGB(120, 255, 160) else ROUGE
@@ -2147,6 +2148,29 @@ creerNote = function(index, tempsNote)
     })
     tween(echelleCercle, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
 
+    -- 🖱️ la zone de clic : un bouton invisible un peu plus grand que le cercle (plus facile à toucher).
+    -- Les cercles ne se superposent jamais, et un même clic ne peut valider qu'UNE note.
+    local zoneClic = nouveau("TextButton", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(1.2, 1.2),
+        BackgroundTransparency = 1,
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 10,
+        Parent = cercle,
+    })
+    zoneClic.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        if input == dernierClicUtilise then
+            return -- ce clic a déjà validé une autre note
+        end
+        dernierClicUtilise = input
+        juger(index, false)
+    end)
+
     -- l'anneau qui se resserre (de la couleur du perso) : clique quand il touche le cercle !
     local anneau = nouveau("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -2174,29 +2198,10 @@ creerNote = function(index, tempsNote)
     }
 end
 
--- 🖱️ UN clic = UNE note au maximum : on prend le cercle sous la souris qui doit être joué le plus tôt.
--- (avant, chaque cercle écoutait le clic : deux cercles l'un sur l'autre étaient validés ensemble)
-local GuiService = game:GetService("GuiService")
+-- on compte tes clics pendant la manche (0 clic de toute la manche = tu n'étais sûrement pas là → AFK)
 UserInputService.InputBegan:Connect(function(input)
-    if not jeJoue or not partition then
-        return
-    end
-    if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-        return
-    end
-    clicsManche += 1
-    -- (le jeu ignore la barre du haut de Roblox : on remet la position dans les mêmes coordonnées que les cercles)
-    local decalage = GuiService:GetGuiInset()
-    local clic = Vector2.new(input.Position.X, input.Position.Y) + decalage
-    local choisi, tempsChoisi = nil, math.huge
-    for index, note in pairs(notesActives) do
-        local distance = (centreNote(note) - clic).Magnitude
-        if distance <= note.taille * 0.6 and note.temps < tempsChoisi then
-            choisi, tempsChoisi = index, note.temps
-        end
-    end
-    if choisi then
-        juger(choisi, false)
+    if jeJoue and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+        clicsManche += 1
     end
 end)
 end -- fin du bloc des notes
