@@ -19,13 +19,17 @@ local CONFIG = {
     COUREURS_MIN = 4,     -- des bots complètent jusqu'à ce nombre
 
     NB_PROPOSITIONS = 3,  -- musiques proposées au vote dans le lobby
+    DUREE_DROP = 15,      -- secondes de « moment dur » à partir du drop
+    DENSITE_DROP = 0.7,   -- pendant le drop : chance d'ajouter une note entre deux temps (0 = rien, 1 = toutes)
 
     -- 🎵 MUSIQUES : à chaque lobby, 3 sont tirées au hasard et les joueurs votent.
     --   id       = l'ID Roblox du son, ex. "rbxassetid://1234567890"
     --              ⚠ une musique avec id = "" est ignorée (pas encore mise en ligne)
     --   nom      = le nom affiché sur le bouton de vote
     --   bpm      = le tempo de la musique (130 = valeur provisoire)
-    --   debut    = à quelle seconde du son on commence = le DROP → marque-le avec l'outil : Play dans Studio, touche B
+    --   debut    = à quelle seconde du son la manche commence (0 = au tout début de la musique)
+    --   drop     = à quelle seconde du son arrive le DROP = le moment DUR (plein de cercles)
+    --              → marque-le avec l'outil : Play dans Studio, touche B (pas de drop = enlève « drop = ... »)
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
     -- (les anciennes musiques sont dans l'historique git, commit 19623be)
     MUSIQUES = {
@@ -115,6 +119,7 @@ if game:GetService("RunService"):IsStudio() then
         valeur:SetAttribute("Nom", m.nom or ("Musique " .. numero))
         valeur:SetAttribute("Bpm", m.bpm)
         valeur:SetAttribute("Debut", m.debut)
+        valeur:SetAttribute("Drop", m.drop)
         valeur:SetAttribute("Decalage", m.decalage)
     end
     dossierTest.Parent = ReplicatedStorage
@@ -525,23 +530,47 @@ DanserEvent.OnServerEvent:Connect(function(danseur)
 end)
 
 -- ========================== PARTITION ==========================
--- Une note par temps (2 temps au début pour s'échauffer), et quelques doubles notes à la fin.
+-- Une note par temps (1 sur 2 au début pour s'échauffer), et quelques doubles notes à la fin.
+-- 💥 Si la musique a un DROP : à partir du drop et pendant CONFIG.DUREE_DROP secondes, c'est le moment DUR :
+--    une note sur chaque temps + presque toutes les demi-temps (beaucoup de cercles d'un coup).
+-- Renvoie aussi le moment du drop dans la manche (en secondes), ou nil.
 local function genererPartition(musique)
     local intervalle = 60 / musique.bpm
     local notes = {}
+    local dropManche = nil
+    if musique.drop then
+        dropManche = musique.drop - (musique.debut or 0)
+        if dropManche < 0 or dropManche > CONFIG.DUREE_MANCHE - 2 then
+            warn("[Mindset] Le drop de « " .. tostring(musique.nom) .. " » tombe en dehors de la manche : vérifie debut et drop.")
+            dropManche = nil
+        end
+    end
     local t = musique.decalage
     while t < 2 * intervalle do
         t += intervalle
     end
     while t < CONFIG.DUREE_MANCHE - 1 do
         local progression = t / CONFIG.DUREE_MANCHE
+        local dansLeDrop = dropManche and t >= dropManche - 0.01 and t < dropManche + CONFIG.DUREE_DROP
         table.insert(notes, t)
-        if progression > 0.75 and math.random() < 0.25 then
-            table.insert(notes, t + intervalle / 2)
+        if dansLeDrop then
+            if math.random() < CONFIG.DENSITE_DROP then
+                table.insert(notes, t + intervalle / 2)
+            end
+            t += intervalle
+        else
+            if progression > 0.75 and math.random() < 0.25 then
+                table.insert(notes, t + intervalle / 2)
+            end
+            local pas = if progression < 0.2 then 2 else 1
+            -- on ne saute pas le début du drop pendant l'échauffement
+            if dropManche and pas == 2 and t + 2 * intervalle > dropManche and t < dropManche then
+                pas = 1
+            end
+            t += intervalle * pas
         end
-        t += intervalle * (if progression < 0.2 then 2 else 1)
     end
-    return notes
+    return notes, dropManche
 end
 
 -- ========================== CLASSEMENTS (records de marches) ==========================
@@ -874,7 +903,7 @@ while true do
         warn("[Mindset] Aucune musique avec un ID dans CONFIG.MUSIQUES : manche sans son.")
         musique = { id = "", nom = "(silence)", bpm = 130, debut = 0, decalage = 0 }
     end
-    local notes = genererPartition(musique)
+    local notes, dropManche = genererPartition(musique)
     local debut = workspace:GetServerTimeNow() + CONFIG.PREPARATION
     manche = { debut = debut, notes = notes, juges = {}, stats = {}, prochaineNote = {} }
     for _, g in ipairs(participants) do
@@ -896,6 +925,7 @@ while true do
         bpm = musique.bpm,
         decalage = musique.decalage,
         debutMusique = musique.debut,
+        drop = dropManche, -- le moment dur (secondes depuis le début de la manche), ou nil
         debut = debut,
         notes = notes,
         duree = CONFIG.DUREE_MANCHE,

@@ -2217,6 +2217,25 @@ DebutEvent.OnClientEvent:Connect(function(infos)
         end)
     end
 
+    -- 💥 le DROP : le moment dur, plein de cercles d'un coup
+    if infos.drop then
+        task.spawn(function()
+            local attente = infos.debut + infos.drop - 0.6 - maintenantServeur()
+            if attente > 0 then
+                task.wait(attente)
+            end
+            if partition ~= infos or attente < -1 then
+                return
+            end
+            grosTexte.TextColor3 = ROUGE
+            apparaitre(grosTexte, "DROP !", 1.4, echelleGros)
+            flasher(BLANC, 0.5)
+            secousse(1.6)
+            fovPulse = math.min(fovPulse, -5)
+            jouerSon("boum", 0.7, 0.35, nil, 0.6)
+        end)
+    end
+
     -- décompte 3, 2, 1
     task.spawn(function()
         local couleurs = { Color3.fromRGB(120, 255, 140), Color3.fromRGB(255, 220, 80), ROUGE }

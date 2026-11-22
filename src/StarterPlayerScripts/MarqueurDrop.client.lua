@@ -4,10 +4,12 @@
     (il remplace l'ancien « TesteurBPM » : supprime celui-là dans Studio)
 
     Lance le jeu dans Studio (Play) et appuie sur B pour ouvrir l'outil.
-    Tu écoutes la musique, et quand le DROP arrive tu appuies sur D : la manche commencera à cet endroit.
+    Tu écoutes la musique, et quand le DROP arrive tu appuies sur D : à ce moment-là du jeu, il y aura
+    plein de cercles à cliquer (le moment dur).
 
       Espace   = lecture / pause
-      D        = « le drop est ICI »
+      D        = « le drop est ICI » = le moment DUR (plein de cercles à cliquer)
+      M        = « la manche commence ICI » (sinon c'est réglé tout seul pour que le drop soit dedans)
       T        = tester : réécouter 3 secondes avant le drop
       A        = analyser la musique (elle passe en accéléré) → l'outil propose où est le drop
       S        = aller au drop proposé par l'analyse
@@ -56,7 +58,8 @@ for i, valeur in ipairs(musiques) do
         bpm = valeur:GetAttribute("Bpm") or 130,
         debut = valeur:GetAttribute("Debut") or 0,
         decalage = valeur:GetAttribute("Decalage") or 0,
-        marque = false,
+        drop = valeur:GetAttribute("Drop"), -- le moment dur (seconde du son), ou nil
+        marque = valeur:GetAttribute("Drop") ~= nil,
         volumes = {},      -- [case] = volume (0 à 1000)
         suggestion = nil,  -- seconde proposée par l'analyse
     }
@@ -78,8 +81,10 @@ end
 local function ligne(i)
     local r = reglages[i]
     return string.format(
-        '        { id = "%s", nom = "%s", bpm = %s, debut = %s, decalage = %s },%s',
-        r.id, r.nom, arrondi(r.bpm), arrondi(r.debut), arrondi(r.decalage),
+        '        { id = "%s", nom = "%s", bpm = %s, debut = %s, %sdecalage = %s },%s',
+        r.id, r.nom, arrondi(r.bpm), arrondi(r.debut),
+        if r.drop then "drop = " .. arrondi(r.drop) .. ", " else "",
+        arrondi(r.decalage),
         if r.marque then "" else " -- drop pas encore marqué"
     )
 end
@@ -229,10 +234,11 @@ local boutonSuiv = bouton(142, 262, 44, "▶")
 local boutonDrop = bouton(196, 262, 190, "LE DROP EST ICI (D)", OR)
 local boutonTest = bouton(392, 262, 110, "TESTER (T)")
 local boutonAnalyse = bouton(508, 262, 116, "ANALYSER (A)", CYAN)
-local boutonListe = bouton(16, 302, 608, "ÉCRIRE LA LISTE DANS L'OUTPUT (L)  →  à envoyer à Claude")
+local boutonDebut = bouton(16, 302, 200, "LA MANCHE COMMENCE ICI (M)")
+local boutonListe = bouton(222, 302, 402, "ÉCRIRE LA LISTE DANS L'OUTPUT (L)  →  à envoyer à Claude")
 
 local aide = texte(344, 64, 13, Color3.fromRGB(150, 150, 165))
-aide.Text = "Espace = lecture / pause   ·   D = le drop est ici   ·   T = réécouter juste avant le drop\n"
+aide.Text = "Espace = lecture / pause   ·   D = le drop (moment dur) est ici   ·   M = la manche commence ici   ·   T = réécouter le drop\n"
     .. "← / → = -5 s / +5 s   ·   ↑ / ↓ = +1 s / -1 s   ·   N / P = musique suivante / précédente\n"
     .. "A = analyse (accéléré) puis S = aller au drop proposé   ·   clique sur la barre pour te déplacer"
 
@@ -286,16 +292,32 @@ local function marquerDrop()
         return
     end
     local r = reglages[index]
-    r.debut = math.max(0, math.floor(son.TimePosition * 100 + 0.5) / 100)
+    r.drop = math.max(0, math.floor(son.TimePosition * 100 + 0.5) / 100)
     r.marque = true
-    print(string.format("[Marqueur de drop] %s : drop à %s s", r.nom, arrondi(r.debut)))
+    print(string.format("[Marqueur de drop] %s : drop (moment dur) à %s s", r.nom, arrondi(r.drop)))
+    -- le drop doit tomber PENDANT la manche (avec le temps de jouer le moment dur) : sinon on décale le début
+    if r.drop < r.debut + 3 or r.drop > r.debut + DUREE_MANCHE - 18 then
+        r.debut = math.max(0, math.floor(r.drop - 20 + 0.5))
+        print(string.format("[Marqueur de drop] %s : la manche commencera à %s s pour que le drop soit dedans", r.nom, arrondi(r.debut)))
+    end
+end
+
+-- la manche commence ici (si tu veux choisir toi-même)
+local function marquerDebut()
+    if analyse then
+        return
+    end
+    local r = reglages[index]
+    r.debut = math.max(0, math.floor(son.TimePosition * 100 + 0.5) / 100)
+    print(string.format("[Marqueur de drop] %s : la manche commence à %s s", r.nom, arrondi(r.debut)))
 end
 
 local function tester()
     if analyse then
         return
     end
-    aller(reglages[index].debut - 3)
+    local r = reglages[index]
+    aller((r.drop or r.debut) - 3)
     if not son.IsPlaying then
         if son.IsPaused then
             son:Resume()
@@ -389,6 +411,7 @@ end)
 local touches = {
     [Enum.KeyCode.Space] = lecturePause,
     [Enum.KeyCode.D] = marquerDrop,
+    [Enum.KeyCode.M] = marquerDebut,
     [Enum.KeyCode.T] = tester,
     [Enum.KeyCode.A] = lancerAnalyse,
     [Enum.KeyCode.S] = function()
@@ -440,6 +463,7 @@ boutonSuiv.Activated:Connect(function()
 end)
 boutonLecture.Activated:Connect(lecturePause)
 boutonDrop.Activated:Connect(marquerDrop)
+boutonDebut.Activated:Connect(marquerDebut)
 boutonTest.Activated:Connect(tester)
 boutonAnalyse.Activated:Connect(lancerAnalyse)
 boutonListe.Activated:Connect(toutAfficher)
@@ -543,7 +567,10 @@ RunService.RenderStepped:Connect(function()
             b.Size = UDim2.new(0, largeurCase, math.clamp(volume / 600, 0.02, 1), 0)
         end
         teteLecture.Position = position(son.TimePosition, duree)
-        traitDrop.Position = position(r.debut, duree)
+        traitDrop.Visible = r.drop ~= nil
+        if r.drop then
+            traitDrop.Position = position(r.drop, duree)
+        end
         zoneManche.Position = position(r.debut, duree)
         zoneManche.Size = UDim2.fromScale(math.clamp(DUREE_MANCHE / duree, 0, 1 - math.clamp(r.debut / duree, 0, 1)), 1)
         traitSuggestion.Visible = r.suggestion ~= nil
@@ -553,8 +580,8 @@ RunService.RenderStepped:Connect(function()
     end
 
     dropLabel.Text = string.format(
-        "Drop : %s%s   ·   la manche jouera de %s à %s",
-        formatTemps(r.debut), if r.marque then "" else " (pas encore marqué)",
+        "Drop : %s   ·   la manche (zone dorée) jouera de %s à %s",
+        if r.drop then formatTemps(r.drop) else "pas encore marqué",
         formatTemps(r.debut), formatTemps(r.debut + DUREE_MANCHE)
     )
     suggestionLabel.Text = if r.suggestion
@@ -564,7 +591,9 @@ RunService.RenderStepped:Connect(function()
     if duree == 0 and os.clock() - chargeDepuis > 6 then
         alerteLabel.Text = "⚠ Ce son ne se charge pas (privé, supprimé ou pas autorisé dans ce jeu ?)"
     elseif duree > 0 and r.debut + DUREE_MANCHE > duree then
-        alerteLabel.Text = string.format("⚠ La musique s'arrête avant la fin de la manche (%d s) : prends un drop plus tôt", DUREE_MANCHE)
+        alerteLabel.Text = string.format("⚠ La musique s'arrête avant la fin de la manche (%d s) : appuie sur M plus tôt", DUREE_MANCHE)
+    elseif r.drop and (r.drop < r.debut or r.drop > r.debut + DUREE_MANCHE - 2) then
+        alerteLabel.Text = "⚠ Le drop est en dehors de la zone dorée : il ne sera pas joué"
     else
         alerteLabel.Text = ""
     end
