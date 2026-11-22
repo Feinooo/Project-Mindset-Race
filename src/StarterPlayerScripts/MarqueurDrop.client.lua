@@ -482,12 +482,14 @@ end)
 -- Ouvrir / fermer avec B
 local ouvert = false
 local premiereOuverture = true
+local groupeAvant = nil
 local function basculer()
     ouvert = not ouvert
     gui.Enabled = ouvert
     local musiqueJeu = SoundService:FindFirstChild("MindsetMusique")
     if ouvert then
         if musiqueJeu then
+            groupeAvant = musiqueJeu.SoundGroup
             musiqueJeu.SoundGroup = groupeMuet
         end
         ContextActionService:BindActionAtPriority("MarqueurDrop", action, false, 3000, table.unpack(listeTouches))
@@ -499,7 +501,7 @@ local function basculer()
         end
     else
         if musiqueJeu then
-            musiqueJeu.SoundGroup = nil
+            musiqueJeu.SoundGroup = groupeAvant -- on remet le groupe du jeu (volume des paramètres)
         end
         ContextActionService:UnbindAction("MarqueurDrop")
         if analyse then

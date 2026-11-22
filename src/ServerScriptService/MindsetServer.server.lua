@@ -96,6 +96,8 @@ local EvenementEvent = remote("Evenement") -- serveur -> clients : sommet attein
 local FinEvent = remote("Fin")             -- serveur -> joueur : son écran de fin
 local VoterMusiqueEvent = remote("VoterMusique") -- client -> serveur : vote pour une des 3 musiques
 local DanserEvent = remote("Danser")       -- client -> serveur : le gagnant fait un pas de danse (farm d'aura)
+local JouerEvent = remote("Jouer")         -- client -> serveur : le joueur a appuyé sur PLAY dans le menu principal
+local ReglagesEvent = remote("Reglages")   -- client -> serveur : ses paramètres (volumes...) à sauvegarder
 local ClassementFonction = creer("RemoteFunction", { Name = "Classement", Parent = dossierRemotes }) -- top 10 d'un classement
 
 local dossierGrimpeurs = creer("Folder", { Name = "Grimpeurs", Parent = ReplicatedStorage })
@@ -184,6 +186,9 @@ local function essayer(fonction)
     return false, nil
 end
 
+local HttpService = game:GetService("HttpService")
+local reglagesJoueurs = {} -- [joueur] = { musique = 0..1, bruitages = 0..1, secousses = bool, flashs = bool }
+
 local function chargerJoueur(joueur, stats)
     if not sauvegarde then
         return
@@ -198,6 +203,10 @@ local function chargerJoueur(joueur, stats)
         donnees = donnees or {}
         stats.Victoires.Value += donnees.victoires or 0
         stats.Aura.Value += donnees.aura or 0
+        if type(donnees.reglages) == "table" then
+            reglagesJoueurs[joueur] = donnees.reglages
+            joueur:SetAttribute("Reglages", HttpService:JSONEncode(donnees.reglages))
+        end
         donneesChargees[joueur] = true
     else
         warn("💾 Impossible de charger les données de " .. joueur.Name .. " : pas de sauvegarde pour cette partie.")
@@ -213,11 +222,13 @@ local function sauverJoueur(joueur)
         return
     end
     local victoires, aura = stats.Victoires.Value, stats.Aura.Value
+    local reglages = reglagesJoueurs[joueur]
     essayer(function()
         sauvegarde:UpdateAsync("joueur_" .. joueur.UserId, function(anciennes)
             local donnees = anciennes or {}
             donnees.victoires = victoires
             donnees.aura = aura
+            donnees.reglages = reglages or donnees.reglages
             return donnees
         end)
     end)
@@ -250,6 +261,7 @@ local function nouveauGrimpeur(nom, perso, modele, joueur)
     g:SetAttribute("EnJeu", false)
     g:SetAttribute("Ordre", compteurOrdre)
     g:SetAttribute("Bot", joueur == nil)
+    g:SetAttribute("Pret", joueur == nil) -- un joueur doit d'abord appuyer sur PLAY
     g:SetAttribute("UserId", if joueur then joueur.UserId else 0)
     creer("ObjectValue", { Name = "Modele", Value = modele, Parent = g })
     g.Parent = dossierGrimpeurs
@@ -298,6 +310,7 @@ end
 Players.PlayerRemoving:Connect(function(joueur)
     sauverJoueur(joueur)
     donneesChargees[joueur] = nil
+    reglagesJoueurs[joueur] = nil
     local g = grimpeurDesJoueurs[joueur]
     if g then
         joueurDuGrimpeur[g] = nil
@@ -327,6 +340,30 @@ task.spawn(function()
             task.spawn(sauverJoueur, joueur)
         end
     end
+end)
+
+-- PLAY : le joueur quitte le menu principal et participe aux prochaines manches
+JouerEvent.OnServerEvent:Connect(function(joueur)
+    local g = grimpeurDesJoueurs[joueur]
+    if g then
+        g:SetAttribute("Pret", true)
+    end
+end)
+
+-- PARAMÈTRES : on garde les réglages du joueur (sauvegardés avec ses victoires et son aura)
+ReglagesEvent.OnServerEvent:Connect(function(joueur, reglages)
+    if type(reglages) ~= "table" then
+        return
+    end
+    local function nombre(x)
+        return if type(x) == "number" and x == x then math.clamp(x, 0, 1) else 1
+    end
+    reglagesJoueurs[joueur] = {
+        musique = nombre(reglages.musique),
+        bruitages = nombre(reglages.bruitages),
+        secousses = reglages.secousses ~= false,
+        flashs = reglages.flashs ~= false,
+    }
 end)
 
 ChoisirEvent.OnServerEvent:Connect(function(joueur, perso)
@@ -584,13 +621,20 @@ local function cleMusique(m)
     return "M_" .. (string.match(m.id, "%d+") or string.gsub(m.nom or "?", "%W", ""))
 end
 
+-- typeTableau = "Perso" / "Musique" : il a son onglet dans le panneau ; nil = classement « caché »
+-- (combinaison état d'esprit + musique, ou monde entier) qu'on demande avec sa clé.
 local function creerTableau(cle, nom, typeTableau)
     local t = { session = {}, charges = {}, cache = nil, cacheA = -math.huge }
     local ok, store = pcall(function()
-        return DataStoreService:GetOrderedDataStore("MindsetStairs_Record_" .. cle)
+        -- (nom court pour les combinaisons : Roblox limite les noms à 50 caractères)
+        return DataStoreService:GetOrderedDataStore(if typeTableau then "MindsetStairs_Record_" .. cle else "MSR_" .. cle)
     end)
     if ok then
         t.store = store
+    end
+    tableaux[cle] = t
+    if not typeTableau then
+        return
     end
     local valeur = Instance.new("StringValue")
     valeur.Name = cle
@@ -610,6 +654,19 @@ for ordre, m in ipairs(CONFIG.MUSIQUES) do
     if m.id ~= "" and not tableaux[cleMusique(m)] then
         creerTableau(cleMusique(m), m.nom or ("Musique " .. ordre), "Musique")
         tableaux[cleMusique(m)].valeur:SetAttribute("Ordre", ordre)
+    end
+end
+-- 🌍 le classement du MONDE ENTIER (toutes musiques, tous états d'esprit)
+creerTableau("G", "MONDE ENTIER", nil)
+-- un classement pour chaque combinaison état d'esprit + musique (clé « C_Ego_M_123... »)
+local function cleCombo(perso, cleM)
+    return "C_" .. perso .. "_" .. cleM
+end
+for _, perso in ipairs(ORDRE_PERSOS) do
+    for _, m in ipairs(CONFIG.MUSIQUES) do
+        if m.id ~= "" and not tableaux[cleCombo(perso, cleMusique(m))] then
+            creerTableau(cleCombo(perso, cleMusique(m)), perso .. " + " .. (m.nom or "?"), nil)
+        end
     end
 end
 
@@ -678,8 +735,10 @@ local function lireClassement(cle)
         resultat[i] = { nom = nomDe(liste[i].id), score = liste[i].score, userId = liste[i].id }
     end
     t.cache, t.cacheA = resultat, os.clock()
-    t.valeur:SetAttribute("Top1Nom", if resultat[1] then resultat[1].nom else "")
-    t.valeur:SetAttribute("Top1Score", if resultat[1] then resultat[1].score else 0)
+    if t.valeur then
+        t.valeur:SetAttribute("Top1Nom", if resultat[1] then resultat[1].nom else "")
+        t.valeur:SetAttribute("Top1Score", if resultat[1] then resultat[1].score else 0)
+    end
     return resultat
 end
 
@@ -862,7 +921,7 @@ while true do
     local participants = {}
     local persosPris = {}
     for joueur, g in pairs(grimpeurDesJoueurs) do
-        if joueur.Parent and joueur.Character then
+        if joueur.Parent and joueur.Character and g:GetAttribute("Pret") then -- seulement ceux qui ont appuyé sur PLAY
             local perso = g:GetAttribute("Perso")
             if not PERSOS[perso] then
                 perso = auHasard(ORDRE_PERSOS)
@@ -1006,7 +1065,9 @@ while true do
             task.spawn(function()
                 local recordPerso = enregistrerRecord("P_" .. tostring(perso), joueurRecord, score)
                 local recordMusique = musique.id ~= "" and enregistrerRecord(cleMusique(musique), joueurRecord, score)
-                nouveauxRecords[g] = recordPerso or recordMusique
+                local recordCombo = musique.id ~= "" and enregistrerRecord(cleCombo(tostring(perso), cleMusique(musique)), joueurRecord, score)
+                enregistrerRecord("G", joueurRecord, score) -- 🌍 monde entier
+                nouveauxRecords[g] = recordPerso or recordMusique or recordCombo
             end)
         end
     end

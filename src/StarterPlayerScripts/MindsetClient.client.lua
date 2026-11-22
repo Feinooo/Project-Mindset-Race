@@ -141,6 +141,11 @@ local gui = nouveau("ScreenGui", {
     Parent = joueur:WaitForChild("PlayerGui"),
 })
 
+-- ⚙️ PARAMÈTRES du joueur (réglés dans le menu « PARAMÈTRES », sauvegardés par le serveur)
+local REGLAGES = { musique = 1, bruitages = 1, secousses = true, flashs = true }
+local groupeMusique = nouveau("SoundGroup", { Name = "MindsetGroupeMusique", Volume = 1, Parent = SoundService })
+local groupeBruitages = nouveau("SoundGroup", { Name = "MindsetGroupeBruitages", Volume = 1, Parent = SoundService })
+
 local flash = nouveau("Frame", {
     BackgroundColor3 = BLANC,
     BackgroundTransparency = 1,
@@ -344,7 +349,7 @@ end
 
 local function flasher(couleur, force)
     flash.BackgroundColor3 = couleur
-    flash.BackgroundTransparency = 1 - force
+    flash.BackgroundTransparency = 1 - force * (if REGLAGES.flashs then 1 else 0)
     tween(flash, 0.45, { BackgroundTransparency = 1 })
 end
 
@@ -359,7 +364,7 @@ local FOV_BASE = 28
 local fovPulse = 0       -- coup de zoom sur les temps, qui retombe tout seul
 local forceSecousse = 0  -- secousse qui retombe toute seule
 local function secousse(force)
-    forceSecousse = math.max(forceSecousse, force)
+    forceSecousse = math.max(forceSecousse, force * (if REGLAGES.secousses then 1 else 0))
 end
 
 -- ========================== MENU DU LOBBY ==========================
@@ -385,7 +390,7 @@ local SONS = {
 local sonsModeles = {}
 for nom, id in pairs(SONS) do
     if id ~= "" then
-        sonsModeles[nom] = nouveau("Sound", { Name = "MindsetUI_" .. nom, SoundId = id, Volume = 0.5, Parent = SoundService })
+        sonsModeles[nom] = nouveau("Sound", { Name = "MindsetUI_" .. nom, SoundId = id, Volume = 0.5, SoundGroup = groupeBruitages, Parent = SoundService })
     end
 end
 task.spawn(function()
@@ -443,7 +448,6 @@ local SON_SURVOL = 1
 local RECETTES_SURVOL = {
     { nom = "CRISTAL (doux et brillant)", jouer = function(v)
         jouerSon("tic", 2.1 * v, 0.12, nil, 0.09)
-        jouerSon("eau", 2.8 * v, 0.12, 0.01, 0.08)
     end },
     { nom = "PLUME (très léger)", jouer = function(v)
         jouerSon("pas", 1.6 * v, 0.35, nil, 0.07)
@@ -1130,15 +1134,18 @@ ReplicatedStorage:GetAttributeChangedSignal("Temps"):Connect(function()
     chronoMenu.maj(temps)
     chrono.maj(temps)
     local phase = ReplicatedStorage:GetAttribute("Phase")
-    if phase == "Manche" or phase == "Lobby" then
+    -- (pas de bip si tu es encore dans le menu principal)
+    if (phase == "Lobby" and menu.Visible) or (phase == "Manche" and statut.Visible) then
         if temps >= 1 and temps <= 5 and temps < dernierTempsChrono then
             -- bip... bip... bip... de plus en plus aigu
             local hauteur = if temps == 1 then 1.5 else 1 + (5 - temps) * 0.04
             jouerSon("tic", hauteur, 0.6)
             jouerSon("pose", 1.3 * hauteur, 0.35, nil, 0.1)
         elseif temps == 0 and dernierTempsChrono == 1 then
-            -- c'est fini !
-            jouerSon("boum", 0.85, 0.45, nil, 0.9)
+            -- c'est fini ! (pas de gros boum quand la partie se lance, juste à la fin de la manche)
+            if phase == "Manche" then
+                jouerSon("boum", 0.85, 0.45, nil, 0.9)
+            end
             jouerSon("tic", 2, 0.5)
             jouerSon("tic", 1.5, 0.4, 0.05)
         end
@@ -1276,12 +1283,17 @@ end)
 -- et on recycle celles qui sortent de l'écran. Comme ça, ça peut monter à l'infini.
 -- (tout est dans un bloc do ... end : Luau limite le nombre de variables locales d'un script)
 local sceneLocale = nouveau("Folder", { Name = "MindsetSceneLocale", Parent = workspace })
-local couloirs = {}  -- [couloir] = { marches = {[numero] = part}, ligne = part }
+-- UN SEUL grand escalier, large, que tout le monde gravit ensemble (chacun à sa place sur la largeur).
+local couloirs = {}  -- [0] = { ligne = part } : la ligne néon au bord de l'escalier (couleur de ton perso)
 local FOND_Z = GEO.Z0 - NB_COULOIRS * GEO.ECART - 15
 local majEscaliers, allumerMarche, eclats, ondeSol, fondScene, poussiere
 do
 local MARCHES_DERRIERE, MARCHES_DEVANT = 40, 50
 local BLANC_MARCHE = Color3.fromRGB(235, 235, 245)
+local LARGEUR_ESCALIER = (NB_COULOIRS - 1) * GEO.ECART + 6 -- de l'avant (couloir 0) au fond (dernier couloir)
+local Z_CENTRE = GEO.Z0 - (NB_COULOIRS - 1) * GEO.ECART / 2
+local Z_AVANT = GEO.Z0 + 3 -- le bord de l'escalier tourné vers la caméra
+local marches = {}   -- [numero] = part
 local reserve = {}   -- marches recyclées
 
 local function blocLocal(proprietes)
@@ -1306,7 +1318,7 @@ local function lookMarche(numero)
     return BLANC_MARCHE, Enum.Material.SmoothPlastic
 end
 
-local function placerMarche(couloir, numero)
+local function placerMarche(numero)
     local part = table.remove(reserve)
     if not part then
         part = blocLocal({ Name = "Marche" })
@@ -1321,19 +1333,17 @@ local function placerMarche(couloir, numero)
         texte({ Size = UDim2.fromScale(1, 0.45), TextColor3 = Color3.fromRGB(60, 50, 20), TextStrokeTransparency = 1, Parent = panneau })
     end
     local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
-    local largeur, x = D, GEO.X0 + (numero + 0.5) * D
+    local longueur, x = D, GEO.X0 + (numero + 0.5) * D
     if numero == 0 then
-        largeur = D * 4
-        x = GEO.X0 + D - largeur / 2
+        longueur = D * 4
+        x = GEO.X0 + D - longueur / 2
     end
-    local z = GEO.Z0 - couloir * GEO.ECART
     -- des marches « pleines » (3 de haut) pour que ça ressemble à un vrai escalier
-    part.Size = Vector3.new(largeur, H * 3, 5)
-    part.Position = Vector3.new(x, GEO.Y0 + numero * H - H * 1.5, z)
+    part.Size = Vector3.new(longueur, H * 3, LARGEUR_ESCALIER)
+    part.Position = Vector3.new(x, GEO.Y0 + numero * H - H * 1.5, Z_CENTRE)
     local couleur, matiere = lookMarche(numero)
     part.Color = couleur
     part.Material = matiere
-    part:SetAttribute("Allumage", (part:GetAttribute("Allumage") or 0) + 1) -- annule un allumage en cours
     local panneau = part:FindFirstChild("Numero")
     if panneau then
         panneau.Enabled = numero > 0 and numero % 10 == 0
@@ -1342,13 +1352,10 @@ local function placerMarche(couloir, numero)
     return part
 end
 
-for couloir = 0, NB_COULOIRS - 1 do
-    couloirs[couloir] = {
-        marches = {},
-        -- ligne néon le long des marches (colorée avec la couleur du perso du couloir)
-        ligne = blocLocal({ Name = "Ligne", Size = Vector3.new(1, 0.35, 0.35), Color = Color3.fromRGB(70, 70, 80), Material = Enum.Material.Neon }),
-    }
-end
+-- ligne néon le long du bord de l'escalier
+couloirs[0] = {
+    ligne = blocLocal({ Name = "Ligne", Size = Vector3.new(1, 0.35, 0.35), Color = Color3.fromRGB(70, 70, 80), Material = Enum.Material.Neon }),
+}
 
 local fenetreA, fenetreB = nil, nil
 majEscaliers = function(marcheCentre)
@@ -1359,46 +1366,42 @@ majEscaliers = function(marcheCentre)
     end
     fenetreA, fenetreB = a, b
     local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
-    for couloir, co in pairs(couloirs) do
-        for numero, part in pairs(co.marches) do
-            if numero < a or numero > b then
-                co.marches[numero] = nil
-                part.Position = Vector3.new(0, -1000, 0)
-                table.insert(reserve, part)
-            end
+    for numero, part in pairs(marches) do
+        if numero < a or numero > b then
+            marches[numero] = nil
+            part.Position = Vector3.new(0, -1000, 0)
+            table.insert(reserve, part)
         end
-        for numero = a, b do
-            if not co.marches[numero] then
-                co.marches[numero] = placerMarche(couloir, numero)
-            end
-        end
-        local z = GEO.Z0 - couloir * GEO.ECART
-        local debut = Vector3.new(GEO.X0 + a * D, GEO.Y0 + a * H, z + 2.6)
-        local fin = Vector3.new(GEO.X0 + (b + 1) * D, GEO.Y0 + (b + 1) * H, z + 2.6)
-        co.ligne.Size = Vector3.new((fin - debut).Magnitude, 0.35, 0.35)
-        co.ligne.CFrame = CFrame.new((debut + fin) / 2) * CFrame.Angles(0, 0, math.atan2(H, D))
     end
+    for numero = a, b do
+        if not marches[numero] then
+            marches[numero] = placerMarche(numero)
+        end
+    end
+    local debut = Vector3.new(GEO.X0 + a * D, GEO.Y0 + a * H, Z_AVANT + 0.1)
+    local fin = Vector3.new(GEO.X0 + (b + 1) * D, GEO.Y0 + (b + 1) * H, Z_AVANT + 0.1)
+    couloirs[0].ligne.Size = Vector3.new((fin - debut).Magnitude, 0.35, 0.35)
+    couloirs[0].ligne.CFrame = CFrame.new((debut + fin) / 2) * CFrame.Angles(0, 0, math.atan2(H, D))
 end
 majEscaliers(0)
 
--- La marche brille quand on atterrit dessus
+-- Là où le pied se pose, une dalle de lumière s'allume sur la marche (à la place du joueur)
 allumerMarche = function(couloir, numero, couleur)
-    local co = couloir and couloirs[couloir]
-    local part = co and co.marches[numero]
-    if not part then
+    if not couloir or numero < 0 then
         return
     end
-    local allumage = (part:GetAttribute("Allumage") or 0) + 1
-    part:SetAttribute("Allumage", allumage)
-    local base, matiere = lookMarche(numero)
-    part.Color = couleur
-    part.Material = Enum.Material.Neon
-    tween(part, 0.45, { Color = base:Lerp(couleur, 0.15) })
-    task.delay(0.45, function()
-        if part:GetAttribute("Allumage") == allumage then
-            part.Color = base
-            part.Material = matiere
-        end
+    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
+    local dalle = blocLocal({
+        Name = "Dalle",
+        Size = Vector3.new(D * 0.92, 0.12, 4.2),
+        Position = Vector3.new(GEO.X0 + (numero + 0.5) * D, GEO.Y0 + numero * H + 0.06, GEO.Z0 - couloir * GEO.ECART),
+        Color = couleur,
+        Material = Enum.Material.Neon,
+        Transparency = 0.05,
+    })
+    tween(dalle, 0.5, { Transparency = 1, Size = Vector3.new(D, 0.12, 5) })
+    task.delay(0.52, function()
+        dalle:Destroy()
     end)
 end
 
@@ -1907,7 +1910,7 @@ for _, config in ipairs(dossierGrimpeurs:GetChildren()) do
 end
 
 -- ========================== MUSIQUE ==========================
-local musique = nouveau("Sound", { Name = "MindsetMusique", Volume = 0.8, Parent = SoundService })
+local musique = nouveau("Sound", { Name = "MindsetMusique", Volume = 0.8, SoundGroup = groupeMusique, Parent = SoundService })
 local partition = nil      -- infos de la manche en cours
 local intervalle = 0.5
 local musiqueLancee = false
@@ -2575,7 +2578,7 @@ EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
 end)
 
 -- ========================== CLASSEMENTS ==========================
-local boutonClassement, fermerPanneau
+local boutonClassement, fermerPanneau, ouvrirPanneau
 do
 boutonClassement = nouveau("TextButton", {
     Position = UDim2.new(0, 20, 0, 70),
@@ -2628,14 +2631,15 @@ nouveau("UIStroke", { Color = OR, Thickness = 3, ApplyStrokeMode = Enum.ApplyStr
 local echellePanneau = nouveau("UIScale", { Parent = panneau })
 texte({
     Position = UDim2.new(0, 20, 0, 14),
-    Size = UDim2.new(1, -150, 0, 38),
+    Size = UDim2.new(1, -310, 0, 38),
     Text = "CLASSEMENTS",
     TextColor3 = OR,
     TextXAlignment = Enum.TextXAlignment.Left,
     ZIndex = 42,
     Parent = panneau,
 })
-texte({
+-- ce qu'on regarde : « EGO + EMPIRE », « MONDE ENTIER »...
+local sousTitre = texte({
     Position = UDim2.new(0, 20, 0, 54),
     Size = UDim2.new(1, -40, 0, 18),
     Text = "Le plus de marches montées en une partie",
@@ -2661,6 +2665,24 @@ local boutonFermer = nouveau("TextButton", {
 })
 nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = boutonFermer })
 nouveau("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), Parent = boutonFermer })
+-- 🌍 le classement du monde entier (toutes musiques, tous états d'esprit, tous les joueurs)
+local COULEUR_MONDE = Color3.fromRGB(110, 230, 160)
+local boutonMonde = nouveau("TextButton", {
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -134, 0, 16),
+    Size = UDim2.fromOffset(160, 34),
+    BackgroundColor3 = Color3.fromRGB(24, 24, 34),
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBlack,
+    Text = "MONDE ENTIER",
+    TextScaled = true,
+    TextColor3 = COULEUR_MONDE,
+    ZIndex = 42,
+    Parent = panneau,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = boutonMonde })
+nouveau("UIStroke", { Color = COULEUR_MONDE, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = boutonMonde })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), Parent = boutonMonde })
 
 local function titreRangee(y, message)
     texte({
@@ -2734,16 +2756,39 @@ local monRecordTexte = texte({
 })
 
 local onglets = {} -- [cle] = { bouton, couleur }
-local ongletChoisi = nil
+-- Ce qu'on regarde : clique un état d'esprit, PUIS une musique → le classement de cette combinaison.
+-- (un seul des deux = toutes les musiques / tous les états d'esprit ; MONDE ENTIER = tout)
+local choixPerso, choixMusique, modeMonde = nil, nil, false
 local demandeClassement = 0
 local COULEURS_PODIUM = { OR, Color3.fromRGB(210, 215, 230), Color3.fromRGB(220, 140, 80) }
 
+local function nomOnglet(cle)
+    local valeur = cle and dossierClassements:FindFirstChild(cle)
+    return if valeur then valeur.Value else "?"
+end
+
+local function cleSelection()
+    if modeMonde or not (choixPerso or choixMusique) then
+        return "G", "MONDE ENTIER  ·  le meilleur de tous les joueurs, toutes musiques et états d'esprit"
+    end
+    if choixPerso and choixMusique then
+        return "C_" .. string.sub(choixPerso, 3) .. "_" .. choixMusique, nomOnglet(choixPerso) .. "  +  " .. nomOnglet(choixMusique)
+    end
+    if choixPerso then
+        return choixPerso, nomOnglet(choixPerso) .. "  ·  toutes les musiques (clique aussi une musique)"
+    end
+    return choixMusique, nomOnglet(choixMusique) .. "  ·  tous les états d'esprit (clique aussi un état d'esprit)"
+end
+
 local function styleOnglets()
     for cle, o in pairs(onglets) do
-        local choisi = cle == ongletChoisi
+        local choisi = not modeMonde and (cle == choixPerso or cle == choixMusique)
         tween(o.bouton, 0.2, { BackgroundColor3 = if choisi then o.couleur else Color3.fromRGB(24, 24, 34) })
         o.bouton.TextColor3 = if choisi then NOIR else o.couleur
     end
+    local monde = cleSelection() == "G"
+    tween(boutonMonde, 0.2, { BackgroundColor3 = if monde then COULEUR_MONDE else Color3.fromRGB(24, 24, 34) })
+    boutonMonde.TextColor3 = if monde then NOIR else COULEUR_MONDE
 end
 
 local function ligneClassement(rang, nom, score, estMoi)
@@ -2803,8 +2848,9 @@ local function ligneClassement(rang, nom, score, estMoi)
     end)
 end
 
-local function afficherClassement(cle)
-    ongletChoisi = cle
+local function afficherClassement()
+    local cle, description = cleSelection()
+    sousTitre.Text = description
     styleOnglets()
     demandeClassement += 1
     local numero = demandeClassement
@@ -2880,7 +2926,14 @@ local function creerOnglet(valeur)
         echelle.Scale = 0.9
         tween(echelle, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
         sonClic(note)
-        afficherClassement(valeur.Name)
+        -- recliquer le même onglet le désélectionne
+        modeMonde = false
+        if estPerso then
+            choixPerso = if choixPerso == valeur.Name then nil else valeur.Name
+        else
+            choixMusique = if choixMusique == valeur.Name then nil else valeur.Name
+        end
+        afficherClassement()
     end)
     onglets[valeur.Name] = { bouton = bouton, couleur = couleur }
 end
@@ -2889,7 +2942,7 @@ for _, valeur in ipairs(dossierClassements:GetChildren()) do
     creerOnglet(valeur)
 end
 
-local function ouvrirPanneau()
+ouvrirPanneau = function()
     if panneauOuvert then
         return
     end
@@ -2902,8 +2955,19 @@ local function ouvrirPanneau()
     tween(fondPanneau, 0.3, { BackgroundTransparency = 0.45 })
     echellePanneau.Scale = 0.75
     tween(echellePanneau, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
-    afficherClassement(ongletChoisi or ("P_" .. (persoChoisi or "Motivation")))
+    if not (choixPerso or choixMusique or modeMonde) then
+        choixPerso = "P_" .. (persoChoisi or "Motivation")
+    end
+    afficherClassement()
 end
+boutonMonde.MouseEnter:Connect(function()
+    sonSurvol(7)
+end)
+boutonMonde.Activated:Connect(function()
+    sonClic(7)
+    modeMonde = true
+    afficherClassement()
+end)
 fermerPanneau = function()
     if not panneauOuvert then
         return
@@ -2933,18 +2997,24 @@ fondPanneau.Activated:Connect(fermerPanneau)
 end -- fin du bloc des classements
 
 -- ========================== PHASES ==========================
+local menuPrincipalOuvert = true -- au lancement : le menu principal (PLAY / CLASSEMENTS / PARAMÈTRES)
+local boutonReglages -- le petit bouton PARAMÈTRES du lobby (créé plus bas)
 local function majPhase()
     local phase = ReplicatedStorage:GetAttribute("Phase")
-    if phase == "Lobby" then
+    local enMenu = menuPrincipalOuvert -- tant qu'on n'a pas appuyé sur PLAY, on ne voit que le menu principal
+    if phase == "Lobby" and not enMenu then
         ouvrirMenu()
     else
         fermerMenu()
     end
-    statut.Visible = phase ~= "Lobby" -- le menu a son propre titre et son chrono
-    chrono.afficher(phase ~= "Lobby")
-    barre.Visible = phase == "Manche" or phase == "Fin"
-    marcheTexte.Visible = phase == "Manche"
-    boutonClassement.Visible = phase ~= "Manche" -- pas pendant qu'on clique les cercles
+    statut.Visible = phase ~= "Lobby" and not enMenu -- le menu a son propre titre et son chrono
+    chrono.afficher(phase ~= "Lobby" and not enMenu)
+    barre.Visible = (phase == "Manche" or phase == "Fin") and not enMenu
+    marcheTexte.Visible = phase == "Manche" and not enMenu
+    boutonClassement.Visible = phase ~= "Manche" and not enMenu -- pas pendant qu'on clique les cercles
+    if boutonReglages then
+        boutonReglages.Visible = boutonClassement.Visible
+    end
     if phase == "Manche" then
         fermerPanneau()
     end
@@ -2976,6 +3046,450 @@ local function majPhase()
 end
 ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(majPhase)
 majPhase()
+
+-- ========================== MENU PRINCIPAL + PARAMÈTRES ==========================
+-- Au lancement, on n'est pas jeté direct dans la partie : un écran titre avec PLAY, CLASSEMENTS, PARAMÈTRES.
+-- PARAMÈTRES : volume de la musique, volume des bruitages, secousses de l'écran, flashs (sauvegardés).
+do
+local HttpService = game:GetService("HttpService")
+local JouerEvent = remotes:WaitForChild("Jouer")
+local ReglagesEvent = remotes:WaitForChild("Reglages")
+local FOND_BOUTON = Color3.fromRGB(18, 18, 28)
+
+-- un gros bouton du menu (survol = grossit + son, clic = rebond)
+local function boutonMenu(parent, texteBouton, couleur, plein, zIndex)
+    local bouton = nouveau("TextButton", {
+        Size = UDim2.new(1, 0, 0, 64),
+        BackgroundColor3 = if plein then couleur else FOND_BOUTON,
+        BackgroundTransparency = if plein then 0 else 0.1,
+        AutoButtonColor = false,
+        Font = Enum.Font.GothamBlack,
+        Text = texteBouton,
+        TextScaled = true,
+        TextColor3 = if plein then NOIR else couleur,
+        ZIndex = zIndex,
+        Parent = parent,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 16), Parent = bouton })
+    nouveau("UIStroke", { Color = couleur, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = bouton })
+    nouveau("UIPadding", { PaddingTop = UDim.new(0, 16), PaddingBottom = UDim.new(0, 16), Parent = bouton })
+    local echelle = nouveau("UIScale", { Parent = bouton })
+    bouton.MouseEnter:Connect(function()
+        sonSurvol(5)
+        tween(echelle, 0.2, { Scale = 1.06 }, Enum.EasingStyle.Back)
+    end)
+    bouton.MouseLeave:Connect(function()
+        tween(echelle, 0.2, { Scale = 1 })
+    end)
+    bouton.Activated:Connect(function()
+        echelle.Scale = 0.92
+        tween(echelle, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+    end)
+    return bouton
+end
+
+-- ---------- L'écran titre ----------
+local ecranTitre = nouveau("Frame", {
+    Name = "MenuPrincipal",
+    Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = NOIR,
+    BackgroundTransparency = 0.25,
+    BorderSizePixel = 0,
+    ZIndex = 26,
+    Parent = gui,
+})
+nouveau("UIGradient", {
+    Rotation = 90,
+    Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.1),
+        NumberSequenceKeypoint.new(0.5, 0.55),
+        NumberSequenceKeypoint.new(1, 0.1),
+    }),
+    Parent = ecranTitre,
+})
+local titre = texte({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.14),
+    Size = UDim2.fromScale(0.8, 0.14),
+    Text = "MINDSET STAIRS",
+    TextStrokeTransparency = 1,
+    ZIndex = 27,
+    Parent = ecranTitre,
+})
+local degrade = nouveau("UIGradient", {
+    Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, COULEURS.Motivation),
+        ColorSequenceKeypoint.new(0.33, COULEURS.Ego),
+        ColorSequenceKeypoint.new(0.66, COULEURS.Discipline),
+        ColorSequenceKeypoint.new(1, COULEURS.Obsession),
+    }),
+    Parent = titre,
+})
+local echelleTitreMenu = nouveau("UIScale", { Parent = titre })
+texte({
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.29),
+    Size = UDim2.fromScale(0.7, 0.04),
+    Text = "MOTIVATION  ·  EGO  ·  DISCIPLINE  ·  OBSESSION",
+    Font = Enum.Font.GothamBold,
+    TextColor3 = Color3.fromRGB(200, 200, 215),
+    TextStrokeTransparency = 1,
+    ZIndex = 27,
+    Parent = ecranTitre,
+})
+local colonne = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.42),
+    Size = UDim2.new(0, 320, 0, 230),
+    BackgroundTransparency = 1,
+    ZIndex = 27,
+    Parent = ecranTitre,
+})
+nouveau("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 14), HorizontalAlignment = Enum.HorizontalAlignment.Center, Parent = colonne })
+local boutonPlay = boutonMenu(colonne, "PLAY", OR, true, 28)
+boutonPlay.LayoutOrder = 1
+boutonPlay.Size = UDim2.new(1, 0, 0, 80)
+local boutonClassementsMenu = boutonMenu(colonne, "CLASSEMENTS", OR, false, 28)
+boutonClassementsMenu.LayoutOrder = 2
+local boutonParametresMenu = boutonMenu(colonne, "PARAMÈTRES", Color3.fromRGB(200, 200, 220), false, 28)
+boutonParametresMenu.LayoutOrder = 3
+texte({
+    AnchorPoint = Vector2.new(0.5, 1),
+    Position = UDim2.new(0.5, 0, 1, -24),
+    Size = UDim2.new(0.7, 0, 0, 22),
+    Text = "Clique en rythme. Monte à l'infini. Farm ton aura.",
+    Font = Enum.Font.GothamMedium,
+    TextColor3 = Color3.fromRGB(160, 160, 180),
+    TextStrokeTransparency = 1,
+    ZIndex = 27,
+    Parent = ecranTitre,
+})
+
+-- la map floutée derrière le menu principal
+flouLobby.Size = 24
+RunService.RenderStepped:Connect(function()
+    if ecranTitre.Visible then
+        local t = os.clock()
+        degrade.Offset = Vector2.new(math.sin(t * 0.8) * 0.35, 0)
+        echelleTitreMenu.Scale = 1 + math.sin(t * 2.2) * 0.025
+        boutonPlay.Rotation = math.sin(t * 3) * 1.2
+    end
+end)
+
+boutonPlay.Activated:Connect(function()
+    if not menuPrincipalOuvert then
+        return
+    end
+    sonClic(1)
+    flasher(BLANC, 0.4)
+    menuPrincipalOuvert = false
+    JouerEvent:FireServer()
+    tween(ecranTitre, 0.35, { BackgroundTransparency = 1 })
+    for _, objet in ipairs(ecranTitre:GetDescendants()) do
+        if objet:IsA("TextLabel") or objet:IsA("TextButton") then
+            tween(objet, 0.3, { TextTransparency = 1, BackgroundTransparency = 1 })
+        elseif objet:IsA("UIStroke") then
+            tween(objet, 0.3, { Transparency = 1 })
+        end
+    end
+    tween(flouLobby, 0.5, { Size = 0 })
+    task.delay(0.36, function()
+        ecranTitre.Visible = false
+    end)
+    majPhase() -- on arrive dans le lobby (ou en spectateur si une manche est en cours)
+    if ReplicatedStorage:GetAttribute("Phase") ~= "Lobby" then
+        grosTexte.TextColor3 = OR
+        apparaitre(grosTexte, "Une manche est en cours : tu joues à la prochaine !", 3, echelleGros)
+    end
+end)
+boutonClassementsMenu.Activated:Connect(function()
+    sonClic(6)
+    ouvrirPanneau()
+end)
+
+-- ---------- Le panneau des paramètres ----------
+local fondReglages = nouveau("TextButton", {
+    Size = UDim2.fromScale(1, 1),
+    BackgroundColor3 = NOIR,
+    BackgroundTransparency = 1,
+    AutoButtonColor = false,
+    Text = "",
+    Visible = false,
+    ZIndex = 45,
+    Parent = gui,
+})
+local cadre = nouveau("TextButton", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.5),
+    Size = UDim2.fromOffset(480, 390),
+    BackgroundColor3 = Color3.fromRGB(12, 12, 18),
+    AutoButtonColor = false,
+    Text = "",
+    ZIndex = 46,
+    Parent = fondReglages,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = cadre })
+nouveau("UIStroke", { Color = Color3.fromRGB(200, 200, 220), Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = cadre })
+local echelleCadre = nouveau("UIScale", { Parent = cadre })
+texte({ Position = UDim2.new(0, 24, 0, 18), Size = UDim2.new(1, -170, 0, 36), Text = "PARAMÈTRES", TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 47, Parent = cadre })
+local boutonFermerReglages = nouveau("TextButton", {
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.new(1, -18, 0, 20),
+    Size = UDim2.fromOffset(110, 34),
+    BackgroundColor3 = Color3.fromRGB(40, 40, 55),
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBlack,
+    Text = "FERMER",
+    TextScaled = true,
+    TextColor3 = BLANC,
+    ZIndex = 47,
+    Parent = cadre,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = boutonFermerReglages })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), Parent = boutonFermerReglages })
+
+local function appliquerReglages()
+    groupeMusique.Volume = REGLAGES.musique
+    groupeBruitages.Volume = REGLAGES.bruitages
+end
+
+-- envoi au serveur (pas à chaque pixel du curseur : une fois qu'on a fini de régler)
+local envoiPrevu = false
+local function sauverReglages()
+    if envoiPrevu then
+        return
+    end
+    envoiPrevu = true
+    task.delay(0.6, function()
+        envoiPrevu = false
+        ReglagesEvent:FireServer(REGLAGES)
+    end)
+end
+
+local majAffichage = {} -- fonctions qui remettent les curseurs / interrupteurs à jour
+
+-- un curseur de volume (0 à 100 %)
+local function curseur(y, titreCurseur, cle)
+    texte({
+        Position = UDim2.new(0, 24, 0, y),
+        Size = UDim2.new(0.6, 0, 0, 20),
+        Text = titreCurseur,
+        Font = Enum.Font.GothamBold,
+        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextStrokeTransparency = 1,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 47,
+        Parent = cadre,
+    })
+    local valeurTexte = texte({
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -24, 0, y),
+        Size = UDim2.new(0, 80, 0, 20),
+        Font = Enum.Font.GothamBlack,
+        TextColor3 = OR,
+        TextStrokeTransparency = 1,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = 47,
+        Parent = cadre,
+    })
+    local rail = nouveau("TextButton", {
+        Position = UDim2.new(0, 24, 0, y + 30),
+        Size = UDim2.new(1, -48, 0, 10),
+        BackgroundColor3 = Color3.fromRGB(45, 45, 60),
+        AutoButtonColor = false,
+        Text = "",
+        ZIndex = 47,
+        Parent = cadre,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rail })
+    local rempli = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = OR, BorderSizePixel = 0, ZIndex = 48, Parent = rail })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempli })
+    local poignee = nouveau("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.fromScale(1, 0.5),
+        Size = UDim2.fromOffset(24, 24),
+        BackgroundColor3 = BLANC,
+        ZIndex = 49,
+        Parent = rail,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = poignee })
+    nouveau("UIStroke", { Color = OR, Thickness = 2, Parent = poignee })
+    local function afficher()
+        local v = REGLAGES[cle]
+        rempli.Size = UDim2.fromScale(v, 1)
+        poignee.Position = UDim2.fromScale(v, 0.5)
+        valeurTexte.Text = math.floor(v * 100 + 0.5) .. " %"
+    end
+    table.insert(majAffichage, afficher)
+    local glisse = false
+    local function regler(x)
+        REGLAGES[cle] = math.clamp((x - rail.AbsolutePosition.X) / rail.AbsoluteSize.X, 0, 1)
+        appliquerReglages()
+        afficher()
+    end
+    rail.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            glisse = true
+            regler(input.Position.X)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if glisse and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            regler(input.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if glisse and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            glisse = false
+            sonClic(3) -- pour entendre le volume des bruitages
+            sauverReglages()
+        end
+    end)
+    afficher()
+end
+
+-- un interrupteur OUI / NON
+local function interrupteur(y, titreInter, cle)
+    texte({
+        Position = UDim2.new(0, 24, 0, y + 6),
+        Size = UDim2.new(0.6, 0, 0, 20),
+        Text = titreInter,
+        Font = Enum.Font.GothamBold,
+        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextStrokeTransparency = 1,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 47,
+        Parent = cadre,
+    })
+    local bouton = nouveau("TextButton", {
+        AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, -24, 0, y),
+        Size = UDim2.fromOffset(90, 32),
+        AutoButtonColor = false,
+        Font = Enum.Font.GothamBlack,
+        TextScaled = true,
+        ZIndex = 47,
+        Parent = cadre,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = bouton })
+    nouveau("UIPadding", { PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7), Parent = bouton })
+    local function afficher()
+        local actif = REGLAGES[cle]
+        bouton.Text = if actif then "OUI" else "NON"
+        bouton.BackgroundColor3 = if actif then OR else Color3.fromRGB(45, 45, 60)
+        bouton.TextColor3 = if actif then NOIR else Color3.fromRGB(170, 170, 190)
+    end
+    table.insert(majAffichage, afficher)
+    bouton.MouseEnter:Connect(function()
+        sonSurvol(4)
+    end)
+    bouton.Activated:Connect(function()
+        REGLAGES[cle] = not REGLAGES[cle]
+        afficher()
+        sonClic(if REGLAGES[cle] then 5 else 2)
+        if cle == "secousses" and REGLAGES.secousses then
+            secousse(1) -- petit aperçu
+        elseif cle == "flashs" and REGLAGES.flashs then
+            flasher(BLANC, 0.3)
+        end
+        sauverReglages()
+    end)
+    afficher()
+end
+
+curseur(76, "MUSIQUE", "musique")
+curseur(146, "BRUITAGES (clics, sons de l'interface, effets)", "bruitages")
+interrupteur(222, "SECOUSSES DE L'ÉCRAN", "secousses")
+interrupteur(272, "FLASHS LUMINEUX", "flashs")
+texte({
+    AnchorPoint = Vector2.new(0.5, 1),
+    Position = UDim2.new(0.5, 0, 1, -18),
+    Size = UDim2.new(1, -48, 0, 18),
+    Text = "Tes paramètres sont sauvegardés pour la prochaine fois.",
+    Font = Enum.Font.GothamMedium,
+    TextColor3 = Color3.fromRGB(140, 140, 160),
+    TextStrokeTransparency = 1,
+    ZIndex = 47,
+    Parent = cadre,
+})
+
+local function ouvrirReglages()
+    fondReglages.Visible = true
+    fondReglages.BackgroundTransparency = 1
+    tween(fondReglages, 0.3, { BackgroundTransparency = 0.45 })
+    echelleCadre.Scale = 0.75
+    tween(echelleCadre, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+end
+local function fermerReglages()
+    tween(fondReglages, 0.2, { BackgroundTransparency = 1 })
+    tween(echelleCadre, 0.2, { Scale = 0.8 })
+    task.delay(0.2, function()
+        fondReglages.Visible = false
+    end)
+    sauverReglages()
+end
+boutonParametresMenu.Activated:Connect(function()
+    sonClic(4)
+    ouvrirReglages()
+end)
+boutonFermerReglages.Activated:Connect(function()
+    sonClic(1)
+    fermerReglages()
+end)
+fondReglages.Activated:Connect(fermerReglages)
+
+-- le petit bouton PARAMÈTRES dans le lobby (sous CLASSEMENTS)
+boutonReglages = nouveau("TextButton", {
+    Position = UDim2.new(0, 20, 0, 122),
+    Size = UDim2.fromOffset(200, 40),
+    BackgroundColor3 = Color3.fromRGB(14, 14, 22),
+    BackgroundTransparency = 0.1,
+    AutoButtonColor = false,
+    Font = Enum.Font.GothamBlack,
+    Text = "PARAMÈTRES",
+    TextScaled = true,
+    TextColor3 = Color3.fromRGB(200, 200, 220),
+    Visible = false,
+    ZIndex = 25,
+    Parent = gui,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = boutonReglages })
+nouveau("UIStroke", { Color = Color3.fromRGB(200, 200, 220), Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = boutonReglages })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), Parent = boutonReglages })
+boutonReglages.MouseEnter:Connect(function()
+    sonSurvol(4)
+end)
+boutonReglages.Activated:Connect(function()
+    sonClic(4)
+    ouvrirReglages()
+end)
+
+-- les paramètres sauvegardés (le serveur les met dans l'attribut « Reglages » du joueur)
+local function chargerReglages()
+    local brut = joueur:GetAttribute("Reglages")
+    if type(brut) ~= "string" then
+        return
+    end
+    local ok, donnees = pcall(function()
+        return HttpService:JSONDecode(brut)
+    end)
+    if not ok or type(donnees) ~= "table" then
+        return
+    end
+    for cle, valeur in pairs(donnees) do
+        if REGLAGES[cle] ~= nil and type(valeur) == type(REGLAGES[cle]) then
+            REGLAGES[cle] = valeur
+        end
+    end
+    appliquerReglages()
+    for _, f in ipairs(majAffichage) do
+        f()
+    end
+end
+joueur:GetAttributeChangedSignal("Reglages"):Connect(chargerReglages)
+chargerReglages()
+majPhase()
+end -- fin du bloc du menu principal
 
 local function majStatut()
     statut.Text = ReplicatedStorage:GetAttribute("Statut") or ""
@@ -3297,7 +3811,7 @@ RunService.RenderStepped:Connect(function(dt)
             decalage = Vector3.new(0, 1.2, 0)
             distance = 22
             vitesseCamera = 4
-        elseif menuOuvert then
+        elseif menuOuvert or menuPrincipalOuvert then
             -- menu du lobby : la caméra se balade doucement le long des escaliers (floutés derrière le menu)
             focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
             distance = 100
