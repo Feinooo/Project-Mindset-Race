@@ -2936,9 +2936,9 @@ local function styleOnglets()
     boutonMonde.TextColor3 = if monde then NOIR else COULEUR_MONDE
 end
 
-local function ligneClassement(rang, nom, score, estMoi)
+local function ligneClassement(rang, nom, score, estMoi, details)
     local ligne = nouveau("Frame", {
-        Size = UDim2.new(1, -8, 0, 34),
+        Size = UDim2.new(1, -8, 0, if details and details.perso then 44 else 34),
         BackgroundTransparency = 1,
         LayoutOrder = rang,
         ZIndex = 42,
@@ -2981,6 +2981,25 @@ local function ligneClassement(rang, nom, score, estMoi)
             Parent = contenu,
         }),
     }
+    -- 🌍 monde entier : avec quel état d'esprit et quelle musique (petite ligne sous le pseudo)
+    if details and details.perso then
+        local couleurPerso = COULEURS[details.perso] or Color3.fromRGB(170, 170, 190)
+        local ligneDetails = texte({
+            Position = UDim2.new(0, 60, 0, 25),
+            Size = UDim2.new(1, -200, 0, 14),
+            Text = string.upper(details.perso) .. "  ·  " .. tostring(details.musique or "?"),
+            Font = Enum.Font.GothamBold,
+            TextColor3 = couleurPerso,
+            TextStrokeTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 43,
+            Parent = contenu,
+        })
+        table.insert(labels, ligneDetails)
+        -- le pseudo remonte un peu pour laisser la place
+        labels[2].Position = UDim2.new(0, 60, 0, 5)
+        labels[2].Size = UDim2.new(1, -200, 0, 18)
+    end
     for _, label in ipairs(labels) do
         label.TextTransparency = 1
         label.TextStrokeTransparency = 1
@@ -2988,7 +3007,7 @@ local function ligneClassement(rang, nom, score, estMoi)
     task.delay(rang * 0.035, function()
         tween(contenu, 0.35, { Position = UDim2.new(), BackgroundTransparency = 0 }, Enum.EasingStyle.Quint)
         for i, label in ipairs(labels) do
-            tween(label, 0.3, { TextTransparency = 0, TextStrokeTransparency = if i == 2 then 1 else 0.4 })
+            tween(label, 0.3, { TextTransparency = 0, TextStrokeTransparency = if i == 1 or i == 3 then 0.4 else 1 })
         end
     end)
 end
@@ -3022,7 +3041,7 @@ local function afficherClassement()
         etatListe.Visible = #lignes == 0
         etatListe.Text = "Personne pour l'instant. Sois le premier !"
         for rang, l in ipairs(lignes) do
-            ligneClassement(rang, tostring(l.nom), l.score or 0, l.userId == joueur.UserId)
+            ligneClassement(rang, tostring(l.nom), l.score or 0, l.userId == joueur.UserId, { perso = l.perso, musique = l.musique })
         end
         local moi = resultat.moi or 0
         monRecordTexte.Text = if moi > 0 then "TON RECORD : " .. moi .. " marches" else "TON RECORD : pas encore"

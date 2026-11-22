@@ -190,7 +190,7 @@ local HttpService = game:GetService("HttpService")
 local reglagesJoueurs = {} -- [joueur] = { musique = 0..1, bruitages = 0..1, secousses = bool, flashs = bool }
 
 -- 📊 Les stats du joueur.
---   En haut à droite (leaderstats) : TEMPS passé sur le jeu, MARCHES gravies (au total), VICTOIRES.
+--   En haut à droite (leaderstats) : TEMPS passé sur le jeu (en minutes), MARCHES gravies (au total), VICTOIRES.
 --   Cachées (StatsCachees) : l'Aura (elle continue de monter et d'être sauvegardée) et les secondes déjà jouées.
 local arrivees = {} -- [joueur] = os.clock() de son arrivée
 
@@ -211,12 +211,10 @@ local function tempsTotal(joueur)
     return (if base then base.Value else 0) + math.floor(os.clock() - (arrivees[joueur] or os.clock()))
 end
 
+-- le temps en haut à droite : juste un nombre, en minutes
+local NOM_TEMPS = "Temps (min)"
 local function formatTemps(secondes)
-    local minutes = secondes // 60
-    if minutes < 60 then
-        return minutes .. " min"
-    end
-    return string.format("%dh%02d", minutes // 60, minutes % 60)
+    return secondes // 60
 end
 
 local function chargerJoueur(joueur)
@@ -235,7 +233,7 @@ local function chargerJoueur(joueur)
         chercherStat(joueur, "Marches").Value += donnees.marches or 0
         chercherStat(joueur, "Aura").Value += donnees.aura or 0
         chercherStat(joueur, "Secondes").Value += donnees.temps or 0
-        chercherStat(joueur, "Temps").Value = formatTemps(tempsTotal(joueur))
+        chercherStat(joueur, NOM_TEMPS).Value = formatTemps(tempsTotal(joueur))
         if type(donnees.reglages) == "table" then
             reglagesJoueurs[joueur] = donnees.reglages
             joueur:SetAttribute("Reglages", HttpService:JSONEncode(donnees.reglages))
@@ -280,7 +278,7 @@ task.spawn(function()
     while true do
         task.wait(5)
         for joueur in pairs(arrivees) do
-            local temps = chercherStat(joueur, "Temps")
+            local temps = chercherStat(joueur, NOM_TEMPS)
             if temps then
                 temps.Value = formatTemps(tempsTotal(joueur))
             end
@@ -334,7 +332,7 @@ local function joueurArrive(joueur)
     -- en haut à droite, dans cet ordre : TEMPS, MARCHES, VICTOIRES
     local stats = Instance.new("Folder")
     stats.Name = "leaderstats"
-    creer("StringValue", { Name = "Temps", Value = "0 min", Parent = stats })
+    creer("IntValue", { Name = NOM_TEMPS, Parent = stats })
     creer("IntValue", { Name = "Marches", Parent = stats })
     creer("IntValue", { Name = "Victoires", Parent = stats })
     stats.Parent = joueur
@@ -750,6 +748,41 @@ local function nomDe(userId)
     return nomsCache[userId]
 end
 
+-- 🌍 Pour le classement MONDE ENTIER, on garde aussi avec quel état d'esprit et quelle musique
+-- chaque record a été fait (un DataStore à part : un classement ne peut garder qu'un nombre).
+local storeDetails = nil
+do
+    local ok, store = pcall(function()
+        return DataStoreService:GetDataStore("MindsetStairs_RecordMonde_Details")
+    end)
+    if ok then
+        storeDetails = store
+    end
+end
+local detailsCache = {} -- [userId] = { perso, musique } ou false (= rien de sauvegardé)
+
+local function detailsMonde(userId)
+    if detailsCache[userId] == nil and storeDetails then
+        local ok, details = pcall(function()
+            return storeDetails:GetAsync(tostring(userId))
+        end)
+        detailsCache[userId] = if ok and type(details) == "table" then details else false
+    end
+    return detailsCache[userId] or nil
+end
+
+local function enregistrerDetailsMonde(userId, perso, musique)
+    local details = { perso = perso, musique = musique }
+    detailsCache[userId] = details
+    if storeDetails then
+        task.spawn(function()
+            pcall(function()
+                storeDetails:SetAsync(tostring(userId), details)
+            end)
+        end)
+    end
+end
+
 -- Top 10 d'un classement (gardé 30 s en mémoire pour ne pas spammer la sauvegarde)
 local function lireClassement(cle)
     local t = tableaux[cle]
@@ -790,6 +823,14 @@ local function lireClassement(cle)
     local resultat = {}
     for i = 1, math.min(10, #liste) do
         resultat[i] = { nom = nomDe(liste[i].id), score = liste[i].score, userId = liste[i].id }
+        if cle == "G" then
+            -- 🌍 monde entier : avec quel état d'esprit et quelle musique il a fait ce record
+            local details = detailsMonde(liste[i].id)
+            if details then
+                resultat[i].perso = details.perso
+                resultat[i].musique = details.musique
+            end
+        end
     end
     t.cache, t.cacheA = resultat, os.clock()
     if t.valeur then
@@ -1139,7 +1180,10 @@ while true do
                 local recordPerso = enregistrerRecord("P_" .. tostring(perso), joueurRecord, score)
                 local recordMusique = musique.id ~= "" and enregistrerRecord(cleMusique(musique), joueurRecord, score)
                 local recordCombo = musique.id ~= "" and enregistrerRecord(cleCombo(tostring(perso), cleMusique(musique)), joueurRecord, score)
-                enregistrerRecord("G", joueurRecord, score) -- 🌍 monde entier
+                -- 🌍 monde entier (et on retient avec quel état d'esprit + quelle musique)
+                if enregistrerRecord("G", joueurRecord, score) then
+                    enregistrerDetailsMonde(joueurRecord.UserId, tostring(perso), if musique.id ~= "" then musique.nom else "(sans musique)")
+                end
                 nouveauxRecords[g] = recordPerso or recordMusique or recordCombo
             end)
         end
