@@ -167,14 +167,90 @@ local statut = texte({
     ZIndex = 3,
     Parent = gui,
 })
-local chrono = texte({
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.new(0.5, 0, 0, 98),
-    Size = UDim2.new(0.3, 0, 0, 26),
-    TextColor3 = Color3.fromRGB(255, 230, 120),
-    ZIndex = 3,
-    Parent = gui,
-})
+-- ⏱️ Le chrono : une pastille sombre avec le temps (0:42) et une barre qui se vide.
+-- Les 5 dernières secondes : il passe au rouge et pulse (le bip est joué plus bas, partie « CHRONO »).
+local function creerChrono(parent, position, zIndex)
+    local cadre = nouveau("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0),
+        Position = position,
+        Size = UDim2.fromOffset(150, 48),
+        BackgroundColor3 = Color3.fromRGB(12, 12, 20),
+        BackgroundTransparency = 0.12,
+        Visible = false,
+        ZIndex = zIndex,
+        Parent = parent,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cadre })
+    local trait = nouveau("UIStroke", { Color = OR, Thickness = 2, Transparency = 0.15, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = cadre })
+    nouveau("UIGradient", {
+        Rotation = 90,
+        Color = ColorSequence.new(Color3.fromRGB(40, 40, 58), Color3.fromRGB(14, 14, 22)),
+        Parent = cadre,
+    })
+    local echelle = nouveau("UIScale", { Parent = cadre })
+    local label = texte({
+        Position = UDim2.new(0, 0, 0, 5),
+        Size = UDim2.new(1, 0, 1, -17),
+        Font = Enum.Font.GothamBlack,
+        TextStrokeTransparency = 1,
+        ZIndex = zIndex + 1,
+        Parent = cadre,
+    })
+    local fondBarre = nouveau("Frame", {
+        AnchorPoint = Vector2.new(0.5, 1),
+        Position = UDim2.new(0.5, 0, 1, -7),
+        Size = UDim2.new(1, -40, 0, 4),
+        BackgroundColor3 = Color3.fromRGB(50, 50, 68),
+        BorderSizePixel = 0,
+        ZIndex = zIndex + 1,
+        Parent = cadre,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = fondBarre })
+    local barreTemps = nouveau("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = OR,
+        BorderSizePixel = 0,
+        ZIndex = zIndex + 2,
+        Parent = fondBarre,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = barreTemps })
+
+    local c = { cadre = cadre, actif = true, total = 1, dernier = 0, temps = 0 }
+    local function majVisible()
+        cadre.Visible = c.actif and c.temps > 0
+    end
+    function c.afficher(actif)
+        c.actif = actif
+        majVisible()
+    end
+    function c.maj(temps)
+        c.temps = temps
+        majVisible()
+        if temps <= 0 then
+            c.dernier = 0
+            return
+        end
+        if temps > c.dernier then
+            c.total = temps -- un nouveau compte à rebours commence
+            barreTemps.Size = UDim2.fromScale(1, 1)
+        end
+        c.dernier = temps
+        label.Text = string.format("%d:%02d", temps // 60, temps % 60)
+        tween(barreTemps, 1, { Size = UDim2.fromScale(math.max(0, (temps - 1) / c.total), 1) }, Enum.EasingStyle.Linear)
+        local urgent = temps <= 5
+        local couleur = if urgent then ROUGE else OR
+        barreTemps.BackgroundColor3 = couleur
+        trait.Color = couleur
+        label.TextColor3 = if urgent then Color3.fromRGB(255, 120, 120) else BLANC
+        if urgent then
+            echelle.Scale = 1.22
+            tween(echelle, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+        end
+    end
+    return c
+end
+-- le chrono de la partie (toujours au même endroit, en haut au milieu)
+local chrono = creerChrono(gui, UDim2.new(0.5, 0, 0, 98), 3)
 local marcheTexte = texte({
     Position = UDim2.new(0, 20, 0, 60),
     Size = UDim2.new(0, 220, 0, 34),
@@ -243,30 +319,6 @@ nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = barre })
 -- en haut de la mini-carte : la marche du premier (l'échelle s'adapte, les escaliers sont infinis)
 local hautBarre = texte({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -4), Size = UDim2.fromOffset(50, 24), TextColor3 = OR, ZIndex = 3, Parent = barre })
 
--- Écran de fin
-local ecranFin = nouveau("Frame", {
-    AnchorPoint = Vector2.new(0.5, 0.5),
-    Position = UDim2.fromScale(0.5, 0.5),
-    Size = UDim2.new(0, 440, 0, 320),
-    BackgroundColor3 = Color3.fromRGB(12, 12, 18),
-    BackgroundTransparency = 0.05,
-    Visible = false,
-    ZIndex = 30,
-    Parent = gui,
-})
-nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = ecranFin })
-local contourFin = nouveau("UIStroke", { Thickness = 4, Color = OR, Parent = ecranFin })
-local echelleFin = nouveau("UIScale", { Parent = ecranFin })
-local finTitre = texte({ Position = UDim2.new(0, 15, 0, 15), Size = UDim2.new(1, -30, 0, 70), ZIndex = 31, Parent = ecranFin })
-local finPlace = texte({ Position = UDim2.new(0, 15, 0, 92), Size = UDim2.new(1, -30, 0, 44), TextColor3 = OR, ZIndex = 31, Parent = ecranFin })
-local finDetails = texte({ Position = UDim2.new(0, 15, 0, 144), Size = UDim2.new(1, -30, 0, 80), ZIndex = 31, Parent = ecranFin })
-local finDrole = texte({
-    Position = UDim2.new(0, 15, 0, 236),
-    Size = UDim2.new(1, -30, 0, 64),
-    TextColor3 = Color3.fromRGB(200, 200, 200),
-    ZIndex = 31,
-    Parent = ecranFin,
-})
 
 -- Effets d'image (seulement pour toi)
 local effetAura = nouveau("ColorCorrectionEffect", { Name = "MindsetModeAura", Parent = Lighting })
@@ -319,10 +371,9 @@ local BLEU_MUSIQUE = Color3.fromRGB(120, 170, 255)
 local jouerSon, sonSurvol, sonClic, sonClaque
 do
 local SONS = {
-    -- survol : un « toc » feutré (le bruit d'atterrissage de Roblox, accéléré et coupé court)
-    --   autres essais possibles : "rbxasset://sounds/impact_water.mp3" (ploc de bulle),
-    --   "rbxasset://sounds/action_footsteps_plastic.mp3" (petit pas sec)
-    survol = "rbxasset://sounds/action_jump_land.mp3",
+    -- (le son de survol est une « recette » qui mélange ces sons : voir RECETTES_SURVOL plus bas)
+    eau = "rbxasset://sounds/impact_water.mp3",
+    pas = "rbxasset://sounds/action_footsteps_plastic.mp3",
     tic = "rbxasset://sounds/volume_slider.ogg",    -- tic-tac du chrono + accords du clic
     clic = "rbxassetid://12221967",                 -- le « clic » classique de Roblox
     -- 👋 CLAQUE du check parfait : mets ici l'ID d'un son « slap » / « high five » de la Boutique (Toolbox → Audio)
@@ -385,7 +436,29 @@ jouerSon = function(nom, vitesse, volume, retard, coupe)
     end
 end
 
--- Survol : un « ploc » doux, un peu plus aigu pour chaque carte, et qui monte si tu enchaînes vite
+-- Survol : un son doux, un peu plus aigu pour chaque carte, et qui monte si tu enchaînes vite.
+-- 🔊 Plusieurs « recettes » de son : dans Studio, appuie sur H dans le lobby pour les essayer une par une
+--    (le nom s'affiche en bas) → dis-moi laquelle tu préfères et je la mets par défaut (SON_SURVOL).
+local SON_SURVOL = 1
+local RECETTES_SURVOL = {
+    { nom = "CRISTAL (doux et brillant)", jouer = function(v)
+        jouerSon("tic", 2.1 * v, 0.12, nil, 0.09)
+        jouerSon("eau", 2.8 * v, 0.12, 0.01, 0.08)
+    end },
+    { nom = "PLUME (très léger)", jouer = function(v)
+        jouerSon("pas", 1.6 * v, 0.35, nil, 0.07)
+    end },
+    { nom = "TOC (feutré)", jouer = function(v)
+        jouerSon("pose", 1.7 * v, 0.45, nil, 0.12)
+        jouerSon("tic", 2.4 * v, 0.07, 0.015, 0.1)
+    end },
+    { nom = "BULLE (ploc)", jouer = function(v)
+        jouerSon("eau", 1.9 * v, 0.28, nil, 0.16)
+    end },
+    { nom = "TIC (l'ancien, plus bas)", jouer = function(v)
+        jouerSon("tic", 0.8 * v, 0.25, nil, 0.12)
+    end },
+}
 local GAMME = { 1, 1.122, 1.26, 1.498, 1.682, 2, 2.245 }
 local serieSurvol, dernierSurvol = 0, 0
 sonSurvol = function(note)
@@ -393,9 +466,31 @@ sonSurvol = function(note)
     serieSurvol = if maintenant - dernierSurvol < 0.7 then math.min(serieSurvol + 1, 6) else 0
     dernierSurvol = maintenant
     local hauteur = 1 + ((GAMME[note] or 1) - 1) * 0.45
-    local vitesse = hauteur * (1 + serieSurvol * 0.025)
-    jouerSon("survol", 1.7 * vitesse, 0.45, nil, 0.12)       -- le « toc » doux
-    jouerSon("tic", 2.4 * vitesse, 0.07, 0.015, 0.1)         -- une petite brillance très discrète par-dessus
+    RECETTES_SURVOL[SON_SURVOL].jouer(hauteur * (1 + serieSurvol * 0.025))
+end
+if game:GetService("RunService"):IsStudio() then
+    UserInputService.InputBegan:Connect(function(input, gere)
+        if gere or input.KeyCode ~= Enum.KeyCode.H or ReplicatedStorage:GetAttribute("Phase") ~= "Lobby" then
+            return
+        end
+        SON_SURVOL = SON_SURVOL % #RECETTES_SURVOL + 1
+        print("[Son de survol] " .. SON_SURVOL .. "/" .. #RECETTES_SURVOL .. " : " .. RECETTES_SURVOL[SON_SURVOL].nom)
+        for k = 1, 3 do
+            task.delay((k - 1) * 0.18, function()
+                RECETTES_SURVOL[SON_SURVOL].jouer(1 + (k - 1) * 0.12)
+            end)
+        end
+        local panneauSon = gui:FindFirstChild("EssaiSonSurvol") or texte({
+            Name = "EssaiSonSurvol",
+            AnchorPoint = Vector2.new(0.5, 1),
+            Position = UDim2.new(0.5, 0, 1, -8),
+            Size = UDim2.new(0.6, 0, 0, 26),
+            TextColor3 = OR,
+            ZIndex = 50,
+            Parent = gui,
+        })
+        panneauSon.Text = "Son de survol " .. SON_SURVOL .. "/" .. #RECETTES_SURVOL .. " : " .. RECETTES_SURVOL[SON_SURVOL].nom .. "   (H = suivant)"
+    end)
 end
 sonClic = function(note)
     local base = GAMME[note] or 1
@@ -471,15 +566,7 @@ local degradeTitre = nouveau("UIGradient", {
     Parent = titreMenu,
 })
 local echelleTitre = nouveau("UIScale", { Parent = titreMenu })
-local chronoMenu = texteMenu({
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.115),
-    Size = UDim2.fromScale(0.3, 0.045),
-    TextColor3 = OR,
-    ZIndex = 12,
-    Parent = menu,
-})
-local echelleChrono = nouveau("UIScale", { Parent = chronoMenu })
+local chronoMenu = creerChrono(menu, UDim2.fromScale(0.5, 0.115), 12)
 local titreMusique = texteMenu({
     AnchorPoint = Vector2.new(0.5, 0),
     Position = UDim2.fromScale(0.5, 0.655),
@@ -1036,18 +1123,27 @@ dossierChoixMusiques.ChildAdded:Connect(prevoirReconstruction)
 dossierChoixMusiques.ChildRemoved:Connect(prevoirReconstruction)
 reconstruireMusiques()
 
--- ---------- Chrono du menu (tic-tac les 5 dernières secondes) ----------
+-- ---------- CHRONO : les deux pastilles + le bip du décompte les 5 dernières secondes ----------
+local dernierTempsChrono = 0
 ReplicatedStorage:GetAttributeChangedSignal("Temps"):Connect(function()
     local temps = ReplicatedStorage:GetAttribute("Temps") or 0
-    chronoMenu.Text = if temps > 0 then tostring(temps) else ""
-    if menuOuvert and temps > 0 and temps <= 5 then
-        chronoMenu.TextColor3 = ROUGE
-        echelleChrono.Scale = 1.4
-        tween(echelleChrono, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
-        jouerSon("tic", 0.5 + (6 - temps) * 0.1, 0.35)
-    else
-        chronoMenu.TextColor3 = OR
+    chronoMenu.maj(temps)
+    chrono.maj(temps)
+    local phase = ReplicatedStorage:GetAttribute("Phase")
+    if phase == "Manche" or phase == "Lobby" then
+        if temps >= 1 and temps <= 5 and temps < dernierTempsChrono then
+            -- bip... bip... bip... de plus en plus aigu
+            local hauteur = if temps == 1 then 1.5 else 1 + (5 - temps) * 0.04
+            jouerSon("tic", hauteur, 0.6)
+            jouerSon("pose", 1.3 * hauteur, 0.35, nil, 0.1)
+        elseif temps == 0 and dernierTempsChrono == 1 then
+            -- c'est fini !
+            jouerSon("boum", 0.85, 0.45, nil, 0.9)
+            jouerSon("tic", 2, 0.5)
+            jouerSon("tic", 1.5, 0.4, 0.05)
+        end
     end
+    dernierTempsChrono = temps
 end)
 
 -- ---------- Ouvrir / fermer ----------
@@ -1072,7 +1168,10 @@ local function ouvrirMenu()
         local c = cartes[perso]
         c.x, c.v = 0, 0
         c.delai = depart + rang * 0.07
-        jouerSon("survol", 1.6 + rang * 0.15, 0.2, c.delai - os.clock(), 0.16)
+        local noteArpege = rang + 1
+        task.delay(math.max(0, c.delai - os.clock()), function()
+            sonSurvol(noteArpege)
+        end)
         rang += 1
     end
     for i = 1, #toutesCartes do
@@ -1442,6 +1541,48 @@ local function chargerAnims(etat)
             Parent = racine,
         })
     end
+
+    -- les articulations (R15) qu'on plie à la main pour monter les marches pied par pied
+    etat.membres = {}
+    for _, nom in ipairs({ "LeftHip", "RightHip", "LeftKnee", "RightKnee", "LeftShoulder", "RightShoulder", "Waist" }) do
+        local moteur = etat.modele:FindFirstChild(nom, true)
+        if moteur and moteur:IsA("Motor6D") then
+            etat.membres[nom] = { moteur = moteur, c0 = moteur.C0, angle = 0 }
+        end
+    end
+end
+
+-- Plie les articulations : pose = { LeftHip = angle, ... } (en radians, rien = position normale)
+--   hanche / épaule + = vers l'avant · genou - = plié · taille - = penché en avant
+local POSE_REPOS = {}
+local function poser(etat, pose)
+    if not etat.membres then
+        return
+    end
+    pose = pose or POSE_REPOS
+    for nom, info in pairs(etat.membres) do
+        local angle = pose[nom] or 0
+        if math.abs(angle - info.angle) > 0.001 and info.moteur.Parent then
+            info.angle = angle
+            info.moteur.C0 = info.c0 * CFrame.Angles(angle, 0, 0)
+        end
+    end
+end
+
+-- La pose d'un pas : la jambe « pied » monte sur la marche, l'autre pousse, les bras balancent
+local function posePas(pied, k, style)
+    local b = math.sin(math.pi * k) -- 0 → 1 → 0 pendant le pas
+    local leve, appui = if pied == 0 then "Left" else "Right", if pied == 0 then "Right" else "Left"
+    local pose = {}
+    pose[leve .. "Hip"] = 1.25 * b
+    pose[leve .. "Knee"] = -1.5 * b
+    pose[appui .. "Hip"] = -0.3 * b
+    pose[appui .. "Knee"] = -0.25 * b
+    -- bras opposé à la jambe vers l'avant (comme quand on court), plus ample avec du style
+    pose[appui .. "Shoulder"] = (0.7 + 0.5 * style) * b
+    pose[leve .. "Shoulder"] = -(0.5 + 0.3 * style) * b
+    pose.Waist = -0.2 * b
+    return pose
 end
 
 -- La danse du gagnant (attribut « Danse » : 0 = rien, 1/2/3 = la danse jouée)
@@ -1575,11 +1716,12 @@ end
 
 local effetsMoi -- défini plus bas (réactions quand TU montes/descends)
 
--- Une marche montée AVEC STYLE :
---   +1 normal  : petit bond penché en avant
---   tous les 5 de combo : une vrille (tour complet sur lui-même)
---   +2 ou plus : un SALTO avant
--- et à l'atterrissage : la marche s'allume, onde au sol et étincelles.
+-- Une marche montée AVEC STYLE : l'avatar monte PIED PAR PIED.
+--   chaque marche = un pas (pied gauche, puis pied droit, puis gauche...)
+--   +2 marches = deux pas rapides enchaînés
+--   avec du combo, les bras balancent plus fort ; tous les 10 de combo : une vrille sur le dernier pas
+--   chaque pied qui se pose allume la marche (étincelles), une onde au sol à la fin
+--   en ratant : il trébuche en arrière, les bras en l'air
 local function nouvelleMarche(etat)
     local cible = etat.config:GetAttribute("Marche") or 0
     local depart = etat.marcheAffichee or cible
@@ -1595,30 +1737,44 @@ local function nouvelleMarche(etat)
     end
     local ecart = math.abs(cible - depart)
     local combo = etat.config:GetAttribute("Combo") or 0
-    local figure = "simple"
-    if monte and ecart >= 1.5 then
-        figure = "salto"
-    elseif monte and combo > 0 and combo % 5 == 0 then
-        figure = "vrille"
-    end
+    local pas = if monte then math.max(1, math.floor(ecart + 0.5)) else 1
     etat.saut = {
         de = depart,
         a = cible,
         debut = os.clock(),
-        duree = if figure == "salto" then 0.42 elseif figure == "vrille" then 0.36 elseif monte then 0.26 else 0.3,
+        duree = if monte then math.min(0.6, 0.22 * pas) else 0.32,
         monte = monte,
-        figure = figure,
+        pas = pas,
+        pasFaits = 0,
+        pied = etat.prochainPied or 0,
+        style = math.clamp(combo / 20, 0, 1),
+        vrille = monte and combo > 0 and combo % 10 == 0,
     }
-    if etat.trainee and monte then
+    if monte then
+        etat.prochainPied = ((etat.prochainPied or 0) + pas) % 2
+    end
+    if etat.trainee and monte and combo >= 5 then
         etat.trainee.Enabled = true
     end
-    if monte and etat.animSaut then
-        etat.animSaut:Play(0.05)
-    elseif not monte and etat.animChute then
+    if not monte and etat.animChute then
         etat.animChute:Play(0.05)
     end
     if etat.estMoi and effetsMoi then
         effetsMoi(depart, cible)
+    end
+end
+
+-- un pied se pose sur une marche
+local function piedPose(etat, numero, fort)
+    if not etat.couloir then
+        return
+    end
+    local couleur = couleurDe(etat)
+    allumerMarche(etat.couloir, numero, couleur)
+    local sol = positionMarche(etat.couloir, numero, 0.1)
+    eclats(sol, couleur, if fort then 10 else 4, 0.6)
+    if fort then
+        ondeSol(sol, couleur, 5)
     end
 end
 
@@ -1629,18 +1785,12 @@ local function atterrir(etat, saut)
     if not etat.couloir then
         return
     end
-    local numero = math.floor(saut.a + 0.5)
-    local couleur = if saut.monte then couleurDe(etat) else ROUGE
-    allumerMarche(etat.couloir, numero, couleur)
-    if saut.monte then
-        local sol = positionMarche(etat.couloir, numero, 0.1)
-        ondeSol(sol, couleur, if saut.figure == "salto" then 7 else 4.5)
-        eclats(sol, couleur, if saut.figure == "simple" then 5 else 12)
-        if etat.estMoi then
-            fovPulse = math.min(fovPulse, if saut.figure == "salto" then -2.5 else -0.8)
-            if saut.figure ~= "simple" then
-                secousse(0.5)
-            end
+    if not saut.monte then
+        allumerMarche(etat.couloir, math.floor(saut.a + 0.5), ROUGE)
+    elseif etat.estMoi then
+        fovPulse = math.min(fovPulse, if saut.pas >= 2 then -2 else -0.7)
+        if saut.vrille then
+            secousse(0.5)
         end
     end
 end
@@ -1693,7 +1843,7 @@ local function ajouterGrimpeur(config)
         etat.hauteur = nil
         etat.animAttente, etat.animSaut, etat.animChute = nil, nil, nil
         etat.animDanses, etat.danseJouee, etat.trainee = nil, 0, nil
-        etat.cinematique, etat.c0Origine = nil, nil
+        etat.cinematique, etat.membres = nil, nil
         etat.effets = {}
         etat.niveauAffiche = 0
         local modele = etat.modele
@@ -1876,7 +2026,7 @@ local function creerNote(index, tempsNote)
         TextScaled = true,
         TextColor3 = BLANC,
         TextStrokeTransparency = 0,
-        Text = tostring((compteurNotes - 1) % 4 + 1),
+        Text = "", -- pas de numéro dans les cercles
         ZIndex = 6,
         Parent = zoneNotes,
     })
@@ -2094,53 +2244,88 @@ DebutEvent.OnClientEvent:Connect(function(infos)
     end)
 end)
 
--- ========================== CHECK PARFAIT (égalité) ==========================
--- Deux joueurs ex æquo à la fin : ils s'élancent l'un vers l'autre, se tapent dans la main en l'air
--- (CLAC !), et redescendent côte à côte, face à face.
+-- ========================== FIN DE PARTIE : GAGNANT ET CHECK PARFAIT ==========================
+-- Pour bien voir le(s) gagnant(s) : ils sautent dans le couloir de DEVANT (le plus près de la caméra),
+-- celui qui était devant est caché, puis ils se tournent vers la caméra pour danser.
+-- Égalité : les deux s'élancent l'un vers l'autre, se tapent dans la main en l'air (CLAC !),
+-- atterrissent côte à côte et se tournent vers la caméra.
 local focusCheck = nil -- si défini, la caméra regarde ce point
-local jouerCheck
+local jouerCheck, presenterGagnant
 do
-local function moteurEpaule(modele, cote)
-    local nomR15 = if cote == "D" then "RightShoulder" else "LeftShoulder"
-    local nomR6 = if cote == "D" then "Right Shoulder" else "Left Shoulder"
-    local moteur = modele:FindFirstChild(nomR15, true) or modele:FindFirstChild(nomR6, true)
-    if moteur and moteur:IsA("Motor6D") then
-        return moteur, moteur.Name == nomR6
-    end
-    return nil, false
-end
-
--- lève le bras (force 0 = bras le long du corps, 1 = bras tendu vers le haut et l'avant)
-local function leverBras(etat, cote, force)
-    local moteur, estR6 = moteurEpaule(etat.modele, cote)
-    if not moteur then
-        return
-    end
-    etat.c0Origine = etat.c0Origine or {}
-    if not etat.c0Origine[moteur] then
-        etat.c0Origine[moteur] = moteur.C0
-    end
-    local angle = math.rad(150) * force
-    local rotation
-    if estR6 then
-        rotation = CFrame.Angles(0, 0, if cote == "D" then angle else -angle)
-    else
-        rotation = CFrame.Angles(angle, 0, 0)
-    end
-    moteur.C0 = etat.c0Origine[moteur] * rotation
-end
-
-local function baisserBras(etat)
-    for moteur, c0 in pairs(etat.c0Origine or {}) do
-        if moteur.Parent then
-            moteur.C0 = c0
-        end
-    end
-    etat.c0Origine = nil
-end
+local COULOIR_SCENE = 0
+local BRAS_LEVE = math.rad(150)
 
 local function versCF(position, sens, tour)
     return CFrame.lookAt(position, position + Vector3.new(sens, 0, 0)) * CFrame.Angles(0, tour or 0, 0)
+end
+
+-- on cache ceux qui sont dans le couloir de devant (sauf les gagnants)
+local function libererScene(gagnants)
+    for _, etat in pairs(avatars) do
+        if not table.find(gagnants, etat) and etat.couloir == COULOIR_SCENE then
+            etat.cache = true
+        end
+    end
+end
+
+local function preparer(etat)
+    etat.saut = nil
+    if etat.animAttente then
+        etat.animAttente:Stop(0.1)
+    end
+    if etat.trainee then
+        etat.trainee.Enabled = true
+    end
+end
+
+local function poserSurScene(etat, marche, sens, retardTour)
+    poser(etat, nil)
+    if etat.trainee then
+        etat.trainee.Enabled = false
+    end
+    if etat.animAttente then
+        etat.animAttente:Play(0.2)
+    end
+    -- il se tourne vers la caméra (petit délai pour le style)
+    etat.positionForcee = { couloir = COULOIR_SCENE, marche = marche, sens = sens, versCamera = os.clock() + (retardTour or 0) }
+    allumerMarche(COULOIR_SCENE, marche, couleurDe(etat))
+    local sol = positionMarche(COULOIR_SCENE, marche, 0.1)
+    ondeSol(sol, couleurDe(etat), 6)
+    eclats(sol, couleurDe(etat), 12)
+    secousse(0.6)
+end
+
+-- Un seul gagnant : il saute dans le couloir de devant en faisant une vrille, les bras en l'air
+presenterGagnant = function(etat)
+    if not (etat and etat.modele and etat.hauteur and etat.couloir) then
+        return
+    end
+    libererScene({ etat })
+    preparer(etat)
+    local m = math.floor((etat.config:GetAttribute("Marche") or 0) + 0.5)
+    local depart = positionMarche(etat.couloir, m, etat.hauteur)
+    local fin = positionMarche(COULOIR_SCENE, m, etat.hauteur)
+    local t0 = os.clock()
+    etat.cinematique = function(horloge)
+        local t = horloge - t0
+        if t < 0.3 then -- il prend son élan
+            local k = t / 0.3
+            poser(etat, { LeftKnee = -0.8 * k, RightKnee = -0.8 * k, LeftHip = 0.5 * k, RightHip = 0.5 * k, Waist = -0.25 * k })
+            return versCF(depart - Vector3.new(0, 0.6 * k, 0), 1)
+        elseif t < 1.05 then -- le saut, vrille, bras en l'air
+            local k = (t - 0.3) / 0.75
+            local doux = k * k * (3 - 2 * k)
+            local bosse = math.sin(math.pi * k)
+            poser(etat, { LeftShoulder = BRAS_LEVE * bosse, RightShoulder = BRAS_LEVE * bosse, LeftKnee = -0.6 * bosse, RightKnee = -0.6 * bosse })
+            local position = depart:Lerp(fin, doux) + Vector3.new(0, bosse * 5, 0)
+            return versCF(position, 1, 2 * math.pi * doux)
+        end
+        return nil
+    end
+    etat.finCinematique = function()
+        poserSurScene(etat, m, 1, 0.1)
+    end
+    etatSuiviCamera = etat
 end
 
 local function clacParfait(point, couleurA, couleurB)
@@ -2166,79 +2351,61 @@ jouerCheck = function(configA, configB)
     if not (a and b and a.modele and b.modele and a.hauteur and b.hauteur and a.couloir and b.couloir) then
         return
     end
-    if b.couloir < a.couloir then
-        a, b = b, a -- « a » est celui de devant : ils se rejoignent dans son couloir
-    end
+    libererScene({ a, b })
     local m = math.floor((a.config:GetAttribute("Marche") or 0) + 0.5)
     local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
+    local zScene = positionMarche(COULOIR_SCENE, m, 0).Z
     local departA = positionMarche(a.couloir, m, a.hauteur)
     local departB = positionMarche(b.couloir, m, b.hauteur)
     local xMilieu = GEO.X0 + (m + 1) * D
     local yPied = GEO.Y0 + m * H + 4.5 -- ils sautent à 4,5 studs au-dessus de la marche
-    local hautA = Vector3.new(xMilieu - 1.1, yPied + a.hauteur, departA.Z)
-    local hautB = Vector3.new(xMilieu + 1.1, yPied + b.hauteur, departA.Z)
-    local finA = positionMarche(a.couloir, m, a.hauteur)
-    local finB = positionMarche(a.couloir, m + 1, b.hauteur) -- B atterrit sur la marche d'après, face à A
-    local pointClac = Vector3.new(xMilieu, yPied + math.max(a.hauteur, b.hauteur) + 2.6, departA.Z + 0.6)
-    focusCheck = Vector3.new(xMilieu, yPied + 1, departA.Z)
-
-    for _, etat in ipairs({ a, b }) do
-        etat.saut = nil
-        if etat.animAttente then
-            etat.animAttente:Stop(0.1)
-        end
-        if etat.trainee then
-            etat.trainee.Enabled = true
-        end
-    end
+    local hautA = Vector3.new(xMilieu - 1.1, yPied + a.hauteur, zScene)
+    local hautB = Vector3.new(xMilieu + 1.1, yPied + b.hauteur, zScene)
+    local finA = positionMarche(COULOIR_SCENE, m, a.hauteur)
+    local finB = positionMarche(COULOIR_SCENE, m + 1, b.hauteur) -- B atterrit sur la marche d'après
+    local pointClac = Vector3.new(xMilieu, yPied + math.max(a.hauteur, b.hauteur) + 2.6, zScene + 0.6)
+    -- la caméra regarde pile le point du check, de face
+    focusCheck = Vector3.new(xMilieu, yPied + 1, zScene)
+    preparer(a)
+    preparer(b)
 
     local t0 = os.clock()
-    local function trajectoire(etat, depart, haut, fin, cote, tourne)
+    -- A lève le bras droit, B (qui se retourne) lève le gauche : les deux mains sont côté caméra
+    local function trajectoire(etat, depart, haut, fin, epaule, tourne)
         etat.cinematique = function(horloge)
             local t = horloge - t0
-            local position, bras, tour
+            local position, bras, tour, genoux
             if t < 0.35 then -- il se baisse pour prendre son élan
                 local k = t / 0.35
                 position = depart - Vector3.new(0, 0.7 * math.sin(k * math.pi / 2), 0)
-                bras, tour = 0.25 * k, 0
+                bras, tour, genoux = 0.25 * k, 0, k
             elseif t < 0.85 then -- le bond
                 local k = (t - 0.35) / 0.5
                 local doux = 1 - (1 - k) ^ 3
                 position = (depart - Vector3.new(0, 0.7, 0)):Lerp(haut, doux)
-                bras, tour = 0.25 + 0.75 * doux, (if tourne then math.pi * doux else 0)
+                bras, tour, genoux = 0.25 + 0.75 * doux, (if tourne then math.pi * doux else 0), 1 - doux
             elseif t < 1.35 then -- suspendus en l'air après le CLAC
                 local k = (t - 0.85) / 0.5
                 position = haut + Vector3.new(0, math.sin(k * math.pi) * 0.3, 0)
-                bras, tour = 1, (if tourne then math.pi else 0)
+                bras, tour, genoux = 1, (if tourne then math.pi else 0), 0.3 * math.sin(k * math.pi)
             elseif t < 1.85 then -- ils redescendent
                 local k = (t - 1.35) / 0.5
                 position = haut:Lerp(fin, k * k) + Vector3.new(0, math.sin(k * math.pi) * 0.8, 0)
-                bras, tour = 1 - k, (if tourne then math.pi else 0)
+                bras, tour, genoux = 1 - k, (if tourne then math.pi else 0), 0.5 * k
             else
                 return nil
             end
-            leverBras(etat, cote, bras)
+            poser(etat, { [epaule] = BRAS_LEVE * bras, LeftKnee = -0.7 * genoux, RightKnee = -0.7 * genoux, Waist = -0.15 * genoux })
             return versCF(position, 1, tour)
         end
         etat.finCinematique = function()
-            baisserBras(etat)
-            if etat.trainee then
-                etat.trainee.Enabled = false
-            end
-            if etat.animAttente then
-                etat.animAttente:Play(0.2)
-            end
-            etat.positionForcee = { couloir = a.couloir, marche = if etat == a then m else m + 1, sens = if tourne then -1 else 1 }
-            allumerMarche(a.couloir, etat.positionForcee.marche, couleurDe(etat))
-            local sol = positionMarche(a.couloir, etat.positionForcee.marche, 0.1)
-            ondeSol(sol, couleurDe(etat), 6)
-            eclats(sol, couleurDe(etat), 10)
-            secousse(0.6)
+            poserSurScene(etat, if etat == a then m else m + 1, if tourne then -1 else 1, 0.45)
+            -- la caméra recule un peu pour avoir les deux, de face
+            focusCheck = Vector3.new(xMilieu, GEO.Y0 + (m + 0.5) * H + 2.5, zScene)
         end
     end
-    -- A lève le bras droit, B (qui se retourne) lève le gauche : les deux mains sont côté caméra
-    trajectoire(a, departA, hautA, finA, "D", false)
-    trajectoire(b, departB, hautB, finB, "G", true)
+    trajectoire(a, departA, hautA, finA, "RightShoulder", false)
+    trajectoire(b, departB, hautB, finB, "LeftShoulder", true)
     task.delay(0.85, function()
         clacParfait(pointClac, couleurDe(a), couleurDe(b))
     end)
@@ -2315,7 +2482,7 @@ local function danser()
     DanserEvent:FireServer()
     echelleBoutonDanse.Scale = 0.86
     tween(echelleBoutonDanse, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
-    jouerSon("survol", 1.7 + math.random() * 0.6, 0.25, nil, 0.16)
+    sonSurvol(math.random(1, 7))
 end
 boutonDanse.Activated:Connect(danser)
 UserInputService.InputBegan:Connect(function(input, gere)
@@ -2346,6 +2513,7 @@ EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
         jeJoue = false
         viderNotes()
         etatSuiviCamera = etat
+        presenterGagnant(etat)
         modeCinema(true)
         tween(effetAura, 0.5, { Saturation = -1, Contrast = 0.4 })
         flasher(OR, 0.7)
@@ -2754,7 +2922,7 @@ local function majPhase()
         fermerMenu()
     end
     statut.Visible = phase ~= "Lobby" -- le menu a son propre titre et son chrono
-    chrono.Visible = phase ~= "Lobby"
+    chrono.afficher(phase ~= "Lobby")
     barre.Visible = phase == "Manche" or phase == "Fin"
     marcheTexte.Visible = phase == "Manche"
     boutonClassement.Visible = phase ~= "Manche" -- pas pendant qu'on clique les cercles
@@ -2775,6 +2943,7 @@ local function majPhase()
                 end
             end
             etat.positionForcee = nil
+            etat.cache = nil
         end
         viderNotes()
         modeCinema(false)
@@ -2792,56 +2961,209 @@ majPhase()
 local function majStatut()
     statut.Text = ReplicatedStorage:GetAttribute("Statut") or ""
 end
-local function majChrono()
-    local temps = ReplicatedStorage:GetAttribute("Temps") or 0
-    chrono.Text = if temps > 0 then "⏱️ " .. temps else ""
-end
 ReplicatedStorage:GetAttributeChangedSignal("Statut"):Connect(majStatut)
-ReplicatedStorage:GetAttributeChangedSignal("Temps"):Connect(majChrono)
 majStatut()
-majChrono()
+chrono.maj(ReplicatedStorage:GetAttribute("Temps") or 0)
+chronoMenu.maj(ReplicatedStorage:GetAttribute("Temps") or 0)
 
 -- ========================== ÉCRAN DE FIN ==========================
+-- Une carte propre : bandeau avec ton état d'esprit et ta place, 4 cases de stats,
+-- ton record et l'aura farmée, puis le gagnant.
+do
+local GRIS = Color3.fromRGB(150, 150, 170)
+local FOND_CASE = Color3.fromRGB(24, 24, 34)
+
+local ecranFin = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.52),
+    Size = UDim2.fromOffset(540, 390),
+    BackgroundColor3 = Color3.fromRGB(12, 12, 18),
+    Visible = false,
+    ZIndex = 30,
+    Parent = gui,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 20), Parent = ecranFin })
+local contourFin = nouveau("UIStroke", { Thickness = 3, Color = OR, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = ecranFin })
+local echelleFin = nouveau("UIScale", { Parent = ecranFin })
+-- petit écran (mobile) : la carte rétrécit pour tenir
+nouveau("UIAspectRatioConstraint", { AspectRatio = 540 / 390, Parent = ecranFin })
+nouveau("UISizeConstraint", { MaxSize = Vector2.new(540, 390), Parent = ecranFin })
+ecranFin.Size = UDim2.new(0.9, 0, 0.8, 0)
+
+-- le bandeau du haut, aux couleurs de ton état d'esprit
+local bandeau = nouveau("Frame", {
+    Size = UDim2.new(1, 0, 0.22, 0),
+    BackgroundColor3 = BLANC,
+    BorderSizePixel = 0,
+    ZIndex = 31,
+    Parent = ecranFin,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(0, 20), Parent = bandeau })
+local degradeBandeau = nouveau("UIGradient", { Parent = bandeau })
+local function petitTexte(proprietes)
+    proprietes.Font = proprietes.Font or Enum.Font.GothamBold
+    proprietes.TextColor3 = proprietes.TextColor3 or GRIS
+    proprietes.TextStrokeTransparency = 1
+    proprietes.ZIndex = proprietes.ZIndex or 33
+    return texte(proprietes)
+end
+petitTexte({ Position = UDim2.fromScale(0.05, 0.16), Size = UDim2.fromScale(0.5, 0.2), Text = "FIN DE LA PARTIE", TextColor3 = Color3.fromRGB(230, 230, 240), TextXAlignment = Enum.TextXAlignment.Left, Parent = bandeau })
+local finPerso = texte({ Position = UDim2.fromScale(0.05, 0.38), Size = UDim2.fromScale(0.6, 0.48), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 33, Parent = bandeau })
+local finPlace = texte({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(0.95, 0.1), Size = UDim2.fromScale(0.3, 0.55), TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 33, Parent = bandeau })
+local finSur = petitTexte({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(0.95, 0.66), Size = UDim2.fromScale(0.3, 0.22), TextColor3 = Color3.fromRGB(230, 230, 240), TextXAlignment = Enum.TextXAlignment.Right, Parent = bandeau })
+
+-- les 4 cases de stats
+local cases = {}
+local NOMS_CASES = { "MARCHES", "PRÉCISION", "PARFAITS", "COMBO MAX" }
+for i, nom in ipairs(NOMS_CASES) do
+    local case = nouveau("Frame", {
+        Position = UDim2.new(0.04 + (i - 1) * 0.235, 0, 0.27, 0),
+        Size = UDim2.fromScale(0.215, 0.24),
+        BackgroundColor3 = FOND_CASE,
+        ZIndex = 31,
+        Parent = ecranFin,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = case })
+    local valeur = texte({ Position = UDim2.fromScale(0.06, 0.12), Size = UDim2.fromScale(0.88, 0.5), Font = Enum.Font.GothamBlack, TextStrokeTransparency = 1, ZIndex = 32, Parent = case })
+    petitTexte({ Position = UDim2.fromScale(0.06, 0.68), Size = UDim2.fromScale(0.88, 0.18), Text = nom, ZIndex = 32, Parent = case })
+    cases[i] = { case = case, valeur = valeur, echelle = nouveau("UIScale", { Parent = case }) }
+end
+
+-- record + aura farmée
+local function ligneInfo(x, titre)
+    local cadre = nouveau("Frame", {
+        Position = UDim2.fromScale(x, 0.56),
+        Size = UDim2.fromScale(0.45, 0.15),
+        BackgroundColor3 = FOND_CASE,
+        ZIndex = 31,
+        Parent = ecranFin,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = cadre })
+    petitTexte({ Position = UDim2.fromScale(0.07, 0.12), Size = UDim2.fromScale(0.86, 0.3), Text = titre, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 32, Parent = cadre })
+    local valeur = texte({ Position = UDim2.fromScale(0.07, 0.45), Size = UDim2.fromScale(0.6, 0.42), Font = Enum.Font.GothamBlack, TextStrokeTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 32, Parent = cadre })
+    return cadre, valeur
+end
+local _, finRecord = ligneInfo(0.04, "TON RECORD")
+local _, finAura = ligneInfo(0.51, "AURA FARMÉE")
+finAura.TextColor3 = OR
+local badgeRecord = petitTexte({
+    AnchorPoint = Vector2.new(1, 0.5),
+    Position = UDim2.fromScale(0.47, 0.635),
+    Size = UDim2.fromScale(0.2, 0.06),
+    Text = "NOUVEAU !",
+    Font = Enum.Font.GothamBlack,
+    TextColor3 = NOIR,
+    BackgroundTransparency = 0,
+    BackgroundColor3 = OR,
+    ZIndex = 34,
+    Visible = false,
+    Parent = ecranFin,
+})
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = badgeRecord })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 3), PaddingBottom = UDim.new(0, 3), Parent = badgeRecord })
+
+-- le gagnant + la petite phrase
+nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.fromScale(0.5, 0.76),
+    Size = UDim2.new(0.92, 0, 0, 1),
+    BackgroundColor3 = Color3.fromRGB(50, 50, 66),
+    BorderSizePixel = 0,
+    ZIndex = 31,
+    Parent = ecranFin,
+})
+petitTexte({ Position = UDim2.fromScale(0.04, 0.79), Size = UDim2.fromScale(0.25, 0.06), Text = "GAGNANT", TextXAlignment = Enum.TextXAlignment.Left, Parent = ecranFin })
+local finGagnant = texte({ Position = UDim2.fromScale(0.04, 0.85), Size = UDim2.fromScale(0.5, 0.08), TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, TextStrokeTransparency = 1, ZIndex = 33, Parent = ecranFin })
+local finDrole = petitTexte({
+    AnchorPoint = Vector2.new(1, 0),
+    Position = UDim2.fromScale(0.96, 0.84),
+    Size = UDim2.fromScale(0.42, 0.09),
+    Font = Enum.Font.GothamMedium,
+    TextXAlignment = Enum.TextXAlignment.Right,
+    Parent = ecranFin,
+})
+
 local function statDrole(data)
     if data.perso == "Obsession" then
-        return "Il n'a jamais regardé en bas. 🗿"
+        return "Il n'a jamais regardé en bas."
     elseif data.perso == "Ego" then
-        return "Combo max x" .. data.comboMax .. ". Il va le dire à tout le monde. 💅"
+        return "Combo max x" .. data.comboMax .. ". Il va le dire à tout le monde."
     elseif data.perso == "Motivation" then
-        return "Départ en feu 🔥... et après ?"
+        return "Départ en feu... et après ?"
     elseif data.perso == "Discipline" then
-        return "Marches perdues : 0. Logique. 🧱"
+        return "Marches perdues : 0. Logique."
     end
     return ""
 end
 
+-- un nombre qui défile de 0 à sa valeur
+local function compter(label, cible, suffixe, duree)
+    task.spawn(function()
+        local debut = os.clock()
+        while os.clock() - debut < duree do
+            local k = (os.clock() - debut) / duree
+            label.Text = math.floor(cible * (1 - (1 - k) ^ 3)) .. suffixe
+            task.wait()
+        end
+        label.Text = cible .. suffixe
+    end)
+end
+
+local numeroFin = 0
 FinEvent.OnClientEvent:Connect(function(data)
     arreterDanseUI()
+    numeroFin += 1
+    local numero = numeroFin
     local couleur = COULEURS[data.perso] or BLANC
-    finTitre.Text = "TU ES : " .. string.upper(data.perso)
-    finTitre.TextColor3 = couleur
     contourFin.Color = couleur
-    local place = if data.place == 1 then (if data.egalite then "👑 1er ex æquo" else "👑 1er") else "🏁 " .. data.place .. "e"
-    finPlace.Text = place .. " sur " .. data.total .. "   •   " .. data.marches .. " marches"
-    local ligneRecord = if data.nouveauRecord then "🏆 NOUVEAU RECORD : " .. data.record .. " !" else "🏆 Ton record : " .. (data.record or 0)
-    local ligneAura = if (data.auraFarmee or 0) > 0 then "   ✨ +" .. data.auraFarmee .. " aura farmée" else ""
-    finDetails.Text = "🎯 " .. data.precision .. " %   ✨ " .. data.parfaits .. " parfaits   🔥 combo max x" .. data.comboMax .. "\n"
-        .. ligneRecord .. ligneAura .. "\n👑 Gagnant : " .. data.gagnant
+    degradeBandeau.Color = ColorSequence.new(couleur:Lerp(NOIR, 0.15), couleur:Lerp(NOIR, 0.75))
+    finPerso.Text = string.upper(tostring(data.perso))
+    finPlace.Text = if data.place == 1 then "1er" else data.place .. "e"
+    finSur.Text = (if data.egalite then "EX ÆQUO  •  " else "") .. "SUR " .. data.total
+    finRecord.Text = (data.record or 0) .. " marches"
+    badgeRecord.Visible = data.nouveauRecord == true
+    finAura.Text = if (data.auraFarmee or 0) > 0 then "+" .. data.auraFarmee else "—"
+    finGagnant.Text = tostring(data.gagnant)
     finDrole.Text = statDrole(data)
+
     ecranFin.Visible = true
     echelleFin.Scale = 0.6
-    tween(echelleFin, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+    tween(echelleFin, 0.45, { Scale = 1 }, Enum.EasingStyle.Back)
+    local valeurs = { { data.marches, "" }, { data.precision, " %" }, { data.parfaits, "" }, { data.comboMax, "" } }
+    for i, c in ipairs(cases) do
+        c.valeur.Text = "0" .. valeurs[i][2]
+        c.valeur.TextColor3 = if i == 1 then couleur else BLANC
+        c.echelle.Scale = 0
+        task.delay(0.15 + i * 0.09, function()
+            if numero ~= numeroFin then
+                return
+            end
+            tween(c.echelle, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+            compter(c.valeur, valeurs[i][1], valeurs[i][2], 0.6)
+            jouerSon("tic", 1 + i * 0.12, 0.25)
+        end)
+    end
     if data.nouveauRecord then
-        flasher(OR, 0.4)
-        jouerSon("tic", 1, 0.4)
-        jouerSon("tic", 1.26, 0.4, 0.08)
-        jouerSon("tic", 1.5, 0.4, 0.16)
-        jouerSon("tic", 2, 0.4, 0.24)
+        task.delay(0.7, function()
+            flasher(OR, 0.4)
+            jouerSon("tic", 1, 0.4)
+            jouerSon("tic", 1.26, 0.4, 0.08)
+            jouerSon("tic", 1.5, 0.4, 0.16)
+            jouerSon("tic", 2, 0.4, 0.24)
+        end)
     end
     task.delay(6.5, function()
-        ecranFin.Visible = false
+        if numero == numeroFin then
+            tween(echelleFin, 0.25, { Scale = 0.8 })
+            task.wait(0.25)
+            if numero == numeroFin then
+                ecranFin.Visible = false
+            end
+        end
     end)
 end)
+end -- fin du bloc de l'écran de fin
+
 
 -- ========================== BOUCLE D'AFFICHAGE ==========================
 local positionCamera = nil
@@ -2850,53 +3172,70 @@ local pointsCarte = {} -- [config] = point sur la mini-carte
 RunService.RenderStepped:Connect(function(dt)
     local horloge = os.clock()
 
-    -- 1) Les avatars sautent de marche en marche (avec style)
+    -- 1) Les avatars montent les marches pied par pied (avec style)
     for _, etat in pairs(avatars) do
         local modele = etat.modele
         if modele and modele.Parent and etat.hauteur then
             local cfCinematique = etat.cinematique and etat.cinematique(horloge)
             if etat.cinematique and not cfCinematique then
-                -- fin de la cinématique (check parfait)
+                -- fin de la cinématique (gagnant / check parfait)
                 etat.cinematique = nil
                 if etat.finCinematique then
                     etat.finCinematique()
                 end
             end
-            if cfCinematique then
+            if etat.cache then
+                modele:PivotTo(CFrame.new(0, -500, 0)) -- caché pendant la scène de fin
+            elseif cfCinematique then
                 modele:PivotTo(cfCinematique)
             else
                 local m = etat.config:GetAttribute("Marche") or 0
-                local arc, rotation = 0, CFrame.identity
+                local arc, rotation, pose = 0, CFrame.identity, nil
                 if etat.saut then
                     local s = etat.saut
                     local t = math.clamp((horloge - s.debut) / s.duree, 0, 1)
-                    local lisse = t * t * (3 - 2 * t)
-                    m = s.de + (s.a - s.de) * lisse
-                    local bosse = math.sin(math.pi * t)
                     if s.monte then
-                        arc = bosse * (1.4 + 0.5 * math.abs(s.a - s.de))
-                        if s.figure == "salto" then
-                            rotation = CFrame.Angles(-2 * math.pi * lisse, 0, 0) -- salto avant
-                        elseif s.figure == "vrille" then
-                            rotation = CFrame.Angles(-bosse * 0.2, 2 * math.pi * lisse, 0) -- tour sur lui-même
-                        else
-                            rotation = CFrame.Angles(-bosse * 0.35, 0, 0) -- penché en avant, élan
+                        -- quel pas, et où on en est dans ce pas
+                        local progres = t * s.pas
+                        local numeroPas = math.min(math.floor(progres), s.pas - 1)
+                        local k = progres - numeroPas
+                        local lisseK = k * k * (3 - 2 * k)
+                        m = s.de + (s.a - s.de) * (numeroPas + lisseK) / s.pas
+                        local bosse = math.sin(math.pi * k)
+                        local pied = (s.pied + numeroPas) % 2
+                        arc = bosse * (0.35 + 0.3 * s.style) -- petit rebond à chaque pas
+                        pose = posePas(pied, k, s.style)
+                        -- penché en avant + léger déhanché du côté du pied qui monte
+                        rotation = CFrame.Angles(-bosse * 0.12, (if pied == 0 then 1 else -1) * bosse * 0.15, 0)
+                        if s.vrille and numeroPas == s.pas - 1 then
+                            rotation = rotation * CFrame.Angles(0, 2 * math.pi * lisseK, 0)
+                        end
+                        -- chaque pied posé allume sa marche
+                        local faits = if t >= 1 then s.pas else math.floor(progres)
+                        while s.pasFaits < faits do
+                            s.pasFaits += 1
+                            local numero = math.floor(s.de + (s.a - s.de) * s.pasFaits / s.pas + 0.5)
+                            piedPose(etat, numero, s.pasFaits == s.pas and (s.pas >= 2 or s.vrille))
                         end
                     else
+                        -- raté : il trébuche en arrière, les bras en l'air
+                        local lisse = t * t * (3 - 2 * t)
+                        m = s.de + (s.a - s.de) * lisse
+                        local bosse = math.sin(math.pi * t)
                         arc = bosse * 0.6
-                        rotation = CFrame.Angles(bosse * 0.6, 0, 0) -- il bascule en arrière
+                        rotation = CFrame.Angles(bosse * 0.6, 0, 0)
+                        pose = { LeftShoulder = 2.4 * bosse, RightShoulder = 2.1 * bosse, LeftHip = 0.6 * bosse, RightKnee = -0.7 * bosse }
                     end
                     if t >= 1 then
                         etat.saut = nil
-                        if etat.animSaut then
-                            etat.animSaut:Stop(0.1)
-                        end
+                        pose = nil
                         if etat.animChute then
                             etat.animChute:Stop(0.15)
                         end
                         atterrir(etat, s)
                     end
                 end
+                poser(etat, pose)
                 etat.marcheAffichee = m
                 local forcee = etat.positionForcee
                 local couloir = if forcee then forcee.couloir else etat.couloir
@@ -2905,8 +3244,14 @@ RunService.RenderStepped:Connect(function(dt)
                 end
                 if couloir then
                     local position = positionMarche(couloir, m, etat.hauteur) + Vector3.new(0, arc, 0)
-                    local sens = if forcee then forcee.sens else 1
-                    modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(sens, 0, 0)) * rotation)
+                    local direction = Vector3.new(1, 0, 0)
+                    if forcee then
+                        -- scène de fin : il se tourne vers la caméra
+                        local k = math.clamp((horloge - forcee.versCamera) / 0.4, 0, 1)
+                        k = k * k * (3 - 2 * k)
+                        direction = Vector3.new(forcee.sens * (1 - k), 0, k)
+                    end
+                    modele:PivotTo(CFrame.lookAt(position, position + direction) * rotation)
                 else
                     modele:PivotTo(CFrame.new(0, -500, 0)) -- plus de place : caché
                 end
@@ -2914,29 +3259,36 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 
-    -- 2) Caméra 2D : vue de côté qui suit ton avatar (ou le vainqueur, ou le check)
+    -- 2) Caméra 2D : vue de côté qui suit ton avatar ; à la fin, de face sur le(s) gagnant(s)
     local camera = workspace.CurrentCamera
     if camera then
         camera.CameraType = Enum.CameraType.Scriptable
-        local suivi = etatSuiviCamera or monEtat
         local focus
-        local zoom = if etatSuiviCamera or focusCheck then 0.45 else 1
-        local distance = 75 * zoom
+        local decalage = Vector3.new(7, 3, 0)
+        local distance = 75
         local vitesseCamera = 5
+        local suiviModele = etatSuiviCamera and etatSuiviCamera.modele
         if focusCheck then
             focus = focusCheck
-            distance = 40
-        elseif menuOuvert and not etatSuiviCamera then
+            decalage = Vector3.new(0, 1, 0)
+            distance = 26
+            vitesseCamera = 4
+        elseif suiviModele and suiviModele.Parent then
+            focus = suiviModele:GetPivot().Position
+            decalage = Vector3.new(0, 1.2, 0)
+            distance = 22
+            vitesseCamera = 4
+        elseif menuOuvert then
             -- menu du lobby : la caméra se balade doucement le long des escaliers (floutés derrière le menu)
             focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
             distance = 100
             vitesseCamera = 1.2
-        elseif suivi and suivi.couloir and suivi.hauteur then
-            focus = positionMarche(suivi.couloir, suivi.marcheAffichee or 0, suivi.hauteur)
+        elseif monEtat and monEtat.couloir and monEtat.hauteur then
+            focus = positionMarche(monEtat.couloir, monEtat.marcheAffichee or 0, monEtat.hauteur)
         else
             focus = positionMarche(0, 0, 3)
         end
-        local cible = focus + Vector3.new(7 * zoom, 3, distance)
+        local cible = focus + decalage + Vector3.new(0, 0, distance)
         positionCamera = if positionCamera then positionCamera:Lerp(cible, math.min(1, dt * vitesseCamera)) else cible
         forceSecousse = math.max(0, forceSecousse - dt * 4)
         local tremble = Vector3.new((math.random() - 0.5) * forceSecousse, (math.random() - 0.5) * forceSecousse, 0)

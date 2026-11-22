@@ -9,7 +9,7 @@
 
 -- ===================== RÉGLAGES (tu peux les modifier) =====================
 local CONFIG = {
-    ATTENTE_LOBBY = 15,   -- secondes pour choisir son perso
+    ATTENTE_LOBBY = 30,   -- secondes pour choisir son état d'esprit et voter la musique
     PREPARATION = 4,      -- secondes de décompte avant la musique
     DUREE_MANCHE = 60,    -- durée d'une manche (secondes de musique)
     -- (plus de sommet : les escaliers sont infinis, le plus haut à la fin gagne)
@@ -24,8 +24,8 @@ local CONFIG = {
     --   id       = l'ID Roblox du son, ex. "rbxassetid://1234567890"
     --              ⚠ une musique avec id = "" est ignorée (pas encore mise en ligne)
     --   nom      = le nom affiché sur le bouton de vote
-    --   bpm      = le tempo de la musique → mesure-le avec le testeur : lance le jeu dans Studio et appuie sur B
-    --   debut    = à quelle seconde du son on commence (pour démarrer direct sur le drop !)
+    --   bpm      = le tempo de la musique (130 = valeur provisoire)
+    --   debut    = à quelle seconde du son on commence = le DROP → marque-le avec l'outil : Play dans Studio, touche B
     --   decalage = si les cercles tombent un peu à côté du rythme, ajuste ici (ex. 0.05 ou -0.05)
     -- (les anciennes musiques sont dans l'historique git, commit 19623be)
     MUSIQUES = {
@@ -101,7 +101,7 @@ local dossierChoixMusiques = creer("Folder", { Name = "ChoixMusiques", Parent = 
 local dossierClassements = creer("Folder", { Name = "Classements", Parent = ReplicatedStorage })
 dossierRemotes.Parent = ReplicatedStorage
 
--- 🎵 Testeur BPM (touche B) : en Studio seulement, on partage la liste des musiques avec le testeur
+-- 🎵 Marqueur de drop (touche B) : en Studio seulement, on partage la liste des musiques avec l'outil
 if game:GetService("RunService"):IsStudio() then
     local dossierTest = creer("Folder", { Name = "TesteurMusiques" })
     dossierTest:SetAttribute("DureeManche", CONFIG.DUREE_MANCHE)
