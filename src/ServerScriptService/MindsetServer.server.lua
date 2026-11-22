@@ -212,7 +212,7 @@ local function tempsTotal(joueur)
 end
 
 -- le temps en haut à droite : juste un nombre, en minutes
-local NOM_TEMPS = "Temps (min)"
+local NOM_TEMPS = "Time (min)"
 local function formatTemps(secondes)
     return secondes // 60
 end
@@ -229,8 +229,8 @@ local function chargerJoueur(joueur)
     end
     if ok then
         donnees = donnees or {}
-        chercherStat(joueur, "Victoires").Value += donnees.victoires or 0
-        chercherStat(joueur, "Marches").Value += donnees.marches or 0
+        chercherStat(joueur, "Wins").Value += donnees.victoires or 0
+        chercherStat(joueur, "Steps").Value += donnees.marches or 0
         chercherStat(joueur, "Aura").Value += donnees.aura or 0
         chercherStat(joueur, "Secondes").Value += donnees.temps or 0
         chercherStat(joueur, NOM_TEMPS).Value = formatTemps(tempsTotal(joueur))
@@ -245,11 +245,11 @@ local function chargerJoueur(joueur)
 end
 
 local function sauverJoueur(joueur)
-    if not donneesChargees[joueur] or not chercherStat(joueur, "Victoires") then
+    if not donneesChargees[joueur] or not chercherStat(joueur, "Wins") then
         return
     end
-    local victoires = chercherStat(joueur, "Victoires").Value
-    local marches = chercherStat(joueur, "Marches").Value
+    local victoires = chercherStat(joueur, "Wins").Value
+    local marches = chercherStat(joueur, "Steps").Value
     local aura = chercherStat(joueur, "Aura").Value
     local temps = tempsTotal(joueur)
     local reglages = reglagesJoueurs[joueur]
@@ -333,8 +333,8 @@ local function joueurArrive(joueur)
     local stats = Instance.new("Folder")
     stats.Name = "leaderstats"
     creer("IntValue", { Name = NOM_TEMPS, Parent = stats })
-    creer("IntValue", { Name = "Marches", Parent = stats })
-    creer("IntValue", { Name = "Victoires", Parent = stats })
+    creer("IntValue", { Name = "Steps", Parent = stats })
+    creer("IntValue", { Name = "Wins", Parent = stats })
     stats.Parent = joueur
     local cachees = creer("Folder", { Name = "StatsCachees", Parent = joueur })
     creer("IntValue", { Name = "Aura", Parent = cachees })
@@ -707,12 +707,12 @@ for ordre, perso in ipairs(ORDRE_PERSOS) do
 end
 for ordre, m in ipairs(CONFIG.MUSIQUES) do
     if m.id ~= "" and not tableaux[cleMusique(m)] then
-        creerTableau(cleMusique(m), m.nom or ("Musique " .. ordre), "Musique")
+        creerTableau(cleMusique(m), m.nom or ("Song " .. ordre), "Musique")
         tableaux[cleMusique(m)].valeur:SetAttribute("Ordre", ordre)
     end
 end
 -- 🌍 le classement du MONDE ENTIER (toutes musiques, tous états d'esprit)
-creerTableau("G", "MONDE ENTIER", nil)
+creerTableau("G", "WORLDWIDE", nil)
 -- un classement pour chaque combinaison état d'esprit + musique (clé « C_Ego_M_123... »)
 local function cleCombo(perso, cleM)
     return "C_" .. perso .. "_" .. cleM
@@ -744,7 +744,7 @@ local function nomDe(userId)
     local ok, nom = pcall(function()
         return Players:GetNameFromUserIdAsync(userId)
     end)
-    nomsCache[userId] = if ok and nom then nom else ("Joueur " .. userId)
+    nomsCache[userId] = if ok and nom then nom else ("Player " .. userId)
     return nomsCache[userId]
 end
 
@@ -954,7 +954,7 @@ local function proposerMusiques()
         table.insert(propositions, table.remove(dispo, math.random(1, #dispo)))
     end
     for i, m in ipairs(propositions) do
-        local valeur = creer("StringValue", { Name = tostring(i), Value = m.nom or ("Musique " .. i) })
+        local valeur = creer("StringValue", { Name = tostring(i), Value = m.nom or ("Song " .. i) })
         valeur:SetAttribute("Votes", 0)
         valeur:SetAttribute("Cle", cleMusique(m)) -- pour afficher le record de la musique sur sa carte
         valeur:SetAttribute("Difficulte", difficulteDe(m)) -- 1 facile, 2 moyen, 3 difficile, 4 extrême
@@ -1028,7 +1028,7 @@ while true do
         g:SetAttribute("Danse", 0)
         g:SetAttribute("AuraFarmee", 0)
     end
-    setStatut(if #propositions > 0 then "🧠 Choisis ton état d'esprit et vote pour la musique !" else "🧠 Choisis ton état d'esprit !")
+    setStatut(if #propositions > 0 then "🧠 Choose your mindset and vote for the music!" else "🧠 Choose your mindset!")
     compteARebours(CONFIG.ATTENTE_LOBBY)
 
     local participants = {}
@@ -1163,7 +1163,7 @@ while true do
     for _, g in ipairs(gagnants) do
         local joueurGagnant = joueurDuGrimpeur[g]
         if joueurGagnant then
-            ajouterStat(joueurGagnant, "Victoires", 1)
+            ajouterStat(joueurGagnant, "Wins", 1)
             ajouterStat(joueurGagnant, "Aura", 25)
         end
     end
@@ -1174,7 +1174,7 @@ while true do
         local joueurRecord = joueurDuGrimpeur[g]
         if joueurRecord then
             local score = g:GetAttribute("Marche") or 0
-            ajouterStat(joueurRecord, "Marches", score) -- marches gravies au total (en haut à droite)
+            ajouterStat(joueurRecord, "Steps", score) -- marches gravies au total (en haut à droite)
             local perso = g:GetAttribute("Perso")
             task.spawn(function()
                 local recordPerso = enregistrerRecord("P_" .. tostring(perso), joueurRecord, score)
@@ -1182,7 +1182,7 @@ while true do
                 local recordCombo = musique.id ~= "" and enregistrerRecord(cleCombo(tostring(perso), cleMusique(musique)), joueurRecord, score)
                 -- 🌍 monde entier (et on retient avec quel état d'esprit + quelle musique)
                 if enregistrerRecord("G", joueurRecord, score) then
-                    enregistrerDetailsMonde(joueurRecord.UserId, tostring(perso), if musique.id ~= "" then musique.nom else "(sans musique)")
+                    enregistrerDetailsMonde(joueurRecord.UserId, tostring(perso), if musique.id ~= "" then musique.nom else "(no music)")
                 end
                 nouveauxRecords[g] = recordPerso or recordMusique or recordCombo
             end)
@@ -1190,12 +1190,12 @@ while true do
     end
 
     if #gagnants >= 2 then
-        setStatut("ÉGALITÉ ! " .. nomDuGrimpeur(gagnants[1]) .. " & " .. nomDuGrimpeur(gagnants[2]) .. " — " .. meilleur .. " marches")
+        setStatut("TIE! " .. nomDuGrimpeur(gagnants[1]) .. " & " .. nomDuGrimpeur(gagnants[2]) .. " — " .. meilleur .. " steps")
         EvenementEvent:FireAllClients("Check", gagnants[1], gagnants[2])
         task.wait(2.6) -- le temps du check
     elseif gagnants[1] then
         local g = gagnants[1]
-        setStatut("👑 " .. nomDuGrimpeur(g) .. " GAGNE avec " .. string.upper(tostring(g:GetAttribute("Perso"))) .. " — " .. meilleur .. " marches !")
+        setStatut("👑 " .. nomDuGrimpeur(g) .. " WINS with " .. string.upper(tostring(g:GetAttribute("Perso"))) .. " — " .. meilleur .. " steps!")
         EvenementEvent:FireAllClients("Vainqueur", g)
         task.wait(2)
     end
@@ -1254,7 +1254,7 @@ while true do
                 rates = stats.rates,
                 comboMax = stats.comboMax,
                 precision = if total > 0 then math.floor((stats.parfaits + stats.biens) / total * 100) else 0,
-                gagnant = if #nomsGagnants > 0 then table.concat(nomsGagnants, " & ") else "personne",
+                gagnant = if #nomsGagnants > 0 then table.concat(nomsGagnants, " & ") else "nobody",
             })
         end
     end

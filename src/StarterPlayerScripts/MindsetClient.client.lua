@@ -46,18 +46,18 @@ local COULEURS = {
 local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" }
 -- Ce qui s'affiche sur les cartes du menu (les vraies règles sont dans le script serveur)
 local DEVISES = {
-    Motivation = "Le feu du départ",
-    Ego = "Le roi du combo",
-    Discipline = "Le mur inébranlable",
-    Obsession = "Le monstre de la fin",
+    Motivation = "The fire of the start",
+    Ego = "The king of combos",
+    Discipline = "The unbreakable wall",
+    Obsession = "The late-game monster",
 }
 local COMPETENCES = {
-    Motivation = { "+2 marches par note au début", "Rate ensuite = -2" },
-    Ego = { "Combo 10+ : PARFAIT = +2", "Une erreur = -2" },
-    Discipline = { "+1 par note, toujours", "Ne redescend JAMAIS" },
-    Obsession = { "Début : que les PARFAIT", "2e moitié : +2 par note" },
+    Motivation = { "+2 steps per note at the start", "Miss later = -2" },
+    Ego = { "Combo 10+: PERFECT = +2", "One mistake = -2" },
+    Discipline = { "+1 per note, always", "NEVER goes down" },
+    Obsession = { "Start: only PERFECTS count", "2nd half: +2 per note" },
 }
-local JAUGES = { "DÉBUT", "FIN", "SÉCURITÉ" }
+local JAUGES = { "START", "END", "SAFETY" }
 local NOTES_PERSOS = { -- sur 5
     Motivation = { 5, 2, 2 },
     Ego = { 3, 4, 1 },
@@ -557,7 +557,7 @@ local titreMenu = texteMenu({
     AnchorPoint = Vector2.new(0.5, 0),
     Position = UDim2.fromScale(0.5, 0.03),
     Size = UDim2.fromScale(0.86, 0.08),
-    Text = "CHOISIS TON ÉTAT D'ESPRIT",
+    Text = "CHOOSE YOUR MINDSET",
     ZIndex = 12,
     Parent = menu,
 })
@@ -576,7 +576,7 @@ local titreMusique = texteMenu({
     AnchorPoint = Vector2.new(0.5, 0),
     Position = UDim2.fromScale(0.5, 0.655),
     Size = UDim2.fromScale(0.6, 0.04),
-    Text = "VOTE POUR LA MUSIQUE",
+    Text = "VOTE FOR THE MUSIC",
     TextColor3 = BLEU_MUSIQUE,
     ZIndex = 12,
     Parent = menu,
@@ -707,7 +707,7 @@ local function creerCarte(parent, couleur, taille, note)
         BackgroundTransparency = 0,
         BackgroundColor3 = couleur,
         Font = Enum.Font.GothamBlack,
-        Text = "CHOISI",
+        Text = "PICKED",
         TextStrokeTransparency = 1,
         Visible = false,
         ZIndex = 18,
@@ -785,11 +785,11 @@ local function majResume()
     if persoChoisi then
         table.insert(morceaux, string.upper(persoChoisi))
     else
-        table.insert(morceaux, "Choisis ton état d'esprit")
+        table.insert(morceaux, "Choose your mindset")
     end
     if next(boutonsMusique) then
         local b = monVote and boutonsMusique[monVote]
-        table.insert(morceaux, if b then b.valeur.Value else "Vote pour une musique")
+        table.insert(morceaux, if b then b.valeur.Value else "Vote for a song")
     end
     resume.Text = table.concat(morceaux, "   •   ")
     resume.TextColor3 = if persoChoisi then COULEURS[persoChoisi] else Color3.fromRGB(200, 200, 215)
@@ -869,7 +869,7 @@ for i, perso in ipairs(ORDRE_PERSOS) do
         AnchorPoint = Vector2.new(0.5, 0),
         Position = UDim2.fromScale(0.5, 0.85),
         Size = UDim2.fromScale(0.86, 0.055),
-        Text = "RECORD : —",
+        Text = "RECORD: —",
         Font = Enum.Font.GothamBold,
         TextColor3 = OR,
         TextStrokeTransparency = 1,
@@ -992,7 +992,7 @@ local function reconstruireMusiques()
         end
         local c = creerCarte(rangeeMusiques, BLEU_MUSIQUE, UDim2.fromScale(1 / #valeurs - 0.02, 1), 3 + i)
         c.slot.LayoutOrder = i
-        c.badge.Text = "TON VOTE"
+        c.badge.Text = "YOUR VOTE"
         c.valeur = valeur
         if menuOuvert then
             c.delai = os.clock() + 0.3 + i * 0.07
@@ -1022,10 +1022,10 @@ local function reconstruireMusiques()
         })
         -- le niveau de difficulté : 4 petites barres + le mot, dans la couleur du niveau
         local NIVEAUX = {
-            { "FACILE", Color3.fromRGB(110, 230, 140) },
-            { "MOYEN", Color3.fromRGB(255, 210, 80) },
-            { "DIFFICILE", Color3.fromRGB(255, 140, 60) },
-            { "EXTRÊME", Color3.fromRGB(255, 70, 90) },
+            { "EASY", Color3.fromRGB(110, 230, 140) },
+            { "MEDIUM", Color3.fromRGB(255, 210, 80) },
+            { "HARD", Color3.fromRGB(255, 140, 60) },
+            { "EXTREME", Color3.fromRGB(255, 70, 90) },
         }
         local niveau = math.clamp(valeur:GetAttribute("Difficulte") or 2, 1, 4)
         local nomNiveau, couleurNiveau = NIVEAUX[niveau][1], NIVEAUX[niveau][2]
@@ -1119,9 +1119,9 @@ local function texteRecord(cle)
     local valeur = cle and dossierClassements:FindFirstChild(cle)
     local score = if valeur then valeur:GetAttribute("Top1Score") or 0 else 0
     if score <= 0 then
-        return "RECORD : —"
+        return "RECORD: —"
     end
-    return "RECORD : " .. score .. "  •  " .. tostring(valeur:GetAttribute("Top1Nom"))
+    return "RECORD: " .. score .. "  •  " .. tostring(valeur:GetAttribute("Top1Nom"))
 end
 majRecordsCartes = function()
     for perso, c in pairs(cartes) do
@@ -1684,7 +1684,7 @@ local function creerEtiquette(etat)
     majEtiquette(etat)
 end
 
-local NOMS_NIVEAUX = { "✨ AURA NIVEAU 1", "🔥 AURA NIVEAU 2", "👑 AURA MAX" }
+local NOMS_NIVEAUX = { "✨ AURA LEVEL 1", "🔥 AURA LEVEL 2", "👑 MAX AURA" }
 
 local function majAuraAvatar(etat)
     if not etat.modele then
@@ -1977,7 +1977,7 @@ local dernierClicUtilise = 0 -- l'heure du dernier clic qui a validé une note (
 do
 local function effetTouche(position, verdict)
     local couleur = if verdict == "Parfait" then OR elseif verdict == "Bien" then Color3.fromRGB(120, 255, 160) else ROUGE
-    local message = if verdict == "Parfait" then "PARFAIT !" elseif verdict == "Bien" then "BIEN" else "RATE"
+    local message = if verdict == "Parfait" then "PERFECT!" elseif verdict == "Bien" then "GOOD" else "MISS"
     local popup = texte({
         AnchorPoint = Vector2.new(0.5, 0.5),
         Position = UDim2.fromScale(position.X, position.Y - 0.06),
@@ -2236,12 +2236,12 @@ effetsMoi = function(depart, cible)
         flasher(ROUGE, 0.25)
         secousse(1.2)
         auraTexte.TextColor3 = ROUGE
-        apparaitre(auraTexte, "💀 -" .. math.floor(depart - cible + 0.5) .. " MARCHE" .. (if depart - cible > 1.5 then "S" else ""), 0.8)
+        apparaitre(auraTexte, "💀 -" .. math.floor(depart - cible + 0.5) .. " STEP" .. (if depart - cible > 1.5 then "S" else ""), 0.8)
         return
     end
     if math.floor(cible / 10) > math.floor(depart / 10) then
         grosTexte.TextColor3 = maCouleur()
-        apparaitre(grosTexte, "🪜 " .. math.floor(cible / 10) * 10 .. " MARCHES !", 1, echelleGros)
+        apparaitre(grosTexte, "🪜 " .. math.floor(cible / 10) * 10 .. " STEPS!", 1, echelleGros)
         flasher(maCouleur(), 0.3)
         secousse(0.8)
     end
@@ -2257,7 +2257,7 @@ local function majModeAura(combo)
         -- ✨ MODE AURA : image en noir et blanc très contrastée, comme les edits TikTok
         tween(effetAura, 0.4, { Saturation = -1, Contrast = 0.35, Brightness = 0.02 })
         grosTexte.TextColor3 = OR
-        apparaitre(grosTexte, "🔥 MODE AURA 🔥", 1.4, echelleGros)
+        apparaitre(grosTexte, "🔥 AURA MODE 🔥", 1.4, echelleGros)
         flasher(BLANC, 0.6)
         secousse(1.5)
         flou.Size = 14
@@ -2265,7 +2265,7 @@ local function majModeAura(combo)
     else
         tween(effetAura, 0.6, { Saturation = 0, Contrast = 0, Brightness = 0 })
         grosTexte.TextColor3 = ROUGE
-        apparaitre(grosTexte, "💀 AURA PERDUE", 1, echelleGros)
+        apparaitre(grosTexte, "💀 AURA LOST", 1, echelleGros)
     end
 end
 
@@ -2302,7 +2302,7 @@ task.spawn(function()
         -- pas de gros texte si tu viens de cliquer la carte (le menu fait déjà le show)
         if perso and perso ~= dernierClicPerso then
             grosTexte.TextColor3 = COULEURS[perso] or BLANC
-            apparaitre(grosTexte, "Tu es : " .. string.upper(perso), 1.4, echelleGros)
+            apparaitre(grosTexte, "You are: " .. string.upper(perso), 1.4, echelleGros)
         end
     end)
     choisirPersoAffiche(config:GetAttribute("Perso"))
@@ -2400,7 +2400,7 @@ DebutEvent.OnClientEvent:Connect(function(infos)
             task.wait(attente)
         end
         if partition == infos then
-            afficherDecompte(if jeJoue then "CLIQUE EN RYTHME !" else "SPECTATEUR", OR)
+            afficherDecompte(if jeJoue then "CLICK TO THE BEAT!" else "SPECTATING", OR)
             -- le dernier bip, plus aigu et plus long : GO !
             jouerSon("tic", 1.5, 0.7, nil, 0.4)
             jouerSon("tic", 3, 0.35, nil, 0.4)
@@ -2510,7 +2510,7 @@ local function clacParfait(point, couleurA, couleurB)
         ondeSol(point, OR, 8, true)
     end)
     grosTexte.TextColor3 = OR
-    apparaitre(grosTexte, "CHECK PARFAIT !", 2, echelleGros)
+    apparaitre(grosTexte, "PERFECT HIGH FIVE!", 2, echelleGros)
 end
 
 jouerCheck = function(configA, configB)
@@ -2590,7 +2590,7 @@ local boutonDanse = nouveau("TextButton", {
     BackgroundColor3 = OR,
     AutoButtonColor = false,
     Font = Enum.Font.GothamBlack,
-    Text = "DANSE !",
+    Text = "DANCE!",
     TextScaled = true,
     TextColor3 = NOIR,
     ZIndex = 36,
@@ -2604,7 +2604,7 @@ texte({
     AnchorPoint = Vector2.new(0.5, 1),
     Position = UDim2.new(0.5, 0, 0.86, -92),
     Size = UDim2.new(0.6, 0, 0, 28),
-    Text = if surMobile then "Tape sur DANSE pour farm l'aura !" else "Clique sur DANSE ou appuie sur ESPACE pour farm l'aura !",
+    Text = if surMobile then "Tap DANCE to farm aura!" else "Click DANCE or press SPACE to farm aura!",
     ZIndex = 36,
     Parent = uiDanse,
 })
@@ -2626,7 +2626,7 @@ arreterDanseUI = function()
 end
 demarrerDanseUI = function(fin)
     danseActive, danseFin = true, fin
-    compteurDanse.Text = "FARM TON AURA !"
+    compteurDanse.Text = "FARM YOUR AURA!"
     uiDanse.Visible = true
     echelleBoutonDanse.Scale = 0
     tween(echelleBoutonDanse, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
@@ -2659,7 +2659,7 @@ UserInputService.InputBegan:Connect(function(input, gere)
 end)
 
 surAuraFarmee = function(n)
-    compteurDanse.Text = "+" .. n .. " AURA FARMÉE"
+    compteurDanse.Text = "+" .. n .. " AURA FARMED"
     echelleCompteurDanse.Scale = 1.25
     tween(echelleCompteurDanse, 0.15, { Scale = 1 })
     if n % 10 == 0 then
@@ -2700,7 +2700,7 @@ EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
         modeCinema(true)
         tween(effetAura, 0.5, { Saturation = -1, Contrast = 0.4 })
         grosTexte.TextColor3 = BLANC
-        apparaitre(grosTexte, "ÉGALITÉ !", 0.8, echelleGros)
+        apparaitre(grosTexte, "TIE!", 0.8, echelleGros)
         jouerCheck(a, b)
     elseif typeEvt == "Danse" then
         -- a = la liste des gagnants, b = l'heure (serveur) de fin de la danse
@@ -2717,7 +2717,7 @@ EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
             demarrerDanseUI(b or (maintenantServeur() + 8))
         else
             grosTexte.TextColor3 = OR
-            apparaitre(grosTexte, table.concat(noms, " & ") .. " FARM L'AURA", 2.5, echelleGros)
+            apparaitre(grosTexte, table.concat(noms, " & ") .. " FARMING AURA", 2.5, echelleGros)
         end
     end
 end)
@@ -2732,7 +2732,7 @@ boutonClassement = nouveau("TextButton", {
     BackgroundTransparency = 0.1,
     AutoButtonColor = false,
     Font = Enum.Font.GothamBlack,
-    Text = "CLASSEMENTS",
+    Text = "LEADERBOARDS",
     TextScaled = true,
     TextColor3 = OR,
     ZIndex = 25,
@@ -2777,7 +2777,7 @@ local echellePanneau = nouveau("UIScale", { Parent = panneau })
 texte({
     Position = UDim2.new(0, 20, 0, 14),
     Size = UDim2.new(1, -310, 0, 38),
-    Text = "CLASSEMENTS",
+    Text = "LEADERBOARDS",
     TextColor3 = OR,
     TextXAlignment = Enum.TextXAlignment.Left,
     ZIndex = 42,
@@ -2787,7 +2787,7 @@ texte({
 local sousTitre = texte({
     Position = UDim2.new(0, 20, 0, 54),
     Size = UDim2.new(1, -40, 0, 18),
-    Text = "Le plus de marches montées en une partie",
+    Text = "Most steps climbed in one game",
     Font = Enum.Font.GothamMedium,
     TextColor3 = Color3.fromRGB(170, 170, 190),
     TextStrokeTransparency = 1,
@@ -2802,7 +2802,7 @@ local boutonFermer = nouveau("TextButton", {
     BackgroundColor3 = Color3.fromRGB(40, 40, 55),
     AutoButtonColor = false,
     Font = Enum.Font.GothamBlack,
-    Text = "FERMER",
+    Text = "CLOSE",
     TextScaled = true,
     TextColor3 = BLANC,
     ZIndex = 42,
@@ -2819,7 +2819,7 @@ local boutonMonde = nouveau("TextButton", {
     BackgroundColor3 = Color3.fromRGB(24, 24, 34),
     AutoButtonColor = false,
     Font = Enum.Font.GothamBlack,
-    Text = "MONDE ENTIER",
+    Text = "WORLDWIDE",
     TextScaled = true,
     TextColor3 = COULEUR_MONDE,
     ZIndex = 42,
@@ -2842,7 +2842,7 @@ local function titreRangee(y, message)
         Parent = panneau,
     })
 end
-titreRangee(84, "ÉTATS D'ESPRIT")
+titreRangee(84, "MINDSETS")
 local rangeeOngletsPersos = nouveau("Frame", {
     Position = UDim2.new(0, 20, 0, 104),
     Size = UDim2.new(1, -40, 0, 36),
@@ -2851,7 +2851,7 @@ local rangeeOngletsPersos = nouveau("Frame", {
     Parent = panneau,
 })
 nouveau("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6), Parent = rangeeOngletsPersos })
-titreRangee(150, "MUSIQUES")
+titreRangee(150, "SONGS")
 local rangeeOngletsMusiques = nouveau("ScrollingFrame", {
     Position = UDim2.new(0, 20, 0, 170),
     Size = UDim2.new(1, -40, 0, 44),
@@ -2914,15 +2914,15 @@ end
 
 local function cleSelection()
     if modeMonde or not (choixPerso or choixMusique) then
-        return "G", "MONDE ENTIER  ·  le meilleur de tous les joueurs, toutes musiques et états d'esprit"
+        return "G", "WORLDWIDE  ·  the best of all players, every song and mindset"
     end
     if choixPerso and choixMusique then
         return "C_" .. string.sub(choixPerso, 3) .. "_" .. choixMusique, nomOnglet(choixPerso) .. "  +  " .. nomOnglet(choixMusique)
     end
     if choixPerso then
-        return choixPerso, nomOnglet(choixPerso) .. "  ·  toutes les musiques (clique aussi une musique)"
+        return choixPerso, nomOnglet(choixPerso) .. "  ·  all songs (also pick a song)"
     end
-    return choixMusique, nomOnglet(choixMusique) .. "  ·  tous les états d'esprit (clique aussi un état d'esprit)"
+    return choixMusique, nomOnglet(choixMusique) .. "  ·  all mindsets (also pick a mindset)"
 end
 
 local function styleOnglets()
@@ -2974,7 +2974,7 @@ local function ligneClassement(rang, nom, score, estMoi, details)
             AnchorPoint = Vector2.new(1, 0),
             Position = UDim2.new(1, -12, 0, 5),
             Size = UDim2.new(0, 130, 1, -10),
-            Text = score .. " marches",
+            Text = score .. " steps",
             TextColor3 = couleurRang,
             TextXAlignment = Enum.TextXAlignment.Right,
             ZIndex = 43,
@@ -3023,7 +3023,7 @@ local function afficherClassement()
             enfant:Destroy()
         end
     end
-    etatListe.Text = "Chargement..."
+    etatListe.Text = "Loading..."
     etatListe.Visible = true
     monRecordTexte.Text = ""
     task.spawn(function()
@@ -3034,17 +3034,17 @@ local function afficherClassement()
             return -- on a changé d'onglet entre temps
         end
         if not ok or type(resultat) ~= "table" then
-            etatListe.Text = "Classement indisponible pour le moment"
+            etatListe.Text = "Leaderboard unavailable right now"
             return
         end
         local lignes = resultat.liste or {}
         etatListe.Visible = #lignes == 0
-        etatListe.Text = "Personne pour l'instant. Sois le premier !"
+        etatListe.Text = "Nobody yet. Be the first!"
         for rang, l in ipairs(lignes) do
             ligneClassement(rang, tostring(l.nom), l.score or 0, l.userId == joueur.UserId, { perso = l.perso, musique = l.musique })
         end
         local moi = resultat.moi or 0
-        monRecordTexte.Text = if moi > 0 then "TON RECORD : " .. moi .. " marches" else "TON RECORD : pas encore"
+        monRecordTexte.Text = if moi > 0 then "YOUR RECORD: " .. moi .. " steps" else "YOUR RECORD: none yet"
     end)
 end
 
@@ -3319,17 +3319,17 @@ local boutonPlay = boutonMenu(colonne, "PLAY", OR, true, 28)
 boutonPlay.LayoutOrder = 1
 boutonPlay.Size = UDim2.new(1, 0, 0, 80)
 local COULEUR_AFK = Color3.fromRGB(140, 200, 255)
-local boutonAfkMenu = boutonMenu(colonne, "AFK  ·  REGARDER", COULEUR_AFK, false, 28)
+local boutonAfkMenu = boutonMenu(colonne, "AFK  ·  WATCH", COULEUR_AFK, false, 28)
 boutonAfkMenu.LayoutOrder = 2
-local boutonClassementsMenu = boutonMenu(colonne, "CLASSEMENTS", OR, false, 28)
+local boutonClassementsMenu = boutonMenu(colonne, "LEADERBOARDS", OR, false, 28)
 boutonClassementsMenu.LayoutOrder = 3
-local boutonParametresMenu = boutonMenu(colonne, "PARAMÈTRES", Color3.fromRGB(200, 200, 220), false, 28)
+local boutonParametresMenu = boutonMenu(colonne, "SETTINGS", Color3.fromRGB(200, 200, 220), false, 28)
 boutonParametresMenu.LayoutOrder = 4
 texte({
     AnchorPoint = Vector2.new(0.5, 1),
     Position = UDim2.new(0.5, 0, 1, -24),
     Size = UDim2.new(0.7, 0, 0, 22),
-    Text = "Clique en rythme. Monte à l'infini. Farm ton aura.",
+    Text = "Click to the beat. Climb forever. Farm your aura.",
     Font = Enum.Font.GothamMedium,
     TextColor3 = Color3.fromRGB(160, 160, 180),
     TextStrokeTransparency = 1,
@@ -3364,7 +3364,7 @@ nouveau("UIStroke", { Color = COULEUR_AFK, Thickness = 2, ApplyStrokeMode = Enum
 local texteAfk = texte({
     Position = UDim2.new(0, 26, 0, 12),
     Size = UDim2.new(1, -230, 1, -24),
-    Text = "MODE AFK  ·  tu regardes les autres jouer",
+    Text = "AFK MODE  ·  watching the others play",
     Font = Enum.Font.GothamBold,
     TextColor3 = COULEUR_AFK,
     TextStrokeTransparency = 1,
@@ -3379,7 +3379,7 @@ local boutonRejoindre = nouveau("TextButton", {
     BackgroundColor3 = OR,
     AutoButtonColor = false,
     Font = Enum.Font.GothamBlack,
-    Text = "REJOINDRE",
+    Text = "JOIN",
     TextScaled = true,
     TextColor3 = NOIR,
     ZIndex = 25,
@@ -3395,11 +3395,11 @@ majBandeauAfk = function(regarde)
     bandeauAfk.Visible = modeAfk and not menuPrincipalOuvert
     local phase = ReplicatedStorage:GetAttribute("Phase")
     if phase == "Manche" and regarde then
-        texteAfk.Text = "MODE AFK  ·  tu regardes : " .. regarde
+        texteAfk.Text = "AFK MODE  ·  watching: " .. regarde
     elseif phase == "Manche" then
-        texteAfk.Text = "MODE AFK  ·  tu regardes les autres jouer"
+        texteAfk.Text = "AFK MODE  ·  watching the others play"
     else
-        texteAfk.Text = "MODE AFK  ·  tu ne seras pas lancé dans la partie"
+        texteAfk.Text = "AFK MODE  ·  you won't be put in the next game"
     end
 end
 
@@ -3428,7 +3428,7 @@ local function allerJouer()
     majPhase() -- on arrive dans le lobby (ou en spectateur si une manche est en cours)
     if ReplicatedStorage:GetAttribute("Phase") ~= "Lobby" then
         grosTexte.TextColor3 = OR
-        apparaitre(grosTexte, "Une manche est en cours : tu joues à la prochaine !", 3, echelleGros)
+        apparaitre(grosTexte, "A round is in progress: you'll play the next one!", 3, echelleGros)
     end
 end
 
@@ -3483,7 +3483,7 @@ end)
 -- ou si tu as laissé passer toute une manche sans cliquer une seule fois.
 joueur.Idled:Connect(function()
     if not modeAfk and not menuPrincipalOuvert then
-        passerAfk("Tu es parti ? MODE AFK activé")
+        passerAfk("Are you away? AFK MODE on")
     end
 end)
 local jouaitCetteManche = false
@@ -3494,7 +3494,7 @@ ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(function()
     elseif phase == "Fin" and jouaitCetteManche then
         jouaitCetteManche = false
         if clicsManche == 0 and not modeAfk and not menuPrincipalOuvert then
-            passerAfk("Aucun clic de toute la manche : MODE AFK activé")
+            passerAfk("No clicks the whole round: AFK MODE on")
         end
     end
 end)
@@ -3527,7 +3527,7 @@ local cadre = nouveau("TextButton", {
 nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = cadre })
 nouveau("UIStroke", { Color = Color3.fromRGB(200, 200, 220), Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = cadre })
 local echelleCadre = nouveau("UIScale", { Parent = cadre })
-texte({ Position = UDim2.new(0, 24, 0, 18), Size = UDim2.new(1, -170, 0, 36), Text = "PARAMÈTRES", TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 47, Parent = cadre })
+texte({ Position = UDim2.new(0, 24, 0, 18), Size = UDim2.new(1, -170, 0, 36), Text = "SETTINGS", TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 47, Parent = cadre })
 local boutonFermerReglages = nouveau("TextButton", {
     AnchorPoint = Vector2.new(1, 0),
     Position = UDim2.new(1, -18, 0, 20),
@@ -3535,7 +3535,7 @@ local boutonFermerReglages = nouveau("TextButton", {
     BackgroundColor3 = Color3.fromRGB(40, 40, 55),
     AutoButtonColor = false,
     Font = Enum.Font.GothamBlack,
-    Text = "FERMER",
+    Text = "CLOSE",
     TextScaled = true,
     TextColor3 = BLANC,
     ZIndex = 47,
@@ -3671,7 +3671,7 @@ local function interrupteur(y, titreInter, cle)
     nouveau("UIPadding", { PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7), Parent = bouton })
     local function afficher()
         local actif = REGLAGES[cle]
-        bouton.Text = if actif then "OUI" else "NON"
+        bouton.Text = if actif then "ON" else "OFF"
         bouton.BackgroundColor3 = if actif then OR else Color3.fromRGB(45, 45, 60)
         bouton.TextColor3 = if actif then NOIR else Color3.fromRGB(170, 170, 190)
     end
@@ -3693,15 +3693,15 @@ local function interrupteur(y, titreInter, cle)
     afficher()
 end
 
-curseur(76, "MUSIQUE", "musique")
-curseur(146, "BRUITAGES (clics, sons de l'interface, effets)", "bruitages")
-interrupteur(222, "SECOUSSES DE L'ÉCRAN", "secousses")
-interrupteur(272, "FLASHS LUMINEUX", "flashs")
+curseur(76, "MUSIC", "musique")
+curseur(146, "SOUND EFFECTS (clicks, menu sounds, effects)", "bruitages")
+interrupteur(222, "SCREEN SHAKE", "secousses")
+interrupteur(272, "FLASHING LIGHTS", "flashs")
 texte({
     AnchorPoint = Vector2.new(0.5, 1),
     Position = UDim2.new(0.5, 0, 1, -18),
     Size = UDim2.new(1, -48, 0, 18),
-    Text = "Tes paramètres sont sauvegardés pour la prochaine fois.",
+    Text = "Your settings are saved for next time.",
     Font = Enum.Font.GothamMedium,
     TextColor3 = Color3.fromRGB(140, 140, 160),
     TextStrokeTransparency = 1,
@@ -3765,7 +3765,7 @@ local function boutonCoin(y, texteBouton, couleur, action)
     table.insert(boutonsCoin, bouton)
     return bouton
 end
-boutonCoin(122, "PARAMÈTRES", Color3.fromRGB(200, 200, 220), function()
+boutonCoin(122, "SETTINGS", Color3.fromRGB(200, 200, 220), function()
     sonClic(4)
     ouvrirReglages()
 end)
@@ -3855,14 +3855,14 @@ local function petitTexte(proprietes)
     proprietes.ZIndex = proprietes.ZIndex or 33
     return texte(proprietes)
 end
-petitTexte({ Position = UDim2.fromScale(0.05, 0.16), Size = UDim2.fromScale(0.5, 0.2), Text = "FIN DE LA PARTIE", TextColor3 = Color3.fromRGB(230, 230, 240), TextXAlignment = Enum.TextXAlignment.Left, Parent = bandeau })
+petitTexte({ Position = UDim2.fromScale(0.05, 0.16), Size = UDim2.fromScale(0.5, 0.2), Text = "GAME OVER", TextColor3 = Color3.fromRGB(230, 230, 240), TextXAlignment = Enum.TextXAlignment.Left, Parent = bandeau })
 local finPerso = texte({ Position = UDim2.fromScale(0.05, 0.38), Size = UDim2.fromScale(0.6, 0.48), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 33, Parent = bandeau })
 local finPlace = texte({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(0.95, 0.1), Size = UDim2.fromScale(0.3, 0.55), TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 33, Parent = bandeau })
 local finSur = petitTexte({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(0.95, 0.66), Size = UDim2.fromScale(0.3, 0.22), TextColor3 = Color3.fromRGB(230, 230, 240), TextXAlignment = Enum.TextXAlignment.Right, Parent = bandeau })
 
 -- les 4 cases de stats
 local cases = {}
-local NOMS_CASES = { "MARCHES", "PRÉCISION", "PARFAITS", "COMBO MAX" }
+local NOMS_CASES = { "STEPS", "ACCURACY", "PERFECTS", "MAX COMBO" }
 for i, nom in ipairs(NOMS_CASES) do
     local case = nouveau("Frame", {
         Position = UDim2.new(0.04 + (i - 1) * 0.235, 0, 0.27, 0),
@@ -3891,14 +3891,14 @@ local function ligneInfo(x, titre)
     local valeur = texte({ Position = UDim2.fromScale(0.07, 0.45), Size = UDim2.fromScale(0.6, 0.42), Font = Enum.Font.GothamBlack, TextStrokeTransparency = 1, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 32, Parent = cadre })
     return cadre, valeur
 end
-local _, finRecord = ligneInfo(0.04, "TON RECORD")
-local _, finAura = ligneInfo(0.51, "AURA FARMÉE")
+local _, finRecord = ligneInfo(0.04, "YOUR RECORD")
+local _, finAura = ligneInfo(0.51, "AURA FARMED")
 finAura.TextColor3 = OR
 local badgeRecord = petitTexte({
     AnchorPoint = Vector2.new(1, 0.5),
     Position = UDim2.fromScale(0.47, 0.635),
     Size = UDim2.fromScale(0.2, 0.06),
-    Text = "NOUVEAU !",
+    Text = "NEW!",
     Font = Enum.Font.GothamBlack,
     TextColor3 = NOIR,
     BackgroundTransparency = 0,
@@ -3920,7 +3920,7 @@ nouveau("Frame", {
     ZIndex = 31,
     Parent = ecranFin,
 })
-petitTexte({ Position = UDim2.fromScale(0.04, 0.79), Size = UDim2.fromScale(0.25, 0.06), Text = "GAGNANT", TextXAlignment = Enum.TextXAlignment.Left, Parent = ecranFin })
+petitTexte({ Position = UDim2.fromScale(0.04, 0.79), Size = UDim2.fromScale(0.25, 0.06), Text = "WINNER", TextXAlignment = Enum.TextXAlignment.Left, Parent = ecranFin })
 local finGagnant = texte({ Position = UDim2.fromScale(0.04, 0.85), Size = UDim2.fromScale(0.5, 0.08), TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, TextStrokeTransparency = 1, ZIndex = 33, Parent = ecranFin })
 local finDrole = petitTexte({
     AnchorPoint = Vector2.new(1, 0),
@@ -3933,13 +3933,13 @@ local finDrole = petitTexte({
 
 local function statDrole(data)
     if data.perso == "Obsession" then
-        return "Il n'a jamais regardé en bas."
+        return "Never looked down."
     elseif data.perso == "Ego" then
-        return "Combo max x" .. data.comboMax .. ". Il va le dire à tout le monde."
+        return "Combo max x" .. data.comboMax .. ". He'll tell everyone."
     elseif data.perso == "Motivation" then
-        return "Départ en feu... et après ?"
+        return "Fiery start... and then?"
     elseif data.perso == "Discipline" then
-        return "Marches perdues : 0. Logique."
+        return "Steps lost: 0. Obviously."
     end
     return ""
 end
@@ -3966,9 +3966,11 @@ FinEvent.OnClientEvent:Connect(function(data)
     contourFin.Color = couleur
     degradeBandeau.Color = ColorSequence.new(couleur:Lerp(NOIR, 0.15), couleur:Lerp(NOIR, 0.75))
     finPerso.Text = string.upper(tostring(data.perso))
-    finPlace.Text = if data.place == 1 then "1er" else data.place .. "e"
-    finSur.Text = (if data.egalite then "EX ÆQUO  •  " else "") .. "SUR " .. data.total
-    finRecord.Text = (data.record or 0) .. " marches"
+    local p = data.place
+    local suffixe = if p % 100 >= 11 and p % 100 <= 13 then "th" elseif p % 10 == 1 then "st" elseif p % 10 == 2 then "nd" elseif p % 10 == 3 then "rd" else "th"
+    finPlace.Text = p .. suffixe -- 1st, 2nd, 3rd, 4th...
+    finSur.Text = (if data.egalite then "TIED  •  " else "") .. "OUT OF " .. data.total
+    finRecord.Text = (data.record or 0) .. " steps"
     badgeRecord.Visible = data.nouveauRecord == true
     finAura.Text = if (data.auraFarmee or 0) > 0 then "+" .. data.auraFarmee else "—"
     finGagnant.Text = tostring(data.gagnant)
@@ -4145,7 +4147,7 @@ RunService.RenderStepped:Connect(function(dt)
                 distance = 58 -- un peu plus près pour bien le voir jouer
                 if enTete ~= dernierSuiviAfk then
                     dernierSuiviAfk = enTete
-                    majBandeauAfk(tostring(enTete.config:GetAttribute("Nom")) .. " (en tête)")
+                    majBandeauAfk(tostring(enTete.config:GetAttribute("Nom")) .. " (leading)")
                 end
             else
                 focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
@@ -4235,7 +4237,7 @@ RunService.RenderStepped:Connect(function(dt)
 
     -- 4) Compteur de marches + mini-carte
     if monEtat then
-        marcheTexte.Text = "🪜 " .. (monEtat.config:GetAttribute("Marche") or 0) .. " marches"
+        marcheTexte.Text = "🪜 " .. (monEtat.config:GetAttribute("Marche") or 0) .. " steps"
         marcheTexte.TextColor3 = maCouleur()
     end
     if barre.Visible then
