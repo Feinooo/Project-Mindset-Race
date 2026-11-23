@@ -41,7 +41,41 @@ local CONFIG = {
         { id = "rbxassetid://135464211325455", nom = "TIKI TIKI", bpm = 84, debut = 0, drop = 8.68, decalage = 0 },
         { id = "rbxassetid://127965945833744", nom = "Your Next Opponent Is You", bpm = 143, debut = 0, drop = 20.11, decalage = 0 },
     },
+
+    -- 🛒 MARCHAND D'AURA : l'aura gagnée en jouant sert à améliorer les compétences de ton état d'esprit
+    COUTS = { 100, 250, 500, 900, 1500 }, -- prix (en aura) du niveau 1, 2, 3, 4, 5 d'une compétence
+    -- En Studio seulement : on te met au moins cette aura pour pouvoir tester le marchand (0 = rien)
+    AURA_CADEAU_STUDIO = 3000,
 }
+
+-- 🧠 LES COMPÉTENCES : au niveau 0, tous les états d'esprit sont pareils (note réussie = +1 marche, ratée = -1).
+-- Chaque état d'esprit a 3 compétences, de niveau 0 à 5, qu'on achète chez le marchand avec son aura.
+--   nom     = le nom affiché
+--   texte   = ce que fait la compétence (%s = la valeur du niveau, %% = le signe %)
+--   valeurs = la valeur à chaque niveau (niveau 1, 2, 3, 4, 5) → c'est ici qu'on équilibre le jeu
+local COMPETENCES = {
+    Motivation = {
+        { nom = "HEAD START", texte = "Start every round %s steps up", valeurs = { 2, 4, 6, 9, 12 } },
+        { nom = "FIRE START", texte = "+1 step per hit in the first %s%% of the song", valeurs = { 10, 15, 20, 27, 35 } },
+        { nom = "NO FEAR", texte = "%s%% chance a miss costs nothing (1st half)", valeurs = { 20, 40, 60, 80, 100 } },
+    },
+    Ego = {
+        { nom = "COMBO KING", texte = "PERFECT = +2 steps from combo %s", valeurs = { 25, 20, 15, 12, 10 } },
+        { nom = "SHOWTIME", texte = "+%s bonus steps every 10 combo", valeurs = { 1, 2, 3, 4, 5 } },
+        { nom = "THICK SKIN", texte = "Your first %s misses don't break your combo", valeurs = { 1, 2, 3, 4, 5 } },
+    },
+    Discipline = {
+        { nom = "IRON WILL", texte = "%s%% chance a miss costs nothing", valeurs = { 20, 35, 50, 70, 100 } },
+        { nom = "ROUTINE", texte = "+1 bonus step every %s hits", valeurs = { 12, 10, 8, 7, 6 } },
+        { nom = "HARD WORK", texte = "+%s%% aura earned", valeurs = { 10, 20, 35, 50, 75 } },
+    },
+    Obsession = {
+        { nom = "LATE MONSTER", texte = "+1 step per hit after %s%% of the song", valeurs = { 80, 70, 60, 55, 50 } },
+        { nom = "OBSESSED", texte = "%s%% chance a PERFECT gives +1 more", valeurs = { 15, 30, 45, 60, 75 } },
+        { nom = "FINAL RUSH", texte = "+1 step per hit in the last %s seconds", valeurs = { 5, 8, 11, 14, 18 } },
+    },
+}
+local NIVEAU_MAX = #CONFIG.COUTS
 -- ===========================================================================
 
 local PERSOS = {
@@ -99,6 +133,13 @@ local DanserEvent = remote("Danser")       -- client -> serveur : le gagnant fai
 local JouerEvent = remote("Jouer")         -- client -> serveur : le joueur a appuyé sur PLAY dans le menu principal
 local ReglagesEvent = remote("Reglages")   -- client -> serveur : ses paramètres (volumes...) à sauvegarder
 local ClassementFonction = creer("RemoteFunction", { Name = "Classement", Parent = dossierRemotes }) -- top 10 d'un classement
+local AmeliorerFonction = creer("RemoteFunction", { Name = "Ameliorer", Parent = dossierRemotes }) -- acheter un niveau de compétence
+
+-- les compétences et leurs prix, pour que les clients puissent les afficher (menu, marchand)
+ReplicatedStorage:SetAttribute("Competences", game:GetService("HttpService"):JSONEncode({
+    couts = CONFIG.COUTS,
+    persos = COMPETENCES,
+}))
 
 local dossierGrimpeurs = creer("Folder", { Name = "Grimpeurs", Parent = ReplicatedStorage })
 -- Les musiques proposées au vote (StringValue "1", "2", "3" : Value = nom, attributs Votes et Cle)
@@ -217,8 +258,69 @@ local function formatTemps(secondes)
     return secondes // 60
 end
 
+-- 🧠 Les niveaux de compétences de chaque joueur : [joueur] = { Motivation = {0, 0, 0}, Ego = {...}, ... }
+local niveauxJoueurs = {}
+local grimpeurDesJoueurs = {} -- [joueur] = config (voir GRIMPEURS plus bas)
+local chargementFini = {} -- [joueur] = true quand ses données sont chargées (ou qu'il n'y a pas de sauvegarde)
+
+local function niveauxVides()
+    local niveaux = {}
+    for perso, liste in pairs(COMPETENCES) do
+        niveaux[perso] = {}
+        for i = 1, #liste do
+            niveaux[perso][i] = 0
+        end
+    end
+    return niveaux
+end
+
+-- on recopie les niveaux sauvegardés en vérifiant qu'ils sont corrects
+local function lireNiveaux(brut)
+    local niveaux = niveauxVides()
+    if type(brut) == "table" then
+        for perso, liste in pairs(niveaux) do
+            local sauves = brut[perso]
+            if type(sauves) == "table" then
+                for i = 1, #liste do
+                    local n = sauves[i]
+                    if type(n) == "number" and n == n then
+                        liste[i] = math.clamp(math.floor(n), 0, NIVEAU_MAX)
+                    end
+                end
+            end
+        end
+    end
+    return niveaux
+end
+
+-- les clients lisent les niveaux dans l'attribut « Niveaux » du joueur (texte JSON)
+local function publierNiveaux(joueur)
+    joueur:SetAttribute("Niveaux", HttpService:JSONEncode(niveauxJoueurs[joueur] or niveauxVides()))
+end
+
+local function finChargement(joueur, donnees)
+    niveauxJoueurs[joueur] = lireNiveaux(donnees and donnees.niveaux)
+    publierNiveaux(joueur)
+    -- l'état d'esprit choisi la dernière fois
+    local perso = donnees and donnees.perso
+    if type(perso) == "string" and COMPETENCES[perso] and not joueur:GetAttribute("Perso") then
+        joueur:SetAttribute("Perso", perso)
+        local g = grimpeurDesJoueurs[joueur]
+        if g and not g:GetAttribute("EnJeu") then
+            g:SetAttribute("Perso", perso)
+        end
+    end
+    -- 🎁 en Studio : de l'aura pour tester le marchand
+    local aura = chercherStat(joueur, "Aura")
+    if game:GetService("RunService"):IsStudio() and aura and aura.Value < CONFIG.AURA_CADEAU_STUDIO then
+        aura.Value = CONFIG.AURA_CADEAU_STUDIO
+    end
+    chargementFini[joueur] = true
+end
+
 local function chargerJoueur(joueur)
     if not sauvegarde then
+        finChargement(joueur, nil)
         return
     end
     local ok, donnees = essayer(function()
@@ -239,8 +341,10 @@ local function chargerJoueur(joueur)
             joueur:SetAttribute("Reglages", HttpService:JSONEncode(donnees.reglages))
         end
         donneesChargees[joueur] = true
+        finChargement(joueur, donnees)
     else
         warn("💾 Impossible de charger les données de " .. joueur.Name .. " : pas de sauvegarde pour cette partie.")
+        finChargement(joueur, nil)
     end
 end
 
@@ -253,6 +357,8 @@ local function sauverJoueur(joueur)
     local aura = chercherStat(joueur, "Aura").Value
     local temps = tempsTotal(joueur)
     local reglages = reglagesJoueurs[joueur]
+    local niveaux = niveauxJoueurs[joueur]
+    local perso = joueur:GetAttribute("Perso")
     essayer(function()
         sauvegarde:UpdateAsync("joueur_" .. joueur.UserId, function(anciennes)
             local donnees = anciennes or {}
@@ -261,6 +367,8 @@ local function sauverJoueur(joueur)
             donnees.aura = aura
             donnees.temps = temps
             donnees.reglages = reglages or donnees.reglages
+            donnees.niveaux = niveaux or donnees.niveaux
+            donnees.perso = perso or donnees.perso
             return donnees
         end)
     end)
@@ -289,7 +397,6 @@ end)
 -- ========================== GRIMPEURS ==========================
 -- Chaque grimpeur (joueur ou bot) = une Configuration dans ReplicatedStorage.Grimpeurs,
 -- avec ses attributs (Perso, Marche, Combo...). Les clients s'en servent pour animer les avatars.
-local grimpeurDesJoueurs = {} -- [joueur] = config
 local joueurDuGrimpeur = {}   -- [config] = joueur
 local compteurOrdre = 0
 
@@ -339,11 +446,11 @@ local function joueurArrive(joueur)
     local cachees = creer("Folder", { Name = "StatsCachees", Parent = joueur })
     creer("IntValue", { Name = "Aura", Parent = cachees })
     creer("IntValue", { Name = "Secondes", Parent = cachees })
-    task.spawn(chargerJoueur, joueur)
 
     local g = nouveauGrimpeur(joueur.DisplayName, nil, joueur.Character, joueur)
     grimpeurDesJoueurs[joueur] = g
     joueurDuGrimpeur[g] = joueur
+    task.spawn(chargerJoueur, joueur) -- (après le grimpeur : on lui remet son état d'esprit sauvegardé)
 
     local function surPersonnage(personnage)
         g.Modele.Value = personnage
@@ -363,6 +470,8 @@ Players.PlayerRemoving:Connect(function(joueur)
     sauverJoueur(joueur)
     donneesChargees[joueur] = nil
     reglagesJoueurs[joueur] = nil
+    niveauxJoueurs[joueur] = nil
+    chargementFini[joueur] = nil
     arrivees[joueur] = nil
     local g = grimpeurDesJoueurs[joueur]
     if g then
@@ -433,6 +542,42 @@ ChoisirEvent.OnServerEvent:Connect(function(joueur, perso)
     joueur:SetAttribute("Perso", perso)
 end)
 
+-- 🛒 LE MARCHAND : acheter le niveau suivant d'une compétence avec son aura.
+-- Renvoie ok (true/false), puis le nouveau niveau ou la raison du refus.
+-- (un achat en pleine manche ne compte qu'à partir de la manche suivante)
+local achatEnCours = {}
+AmeliorerFonction.OnServerInvoke = function(joueur, perso, numero)
+    if type(perso) ~= "string" or not COMPETENCES[perso] or type(numero) ~= "number" or not COMPETENCES[perso][numero] then
+        return false, "Unknown skill"
+    end
+    if not chargementFini[joueur] or not niveauxJoueurs[joueur] then
+        return false, "Still loading your data..."
+    end
+    if achatEnCours[joueur] then
+        return false, "Wait a second..."
+    end
+    achatEnCours[joueur] = true
+    local niveaux = niveauxJoueurs[joueur][perso]
+    local niveau = niveaux[numero]
+    local aura = chercherStat(joueur, "Aura")
+    local resultatOk, resultat
+    if niveau >= NIVEAU_MAX then
+        resultatOk, resultat = false, "Already at max level"
+    elseif not aura or aura.Value < CONFIG.COUTS[niveau + 1] then
+        resultatOk, resultat = false, "Not enough aura"
+    else
+        aura.Value -= CONFIG.COUTS[niveau + 1]
+        niveaux[numero] = niveau + 1
+        publierNiveaux(joueur)
+        resultatOk, resultat = true, niveau + 1
+    end
+    achatEnCours[joueur] = nil
+    return resultatOk, resultat
+end
+Players.PlayerRemoving:Connect(function(parti)
+    achatEnCours[parti] = nil
+end)
+
 -- ========================== BOTS ==========================
 local dossierBots = creer("Folder", { Name = "Bots", Parent = workspace })
 local PEAUX = {
@@ -491,6 +636,34 @@ local function creerBot(perso)
     return modele, pseudo
 end
 
+-- 🛒 Le MARCHAND D'AURA du menu 3D : un avatar Roblox tout en noir et violet.
+-- Le serveur le fabrique (seul le serveur peut créer un avatar), chaque client en pose une copie dans son menu.
+task.spawn(function()
+    local ok, modele = pcall(function()
+        local description = Instance.new("HumanoidDescription")
+        local peau = Color3.fromRGB(40, 32, 52)
+        local habit = Color3.fromRGB(28, 18, 44)
+        description.HeadColor = peau
+        description.TorsoColor = habit
+        description.LeftArmColor = habit
+        description.RightArmColor = habit
+        description.LeftLegColor = Color3.fromRGB(18, 14, 26)
+        description.RightLegColor = Color3.fromRGB(18, 14, 26)
+        return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+    end)
+    if not ok or not modele then
+        warn("🛒 Impossible de créer le marchand :", modele)
+        return
+    end
+    modele.Name = "MindsetMarchand"
+    for _, objet in ipairs(modele:GetDescendants()) do
+        if objet:IsA("Script") or objet:IsA("LocalScript") then
+            objet:Destroy()
+        end
+    end
+    modele.Parent = ReplicatedStorage
+end)
+
 -- Comment joue chaque bot (chance de réussir une note, selon le perso)
 local function verdictBot(g, progression)
     local perso = g:GetAttribute("Perso")
@@ -511,53 +684,113 @@ local function verdictBot(g, progression)
 end
 
 -- ========================== RÈGLES DES PERSOS ==========================
--- C'est ici qu'on équilibre le jeu : combien de marches on gagne ou perd à chaque note.
---   MOTIVATION : +2 par note au début (35 % de la musique), +1 ensuite. Rater au début = -1, ensuite = -2.
---   EGO        : +1 par note, +2 sur les PARFAIT dès que le combo atteint 10. Rater = -2 (il perd la face).
---   DISCIPLINE : +1 par note, jamais plus. Rater = 0 : il ne redescend JAMAIS.
---   OBSESSION  : au début seuls les PARFAIT comptent, puis +1, puis +2 sur la 2e moitié. Rater = -1.
+-- De base, pour TOUT LE MONDE : note réussie = +1 marche, note ratée = -1 marche.
+-- Ensuite, ce sont les compétences achetées chez le marchand qui changent tout (voir COMPETENCES en haut).
+-- Les niveaux sont « figés » au début de la manche (manche.niveaux).
 local manche = nil
+
+-- la valeur de la compétence n° numero du grimpeur (ou nil s'il ne l'a pas encore achetée)
+local function competence(g, numero)
+    local perso = g:GetAttribute("Perso")
+    local niveaux = manche and manche.niveaux[g]
+    local niveau = niveaux and niveaux[numero] or 0
+    local def = COMPETENCES[perso] and COMPETENCES[perso][numero]
+    if not def or niveau <= 0 then
+        return nil
+    end
+    return def.valeurs[math.min(niveau, #def.valeurs)]
+end
+
+-- donne de l'aura à un joueur (DISCIPLINE « HARD WORK » : un bonus en %)
+local function donnerAura(joueur, g, montant)
+    if not joueur then
+        return
+    end
+    local bonus = if g:GetAttribute("Perso") == "Discipline" then competence(g, 3) else nil
+    if bonus then
+        local total = montant * (1 + bonus / 100)
+        montant = math.floor(total) + (if math.random() < total % 1 then 1 else 0)
+    end
+    ajouterStat(joueur, "Aura", montant)
+    local stats = manche and manche.stats[g]
+    if stats then
+        stats.aura += montant
+    end
+end
 
 local function appliquer(g, verdict, progression)
     local stats = manche.stats[g]
     local perso = g:GetAttribute("Perso")
     local combo = g:GetAttribute("Combo") or 0
+    local temps = progression * CONFIG.DUREE_MANCHE
     local gain
 
     if verdict == "Rate" then
-        combo = 0
         stats.rates += 1
-        if perso == "Discipline" then
-            gain = 0
+        gain = -1
+        local garderCombo = false
+        if perso == "Motivation" then
+            local chance = competence(g, 3) -- NO FEAR
+            if chance and progression < 0.5 and math.random(1, 100) <= chance then
+                gain = 0
+            end
         elseif perso == "Ego" then
-            gain = -2
-        elseif perso == "Motivation" then
-            gain = if progression < 0.35 then -1 else -2
-        else
-            gain = -1
+            local boucliers = competence(g, 3) -- THICK SKIN
+            if boucliers and stats.boucliers < boucliers then
+                stats.boucliers += 1
+                garderCombo = true
+            end
+        elseif perso == "Discipline" then
+            local chance = competence(g, 1) -- IRON WILL
+            if chance and math.random(1, 100) <= chance then
+                gain = 0
+            end
+        end
+        if not garderCombo then
+            combo = 0
         end
     else
         combo += 1
+        stats.touches += 1
         if verdict == "Parfait" then
             stats.parfaits += 1
         else
             stats.biens += 1
         end
         stats.comboMax = math.max(stats.comboMax, combo)
+        gain = 1
         if perso == "Motivation" then
-            gain = if progression < 0.35 then 2 else 1
-        elseif perso == "Ego" then
-            gain = if combo >= 10 and verdict == "Parfait" then 2 else 1
-        elseif perso == "Obsession" then
-            if progression < 0.25 then
-                gain = if verdict == "Parfait" then 1 else 0
-            elseif progression < 0.5 then
-                gain = 1
-            else
-                gain = 2
+            local debut = competence(g, 2) -- FIRE START
+            if debut and progression * 100 < debut then
+                gain += 1
             end
-        else
-            gain = 1
+        elseif perso == "Ego" then
+            local seuil = competence(g, 1) -- COMBO KING
+            if seuil and verdict == "Parfait" and combo >= seuil then
+                gain += 1
+            end
+            local bonus = competence(g, 2) -- SHOWTIME
+            if bonus and combo % 10 == 0 then
+                gain += bonus
+            end
+        elseif perso == "Discipline" then
+            local tous = competence(g, 2) -- ROUTINE
+            if tous and stats.touches % tous == 0 then
+                gain += 1
+            end
+        elseif perso == "Obsession" then
+            local apres = competence(g, 1) -- LATE MONSTER
+            if apres and progression * 100 >= apres then
+                gain += 1
+            end
+            local chance = competence(g, 2) -- OBSESSED
+            if chance and verdict == "Parfait" and math.random(1, 100) <= chance then
+                gain += 1
+            end
+            local fin = competence(g, 3) -- FINAL RUSH
+            if fin and CONFIG.DUREE_MANCHE - temps <= fin then
+                gain += 1
+            end
         end
     end
 
@@ -566,9 +799,8 @@ local function appliquer(g, verdict, progression)
     g:SetAttribute("NiveauAura", if combo >= 50 then 3 elseif combo >= 25 then 2 elseif combo >= 10 then 1 else 0)
     g:SetAttribute("Marche", marche)
 
-    local joueur = joueurDuGrimpeur[g]
-    if joueur and verdict ~= "Rate" then
-        ajouterStat(joueur, "Aura", if verdict == "Parfait" then 2 else 1)
+    if verdict ~= "Rate" then
+        donnerAura(joueurDuGrimpeur[g], g, if verdict == "Parfait" then 2 else 1)
     end
 end
 
@@ -1077,12 +1309,30 @@ while true do
     end
     local notes, dropManche = genererPartition(musique)
     local debut = workspace:GetServerTimeNow() + CONFIG.PREPARATION
-    manche = { debut = debut, notes = notes, juges = {}, stats = {}, prochaineNote = {} }
+    manche = { debut = debut, notes = notes, juges = {}, stats = {}, prochaineNote = {}, niveaux = {} }
     for _, g in ipairs(participants) do
         g:SetAttribute("EnJeu", true)
         manche.juges[g] = {}
-        manche.stats[g] = { parfaits = 0, biens = 0, rates = 0, comboMax = 0, sommetA = nil }
+        manche.stats[g] = { parfaits = 0, biens = 0, rates = 0, comboMax = 0, touches = 0, boucliers = 0, aura = 0 }
         manche.prochaineNote[g] = 1
+        -- les niveaux de compétences pour cette manche (les bots en ont un peu, au hasard)
+        local perso = g:GetAttribute("Perso")
+        local joueurG = joueurDuGrimpeur[g]
+        local niveaux = {}
+        for i = 1, #(COMPETENCES[perso] or {}) do
+            if joueurG then
+                local siens = niveauxJoueurs[joueurG] and niveauxJoueurs[joueurG][perso]
+                niveaux[i] = siens and siens[i] or 0
+            else
+                niveaux[i] = math.random(0, 3)
+            end
+        end
+        manche.niveaux[g] = niveaux
+        -- MOTIVATION « HEAD START » : on commence quelques marches plus haut
+        local elan = if perso == "Motivation" then competence(g, 1) else nil
+        if elan then
+            g:SetAttribute("Marche", elan)
+        end
     end
     -- on annonce la musique gagnante pendant le décompte
     setStatut(if musique.id ~= "" then "🎵 " .. musique.nom else "")
@@ -1164,7 +1414,7 @@ while true do
         local joueurGagnant = joueurDuGrimpeur[g]
         if joueurGagnant then
             ajouterStat(joueurGagnant, "Wins", 1)
-            ajouterStat(joueurGagnant, "Aura", 25)
+            donnerAura(joueurGagnant, g, 25)
         end
     end
 
@@ -1249,6 +1499,7 @@ while true do
                 record = recordDe("P_" .. tostring(g:GetAttribute("Perso")), joueurFin.UserId),
                 nouveauRecord = nouveauxRecords[g] == true,
                 auraFarmee = g:GetAttribute("AuraFarmee") or 0,
+                auraGagnee = stats.aura, -- l'aura gagnée pendant la manche (pour le marchand)
                 parfaits = stats.parfaits,
                 biens = stats.biens,
                 rates = stats.rates,

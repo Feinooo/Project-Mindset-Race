@@ -51,19 +51,19 @@ local DEVISES = {
     Discipline = "The unbreakable wall",
     Obsession = "The late-game monster",
 }
-local COMPETENCES = {
-    Motivation = { "+2 steps per note at the start", "Miss later = -2" },
-    Ego = { "Combo 10+: PERFECT = +2", "One mistake = -2" },
-    Discipline = { "+1 per note, always", "NEVER goes down" },
-    Obsession = { "Start: only PERFECTS count", "2nd half: +2 per note" },
-}
-local JAUGES = { "START", "END", "SAFETY" }
-local NOTES_PERSOS = { -- sur 5
-    Motivation = { 5, 2, 2 },
-    Ego = { 3, 4, 1 },
-    Discipline = { 3, 3, 5 },
-    Obsession = { 1, 5, 3 },
-}
+-- 🧠 Les compétences (définies dans le script serveur, partie COMPETENCES) et TES niveaux,
+-- achetés chez le marchand du menu 3D (le serveur les met dans l'attribut « Niveaux » du joueur)
+local DEFS = { couts = {}, persos = {} }
+pcall(function()
+    DEFS = game:GetService("HttpService"):JSONDecode(ReplicatedStorage:GetAttribute("Competences"))
+end)
+local function mesNiveaux(perso)
+    local ok, niveaux = pcall(function()
+        return game:GetService("HttpService"):JSONDecode(joueur:GetAttribute("Niveaux"))
+    end)
+    local liste = ok and type(niveaux) == "table" and niveaux[perso]
+    return if type(liste) == "table" then liste else {}
+end
 local BLANC = Color3.new(1, 1, 1)
 local NOIR = Color3.new(0, 0, 0)
 local OR = Color3.fromRGB(255, 220, 80)
@@ -137,6 +137,7 @@ end)
 local gui = nouveau("ScreenGui", {
     Name = "MindsetStairsGui",
     ResetOnSpawn = false,
+    DisplayOrder = 5, -- au-dessus du menu 3D (MindsetHub) : les panneaux CLASSEMENTS / PARAMÈTRES s'ouvrent par-dessus
     IgnoreGuiInset = true,
     Parent = joueur:WaitForChild("PlayerGui"),
 })
@@ -851,18 +852,73 @@ for i, perso in ipairs(ORDRE_PERSOS) do
         ZIndex = 14,
         Parent = carte,
     })
-    for j, ligne in ipairs(COMPETENCES[perso]) do
-        texte({
-            AnchorPoint = Vector2.new(0.5, 0),
-            Position = UDim2.fromScale(0.5, 0.32 + (j - 1) * 0.085),
-            Size = UDim2.fromScale(0.9, 0.07),
-            Text = ligne,
-            Font = Enum.Font.GothamBold,
+    -- tes 3 compétences : le nom, le niveau (5 cases) et ce qu'elle fait à ton niveau
+    c.lignes = {}
+    c.segments = {}
+    for j = 1, 3 do
+        local y = 0.325 + (j - 1) * 0.165
+        local ligne = { segs = {} }
+        ligne.nom = texte({
+            Position = UDim2.fromScale(0.07, y),
+            Size = UDim2.fromScale(0.42, 0.055),
+            Font = Enum.Font.GothamBlack,
             TextColor3 = Color3.fromRGB(235, 235, 245),
             TextStrokeTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
             ZIndex = 15,
             Parent = carte,
         })
+        for k = 1, 5 do
+            local seg = nouveau("Frame", {
+                AnchorPoint = Vector2.new(0, 0.5),
+                Position = UDim2.fromScale(0.52 + (k - 1) * 0.085, y + 0.028),
+                Size = UDim2.fromScale(0.07, 0.04),
+                BackgroundColor3 = Color3.fromRGB(45, 45, 60),
+                BackgroundTransparency = 0.2,
+                BorderSizePixel = 0,
+                ZIndex = 15,
+                Parent = carte,
+            })
+            nouveau("UICorner", { CornerRadius = UDim.new(0, 3), Parent = seg })
+            ligne.segs[k] = seg
+        end
+        ligne.effet = texte({
+            Position = UDim2.fromScale(0.07, y + 0.065),
+            Size = UDim2.fromScale(0.86, 0.045),
+            Font = Enum.Font.GothamMedium,
+            TextColor3 = Color3.fromRGB(190, 190, 205),
+            TextStrokeTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            ZIndex = 15,
+            Parent = carte,
+        })
+        c.lignes[j] = ligne
+    end
+    -- remet la carte à jour avec tes niveaux (après un achat chez le marchand)
+    c.majCompetences = function()
+        local niveaux = mesNiveaux(perso)
+        local defs = DEFS.persos and DEFS.persos[perso] or {}
+        c.segments = {}
+        for j, ligne in ipairs(c.lignes) do
+            local def = defs[j]
+            local niveau = tonumber(niveaux[j]) or 0
+            ligne.nom.Text = if def then def.nom else "?"
+            for k, seg in ipairs(ligne.segs) do
+                local allume = k <= niveau
+                seg.BackgroundColor3 = if allume then couleur else Color3.fromRGB(45, 45, 60)
+                seg.BackgroundTransparency = if allume then (if c.choisi then 0.1 else 0.45) else 0.2
+                if allume then
+                    table.insert(c.segments, { seg = seg, k = k })
+                end
+            end
+            if def and niveau > 0 then
+                ligne.effet.Text = string.format(def.texte, tostring(def.valeurs[math.min(niveau, #def.valeurs)]))
+                ligne.effet.TextColor3 = Color3.fromRGB(210, 210, 225)
+            else
+                ligne.effet.Text = "Locked · upgrade it at the AURA SHOP"
+                ligne.effet.TextColor3 = Color3.fromRGB(120, 120, 140)
+            end
+        end
     end
     -- le record de cet état d'esprit (tous joueurs)
     c.record = texte({
@@ -876,48 +932,15 @@ for i, perso in ipairs(ORDRE_PERSOS) do
         ZIndex = 15,
         Parent = carte,
     })
-    -- jauges DÉBUT / FIN / SÉCURITÉ (5 cases)
-    c.segments = {}
-    for j, nomJauge in ipairs(JAUGES) do
-        local y = 0.53 + (j - 1) * 0.095
-        texte({
-            Position = UDim2.fromScale(0.07, y),
-            Size = UDim2.fromScale(0.36, 0.06),
-            Text = nomJauge,
-            Font = Enum.Font.GothamBold,
-            TextColor3 = Color3.fromRGB(170, 170, 190),
-            TextStrokeTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 15,
-            Parent = carte,
-        })
-        local valeur = NOTES_PERSOS[perso][j]
-        for k = 1, 5 do
-            local allume = k <= valeur
-            local seg = nouveau("Frame", {
-                AnchorPoint = Vector2.new(0, 0.5),
-                Position = UDim2.fromScale(0.45 + (k - 1) * 0.098, y + 0.03),
-                Size = UDim2.fromScale(0.085, 0.04),
-                BackgroundColor3 = if allume then couleur else Color3.fromRGB(45, 45, 60),
-                BackgroundTransparency = if allume then 0.45 else 0.2,
-                BorderSizePixel = 0,
-                ZIndex = 15,
-                Parent = carte,
-            })
-            nouveau("UICorner", { CornerRadius = UDim.new(0, 3), Parent = seg })
-            if allume then
-                table.insert(c.segments, { seg = seg, k = k })
-            end
-        end
-    end
+    c.majCompetences()
     -- au survol, les cases s'allument une par une
     c.surSurvol = function()
         for _, s in ipairs(c.segments) do
             task.delay(s.k * 0.045, function()
                 if c.survole then
                     s.seg.BackgroundTransparency = 0
-                    s.seg.Size = UDim2.fromScale(0.085, 0.065)
-                    tween(s.seg, 0.22, { Size = UDim2.fromScale(0.085, 0.04) }, Enum.EasingStyle.Back)
+                    s.seg.Size = UDim2.fromScale(0.07, 0.065)
+                    tween(s.seg, 0.22, { Size = UDim2.fromScale(0.07, 0.04) }, Enum.EasingStyle.Back)
                 end
             end)
         end
@@ -940,6 +963,12 @@ for i, perso in ipairs(ORDRE_PERSOS) do
     end)
     cartes[perso] = c
 end
+-- un achat chez le marchand → les cartes montrent tes nouveaux niveaux
+joueur:GetAttributeChangedSignal("Niveaux"):Connect(function()
+    for _, c in pairs(cartes) do
+        c.majCompetences()
+    end
+end)
 
 -- ---------- Vote de la musique ----------
 local rangeeMusiques = nouveau("Frame", {
@@ -3217,148 +3246,24 @@ ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(majPhase)
 majPhase()
 
 -- ========================== MENU PRINCIPAL + PARAMÈTRES ==========================
--- Au lancement, on n'est pas jeté direct dans la partie : un écran titre avec PLAY, CLASSEMENTS, PARAMÈTRES.
+-- Au lancement, on n'est pas jeté direct dans la partie : le MENU 3D (script MindsetHub) avec le marchand,
+-- le portail PLAY et le classement. Ici : le lien avec lui, le mode AFK et les PARAMÈTRES.
 -- PARAMÈTRES : volume de la musique, volume des bruitages, secousses de l'écran, flashs (sauvegardés).
 do
 local HttpService = game:GetService("HttpService")
 local JouerEvent = remotes:WaitForChild("Jouer")
 local ReglagesEvent = remotes:WaitForChild("Reglages")
-local FOND_BOUTON = Color3.fromRGB(18, 18, 28)
 
--- un gros bouton du menu (survol = grossit + son, clic = rebond)
-local function boutonMenu(parent, texteBouton, couleur, plein, zIndex)
-    local bouton = nouveau("TextButton", {
-        Size = UDim2.new(1, 0, 0, 64),
-        BackgroundColor3 = if plein then couleur else FOND_BOUTON,
-        BackgroundTransparency = if plein then 0 else 0.1,
-        AutoButtonColor = false,
-        Font = Enum.Font.GothamBlack,
-        Text = texteBouton,
-        TextScaled = true,
-        TextColor3 = if plein then NOIR else couleur,
-        ZIndex = zIndex,
-        Parent = parent,
-    })
-    nouveau("UICorner", { CornerRadius = UDim.new(0, 16), Parent = bouton })
-    nouveau("UIStroke", { Color = couleur, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = bouton })
-    nouveau("UIPadding", { PaddingTop = UDim.new(0, 16), PaddingBottom = UDim.new(0, 16), Parent = bouton })
-    local echelle = nouveau("UIScale", { Parent = bouton })
-    bouton.MouseEnter:Connect(function()
-        sonSurvol(5)
-        tween(echelle, 0.2, { Scale = 1.06 }, Enum.EasingStyle.Back)
-    end)
-    bouton.MouseLeave:Connect(function()
-        tween(echelle, 0.2, { Scale = 1 })
-    end)
-    bouton.Activated:Connect(function()
-        echelle.Scale = 0.92
-        tween(echelle, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
-    end)
-    return bouton
-end
-
--- ---------- L'écran titre ----------
-local ecranTitre = nouveau("CanvasGroup", { -- (CanvasGroup : on peut fondre tout le menu d'un coup)
-    Name = "MenuPrincipal",
-    Size = UDim2.fromScale(1, 1),
-    BackgroundColor3 = NOIR,
-    BackgroundTransparency = 0.25,
-    BorderSizePixel = 0,
-    ZIndex = 26,
-    Parent = gui,
-})
-nouveau("UIGradient", {
-    Rotation = 90,
-    Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.1),
-        NumberSequenceKeypoint.new(0.5, 0.55),
-        NumberSequenceKeypoint.new(1, 0.1),
-    }),
-    Parent = ecranTitre,
-})
--- le titre du jeu (le même que sur Roblox), chaque état d'esprit dans sa couleur, sur 2 lignes
-local function enCouleur(mot, couleur)
-    local function octet(x)
-        return math.floor(x * 255 + 0.5)
-    end
-    return string.format('<font color="#%02X%02X%02X">%s</font>', octet(couleur.R), octet(couleur.G), octet(couleur.B), mot)
-end
-local VS = '<font color="#DCDCE6"> vs </font>'
-local titre = texte({
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.07),
-    Size = UDim2.fromScale(0.86, 0.22),
-    RichText = true,
-    Font = Enum.Font.GothamBlack,
-    Text = enCouleur("EGO", COULEURS.Ego) .. VS .. enCouleur("DISCIPLINE", COULEURS.Discipline) .. "\n"
-        .. VS .. enCouleur("OBSESSION", COULEURS.Obsession) .. VS .. enCouleur("MOTIVATION", COULEURS.Motivation),
-    TextStrokeTransparency = 0,
-    TextStrokeColor3 = Color3.fromRGB(12, 8, 24),
-    ZIndex = 27,
-    Parent = ecranTitre,
-})
--- (dégradé blanc : il ne change pas les couleurs, juste un léger reflet qui bouge)
-local degrade = nouveau("UIGradient", {
-    Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(215, 215, 215)),
-        ColorSequenceKeypoint.new(0.5, BLANC),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(215, 215, 215)),
-    }),
-    Parent = titre,
-})
-local echelleTitreMenu = nouveau("UIScale", { Parent = titre })
-texte({
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.31),
-    Size = UDim2.fromScale(0.7, 0.04),
-    Text = "CLIMB THE INFINITE STAIRS  ·  FARM YOUR AURA",
-    Font = Enum.Font.GothamBold,
-    TextColor3 = Color3.fromRGB(200, 200, 215),
-    TextStrokeTransparency = 1,
-    ZIndex = 27,
-    Parent = ecranTitre,
-})
-local colonne = nouveau("Frame", {
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.4),
-    Size = UDim2.new(0, 320, 0, 330),
-    BackgroundTransparency = 1,
-    ZIndex = 27,
-    Parent = ecranTitre,
-})
-nouveau("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 14), HorizontalAlignment = Enum.HorizontalAlignment.Center, Parent = colonne })
-local boutonPlay = boutonMenu(colonne, "PLAY", OR, true, 28)
-boutonPlay.LayoutOrder = 1
-boutonPlay.Size = UDim2.new(1, 0, 0, 80)
+-- ---------- Le lien avec le MENU 3D (script MindsetHub, à côté de celui-ci) ----------
+-- Le menu principal est maintenant une scène 3D (marchand, portail PLAY, classement) : c'est le script
+-- « MindsetHub » qui la gère. Les deux scripts se parlent avec ces 2 BindableEvent :
+--   VersJeu (hub → ici) : "Jouer", "Afk", "Classements", "Reglages"
+--   VersHub (ici → hub) : "Ouvrir" (retour au menu 3D)
+local liens = nouveau("Folder", { Name = "MindsetLiens" })
+local versJeu = nouveau("BindableEvent", { Name = "VersJeu", Parent = liens })
+local versHub = nouveau("BindableEvent", { Name = "VersHub", Parent = liens })
+liens.Parent = joueur
 local COULEUR_AFK = Color3.fromRGB(140, 200, 255)
-local boutonAfkMenu = boutonMenu(colonne, "AFK  ·  WATCH", COULEUR_AFK, false, 28)
-boutonAfkMenu.LayoutOrder = 2
-local boutonClassementsMenu = boutonMenu(colonne, "LEADERBOARDS", OR, false, 28)
-boutonClassementsMenu.LayoutOrder = 3
-local boutonParametresMenu = boutonMenu(colonne, "SETTINGS", Color3.fromRGB(200, 200, 220), false, 28)
-boutonParametresMenu.LayoutOrder = 4
-texte({
-    AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -24),
-    Size = UDim2.new(0.7, 0, 0, 22),
-    Text = "Click to the beat. Climb forever. Farm your aura.",
-    Font = Enum.Font.GothamMedium,
-    TextColor3 = Color3.fromRGB(160, 160, 180),
-    TextStrokeTransparency = 1,
-    ZIndex = 27,
-    Parent = ecranTitre,
-})
-
--- la map floutée derrière le menu principal
-flouLobby.Size = 24
-RunService.RenderStepped:Connect(function()
-    if ecranTitre.Visible then
-        local t = os.clock()
-        degrade.Offset = Vector2.new(math.sin(t * 0.8) * 0.35, 0)
-        echelleTitreMenu.Scale = 1 + math.sin(t * 2.2) * 0.025
-        boutonPlay.Rotation = math.sin(t * 3) * 1.2
-    end
-end)
 
 -- ---------- Le bandeau AFK (en bas) : tu regardes les autres, bouton pour revenir ----------
 local bandeauAfk = nouveau("Frame", {
@@ -3416,27 +3321,16 @@ majBandeauAfk = function(regarde)
 end
 
 -- ---------- Passer d'un mode à l'autre ----------
-local function fermerEcranTitre()
-    tween(ecranTitre, 0.35, { GroupTransparency = 1 })
-    tween(flouLobby, 0.5, { Size = 0 })
-    task.delay(0.36, function()
-        if not menuPrincipalOuvert then
-            ecranTitre.Visible = false
-        end
-    end)
-end
-
 -- PLAY / REJOINDRE : on participe aux prochaines manches
-local function allerJouer()
-    sonClic(1)
-    flasher(BLANC, 0.4)
-    local depuisMenu = menuPrincipalOuvert
+-- (depuisHub = on arrive du menu 3D : le hub a déjà fait sa transition, pas de flash en plus)
+local function allerJouer(depuisHub)
+    if not depuisHub then
+        sonClic(1)
+        flasher(BLANC, 0.4)
+    end
     menuPrincipalOuvert = false
     modeAfk = false
     JouerEvent:FireServer(true)
-    if depuisMenu then
-        fermerEcranTitre()
-    end
     majPhase() -- on arrive dans le lobby (ou en spectateur si une manche est en cours)
     if ReplicatedStorage:GetAttribute("Phase") ~= "Lobby" then
         grosTexte.TextColor3 = OR
@@ -3446,13 +3340,9 @@ end
 
 -- AFK : on regarde les autres, on n'est pas lancé dans la partie
 local function passerAfk(raison)
-    local depuisMenu = menuPrincipalOuvert
     menuPrincipalOuvert = false
     modeAfk = true
     JouerEvent:FireServer(false)
-    if depuisMenu then
-        fermerEcranTitre()
-    end
     majPhase()
     if raison then
         grosTexte.TextColor3 = COULEUR_AFK
@@ -3460,34 +3350,28 @@ local function passerAfk(raison)
     end
 end
 
--- MENU : retour à l'écran titre (on n'est plus lancé dans la partie non plus)
-local function retourMenu()
-    sonClic(2)
+-- le menu 3D est revenu à l'écran (après sa transition) : on cache tout ce qui est du jeu
+local function menuEstOuvert()
     menuPrincipalOuvert = true
     modeAfk = false
-    JouerEvent:FireServer(false)
     fermerPanneau()
-    ecranTitre.Visible = true
-    ecranTitre.GroupTransparency = 1
-    tween(ecranTitre, 0.35, { GroupTransparency = 0 })
-    tween(flouLobby, 0.5, { Size = 24 })
     majPhase()
 end
 
-boutonPlay.Activated:Connect(function()
-    if menuPrincipalOuvert then
-        allerJouer()
+-- MENU : retour au menu 3D (on n'est plus lancé dans la partie non plus)
+local function retourMenu()
+    sonClic(2)
+    JouerEvent:FireServer(false)
+    if liens:GetAttribute("HubPret") then
+        versHub:Fire("Ouvrir") -- le hub fait sa transition, puis nous renvoie « MenuOuvert »
+    else
+        menuEstOuvert()
     end
-end)
-boutonAfkMenu.Activated:Connect(function()
-    if menuPrincipalOuvert then
-        sonClic(3)
-        passerAfk(nil)
-    end
-end)
+end
+
 boutonRejoindre.Activated:Connect(function()
     if modeAfk then
-        allerJouer()
+        allerJouer(false)
     end
 end)
 
@@ -3509,10 +3393,6 @@ ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(function()
             passerAfk("No clicks the whole round: AFK MODE on")
         end
     end
-end)
-boutonClassementsMenu.Activated:Connect(function()
-    sonClic(6)
-    ouvrirPanneau()
 end)
 
 -- ---------- Le panneau des paramètres ----------
@@ -3736,10 +3616,6 @@ local function fermerReglages()
     end)
     sauverReglages()
 end
-boutonParametresMenu.Activated:Connect(function()
-    sonClic(4)
-    ouvrirReglages()
-end)
 boutonFermerReglages.Activated:Connect(function()
     sonClic(1)
     fermerReglages()
@@ -3783,7 +3659,7 @@ boutonCoin(122, "SETTINGS", Color3.fromRGB(200, 200, 220), function()
 end)
 boutonCoin(170, "AFK", COULEUR_AFK, function()
     if modeAfk then
-        allerJouer()
+        allerJouer(false)
     else
         sonClic(3)
         passerAfk(nil)
@@ -3815,6 +3691,28 @@ local function chargerReglages()
 end
 joueur:GetAttributeChangedSignal("Reglages"):Connect(chargerReglages)
 chargerReglages()
+
+-- ce que demande le menu 3D (script MindsetHub)
+versJeu.Event:Connect(function(action)
+    if action == "Jouer" then
+        allerJouer(true)
+    elseif action == "Afk" then
+        passerAfk(nil)
+    elseif action == "Classements" then
+        ouvrirPanneau()
+    elseif action == "Reglages" then
+        ouvrirReglages()
+    elseif action == "MenuOuvert" then
+        menuEstOuvert()
+    end
+end)
+-- secours : si le script MindsetHub n'est pas dans le jeu, on ne reste pas bloqué sur un écran vide
+task.delay(15, function()
+    if not liens:GetAttribute("HubPret") and menuPrincipalOuvert then
+        warn("[Mindset] Le script MindsetHub (menu 3D) est introuvable : mets-le dans StarterPlayerScripts. On lance le jeu sans menu.")
+        allerJouer(true)
+    end
+end)
 majPhase()
 end -- fin du bloc du menu principal
 
@@ -3904,7 +3802,7 @@ local function ligneInfo(x, titre)
     return cadre, valeur
 end
 local _, finRecord = ligneInfo(0.04, "YOUR RECORD")
-local _, finAura = ligneInfo(0.51, "AURA FARMED")
+local _, finAura = ligneInfo(0.51, "AURA EARNED")
 finAura.TextColor3 = OR
 local badgeRecord = petitTexte({
     AnchorPoint = Vector2.new(1, 0.5),
@@ -3984,7 +3882,9 @@ FinEvent.OnClientEvent:Connect(function(data)
     finSur.Text = (if data.egalite then "TIED  •  " else "") .. "OUT OF " .. data.total
     finRecord.Text = (data.record or 0) .. " steps"
     badgeRecord.Visible = data.nouveauRecord == true
-    finAura.Text = if (data.auraFarmee or 0) > 0 then "+" .. data.auraFarmee else "—"
+    -- l'aura gagnée pendant la manche (notes + victoire) + celle farmée en dansant → à dépenser chez le marchand
+    local auraTotale = (data.auraGagnee or 0) + (data.auraFarmee or 0)
+    finAura.Text = if auraTotale > 0 then "+" .. auraTotale else "—"
     finGagnant.Text = tostring(data.gagnant)
     finDrole.Text = statDrole(data)
 
@@ -4123,8 +4023,9 @@ RunService.RenderStepped:Connect(function(dt)
     end
 
     -- 2) Caméra 2D : vue de côté qui suit ton avatar ; à la fin, de face sur le(s) gagnant(s)
+    -- (dans le menu 3D, c'est le script MindsetHub qui tient la caméra)
     local camera = workspace.CurrentCamera
-    if camera then
+    if camera and not menuPrincipalOuvert then
         camera.CameraType = Enum.CameraType.Scriptable
         local focus
         local decalage = Vector3.new(7, 3, 0)
