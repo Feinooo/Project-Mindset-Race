@@ -38,10 +38,10 @@ local COULEURS = {
 }
 local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" }
 local DEVISES = {
-    Motivation = "The fire of the start",
-    Ego = "The king of combos",
-    Discipline = "The unbreakable wall",
-    Obsession = "The late-game monster",
+    Motivation = "Fast start. Then it fades.",
+    Ego = "Double jump. Falls harder.",
+    Discipline = "Steady. Checkpoints.",
+    Obsession = "Slow start. Unstoppable end.",
 }
 local BLANC = Color3.new(1, 1, 1)
 local NOIR = Color3.new(0, 0, 0)

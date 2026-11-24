@@ -1,6 +1,12 @@
 --[[
-    🧠 MINDSET STAIRS — Script CLIENT (caméra 2D, avatars, notes de rythme, effets d'aura)
-    À mettre dans : StarterPlayer > StarterPlayerScripts  (type : LocalScript)
+    🧠 MINDSET STAIRS — Script CLIENT (l'escalier infini en 3D)
+    À mettre dans : StarterPlayer > StarterPlayerScripts  (type : LocalScript, nom : MindsetClient)
+
+    Tu cours sur l'escalier avec ton avatar (caméra Roblox normale, 3e personne).
+    Ce script s'occupe de : l'interface (marches, rang, vitesse, chrono, mini-carte), le menu du lobby
+    (état d'esprit + vote de la musique), la musique, le DOUBLE SAUT de l'EGO, les ROCHERS qui te renversent,
+    l'histoire de la trend, la scène du vainqueur et sa danse, l'écran de fin, les paramètres et la langue.
+    (le serveur, lui, construit l'escalier et décide de tout : marches, chutes, vitesses, gagnant)
 ]]
 
 local Players = game:GetService("Players")
@@ -16,26 +22,24 @@ local StarterGui = game:GetService("StarterGui")
 local joueur = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("MindsetRemotes")
 local DebutEvent = remotes:WaitForChild("Debut")
-local NoteEvent = remotes:WaitForChild("Note")
 local ChoisirEvent = remotes:WaitForChild("Choisir")
 local EvenementEvent = remotes:WaitForChild("Evenement")
 local FinEvent = remotes:WaitForChild("Fin")
 local VoterMusiqueEvent = remotes:WaitForChild("VoterMusique")
 local DanserEvent = remotes:WaitForChild("Danser")
-local ClassementFonction = remotes:WaitForChild("Classement")
 local dossierGrimpeurs = ReplicatedStorage:WaitForChild("Grimpeurs")
 local dossierChoixMusiques = ReplicatedStorage:WaitForChild("ChoixMusiques")
 local dossierClassements = ReplicatedStorage:WaitForChild("Classements")
 
-local GEO = {
-    X0 = ReplicatedStorage:GetAttribute("GeoX0"),
-    Y0 = ReplicatedStorage:GetAttribute("GeoY0"),
-    Z0 = ReplicatedStorage:GetAttribute("GeoZ0"),
-    HAUTEUR = ReplicatedStorage:GetAttribute("GeoHAUTEUR"),
-    PROFONDEUR = ReplicatedStorage:GetAttribute("GeoPROFONDEUR"),
-    ECART = ReplicatedStorage:GetAttribute("GeoECART"),
+-- l'escalier (le serveur le construit, ici on a juste besoin de ses mesures)
+local ESC = {
+    X = ReplicatedStorage:GetAttribute("EscalierOrigineX") or 0,
+    Y = ReplicatedStorage:GetAttribute("EscalierOrigineY") or 50,
+    Z = ReplicatedStorage:GetAttribute("EscalierOrigineZ") or 0,
+    D = ReplicatedStorage:GetAttribute("EscalierProfondeur") or 2.5,
+    H = ReplicatedStorage:GetAttribute("EscalierHauteur") or 1,
+    W = ReplicatedStorage:GetAttribute("EscalierLargeur") or 30,
 }
-local NB_COULOIRS = ReplicatedStorage:GetAttribute("NbCouloirs")
 
 local COULEURS = {
     Motivation = Color3.fromRGB(255, 150, 30),
@@ -46,13 +50,13 @@ local COULEURS = {
 local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" }
 -- Ce qui s'affiche sur les cartes du menu (les vraies règles sont dans le script serveur)
 local DEVISES = {
-    Motivation = "The fire of the start",
-    Ego = "The king of combos",
-    Discipline = "The unbreakable wall",
-    Obsession = "The late-game monster",
+    Motivation = "Fast start. Then it fades.",
+    Ego = "Double jump. Falls harder.",
+    Discipline = "Steady. Checkpoints.",
+    Obsession = "Slow start. Unstoppable end.",
 }
 -- 🧠 Les compétences (définies dans le script serveur, partie COMPETENCES) et TES niveaux,
--- achetés chez le marchand du menu 3D (le serveur les met dans l'attribut « Niveaux » du joueur)
+-- achetés chez le marchand du hub (le serveur les met dans l'attribut « Niveaux » du joueur)
 local DEFS = { couts = {}, persos = {} }
 pcall(function()
     DEFS = game:GetService("HttpService"):JSONDecode(ReplicatedStorage:GetAttribute("Competences"))
@@ -70,12 +74,6 @@ local OR = Color3.fromRGB(255, 220, 80)
 local ROUGE = Color3.fromRGB(255, 70, 70)
 
 local surMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-
--- Fenêtres de timing (en secondes)
-local APPROCHE = 1.0       -- un cercle apparaît 1 s avant son temps
-local FENETRE_PARFAIT = 0.07
-local FENETRE_BIEN = 0.15
-local FENETRE_MAX = 0.25
 
 -- ========================== OUTILS ==========================
 local function nouveau(classe, proprietes)
@@ -113,25 +111,16 @@ local function maintenantServeur()
     return workspace:GetServerTimeNow()
 end
 
--- Pas de joystick ni de bouton saut, pas de bouton « Réinitialiser »
+-- (on peut se déplacer et sauter : les commandes de Roblox sont actives, comme dans le hub)
 task.spawn(function()
     local ok, module = pcall(function()
         return require(joueur:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule"))
     end)
     if ok and module then
-        module:GetControls():Disable()
+        module:GetControls():Enable()
     end
 end)
-task.spawn(function()
-    for _ = 1, 10 do
-        if pcall(function()
-            StarterGui:SetCore("ResetButtonCallback", false)
-        end) then
-            break
-        end
-        task.wait(1)
-    end
-end)
+
 
 -- ========================== INTERFACE ==========================
 local gui = nouveau("ScreenGui", {
@@ -265,17 +254,6 @@ local marcheTexte = texte({
     ZIndex = 3,
     Parent = gui,
 })
-local comboTexte = texte({
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.new(0.5, 0, 0, 130),
-    Size = UDim2.new(0.4, 0, 0, 56),
-    TextColor3 = OR,
-    TextTransparency = 1,
-    TextStrokeTransparency = 1,
-    ZIndex = 4,
-    Parent = gui,
-})
-local echelleCombo = nouveau("UIScale", { Parent = comboTexte })
 local grosTexte = texte({
     AnchorPoint = Vector2.new(0.5, 0.5),
     Position = UDim2.fromScale(0.5, 0.25),
@@ -307,8 +285,25 @@ local decompte = texte({
 })
 local echelleDecompte = nouveau("UIScale", { Parent = decompte })
 
--- Zone où apparaissent les cercles de rythme
-local zoneNotes = nouveau("Frame", { BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1), ZIndex = 5, Parent = gui })
+-- le rang (#2 / 6) et la vitesse, sous le compteur de marches
+local rangTexte = texte({
+    Position = UDim2.new(0, 20, 0, 96),
+    Size = UDim2.new(0, 160, 0, 26),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextColor3 = OR,
+    Visible = false,
+    ZIndex = 3,
+    Parent = gui,
+})
+local vitesseTexte = texte({
+    Position = UDim2.new(0, 20, 0, 124),
+    Size = UDim2.new(0, 160, 0, 22),
+    TextXAlignment = Enum.TextXAlignment.Left,
+    TextColor3 = Color3.fromRGB(200, 220, 255),
+    Visible = false,
+    ZIndex = 3,
+    Parent = gui,
+})
 
 -- Mini-carte de la montée (à droite)
 local barre = nouveau("Frame", {
@@ -325,7 +320,6 @@ local barre = nouveau("Frame", {
 nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = barre })
 -- en haut de la mini-carte : la marche du premier (l'échelle s'adapte, les escaliers sont infinis)
 local hautBarre = texte({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -4), Size = UDim2.fromOffset(50, 24), TextColor3 = OR, ZIndex = 3, Parent = barre })
-
 
 -- Effets d'image (seulement pour toi)
 local effetAura = nouveau("ColorCorrectionEffect", { Name = "MindsetModeAura", Parent = Lighting })
@@ -361,13 +355,15 @@ local function modeCinema(actif)
     tween(bandeBas, 0.5, { Size = UDim2.fromScale(1, hauteur) })
 end
 
+
 -- ========================== CAMÉRA (effets) ==========================
-local FOV_BASE = 28
-local fovPulse = 0       -- coup de zoom sur les temps, qui retombe tout seul
+local FOV_BASE = 70
+local fovPulse = 0       -- coup de zoom, qui retombe tout seul
 local forceSecousse = 0  -- secousse qui retombe toute seule
 local function secousse(force)
     forceSecousse = math.max(forceSecousse, force * (if REGLAGES.secousses then 1 else 0))
 end
+
 
 -- ========================== MENU DU LOBBY ==========================
 -- Plein écran pendant le lobby : les 4 états d'esprit + le vote de la musique, la map floutée derrière.
@@ -1340,153 +1336,20 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- ========================== ESCALIERS INFINIS ==========================
--- Il n'y a plus de sommet : on ne construit que les marches autour de la caméra,
--- et on recycle celles qui sortent de l'écran. Comme ça, ça peut monter à l'infini.
--- (tout est dans un bloc do ... end : Luau limite le nombre de variables locales d'un script)
-local sceneLocale = nouveau("Folder", { Name = "MindsetSceneLocale", Parent = workspace })
--- UN SEUL grand escalier, large, que tout le monde gravit ensemble (chacun à sa place sur la largeur).
-local couloirs = {}  -- [0] = { ligne = part } : la ligne néon au bord de l'escalier (couleur de ton perso)
-local FOND_Z = GEO.Z0 - NB_COULOIRS * GEO.ECART - 15
-local majEscaliers, allumerMarche, eclats, ondeSol, fondScene, poussiere
-do
-local MARCHES_DERRIERE, MARCHES_DEVANT = 40, 50
-local BLANC_MARCHE = Color3.fromRGB(235, 235, 245)
-local LARGEUR_ESCALIER = (NB_COULOIRS - 1) * GEO.ECART + 6 -- de l'avant (couloir 0) au fond (dernier couloir)
-local Z_CENTRE = GEO.Z0 - (NB_COULOIRS - 1) * GEO.ECART / 2
-local Z_AVANT = GEO.Z0 + 3 -- le bord de l'escalier tourné vers la caméra
-local marches = {}   -- [numero] = part
-local reserve = {}   -- marches recyclées
 
+-- ========================== EFFETS 3D (éclats, ondes au sol) ==========================
+local dossierEffets = nouveau("Folder", { Name = "MindsetEffetsLocaux", Parent = workspace })
+local eclats, ondeSol
+do
 local function blocLocal(proprietes)
     proprietes.Anchored = true
     proprietes.CanCollide = false
     proprietes.CanQuery = false
     proprietes.CanTouch = false
     proprietes.CastShadow = false
-    proprietes.TopSurface = Enum.SurfaceType.Smooth
-    proprietes.BottomSurface = Enum.SurfaceType.Smooth
-    proprietes.Parent = proprietes.Parent or sceneLocale
+    proprietes.Parent = dossierEffets
     return nouveau("Part", proprietes)
 end
-
--- couleur de base d'une marche : tous les 10 un peu dorée (avec son numéro), tous les 50 en néon
-local function lookMarche(numero)
-    if numero > 0 and numero % 50 == 0 then
-        return OR, Enum.Material.Neon
-    elseif numero > 0 and numero % 10 == 0 then
-        return Color3.fromRGB(255, 236, 175), Enum.Material.SmoothPlastic
-    end
-    return BLANC_MARCHE, Enum.Material.SmoothPlastic
-end
-
-local function placerMarche(numero)
-    local part = table.remove(reserve)
-    if not part then
-        part = blocLocal({ Name = "Marche" })
-        local panneau = nouveau("SurfaceGui", {
-            Name = "Numero",
-            Face = Enum.NormalId.Back, -- la face tournée vers la caméra
-            SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
-            PixelsPerStud = 40,
-            LightInfluence = 0,
-            Parent = part,
-        })
-        texte({ Size = UDim2.fromScale(1, 0.45), TextColor3 = Color3.fromRGB(60, 50, 20), TextStrokeTransparency = 1, Parent = panneau })
-    end
-    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
-    local longueur, x = D, GEO.X0 + (numero + 0.5) * D
-    if numero == 0 then
-        longueur = D * 4
-        x = GEO.X0 + D - longueur / 2
-    end
-    -- des marches « pleines » (3 de haut) pour que ça ressemble à un vrai escalier
-    part.Size = Vector3.new(longueur, H * 3, LARGEUR_ESCALIER)
-    part.Position = Vector3.new(x, GEO.Y0 + numero * H - H * 1.5, Z_CENTRE)
-    local couleur, matiere = lookMarche(numero)
-    part.Color = couleur
-    part.Material = matiere
-    local panneau = part:FindFirstChild("Numero")
-    if panneau then
-        panneau.Enabled = numero > 0 and numero % 10 == 0
-        panneau:FindFirstChildOfClass("TextLabel").Text = tostring(numero)
-    end
-    return part
-end
-
--- ligne néon le long du bord de l'escalier
-couloirs[0] = {
-    ligne = blocLocal({ Name = "Ligne", Size = Vector3.new(1, 0.35, 0.35), Color = Color3.fromRGB(70, 70, 80), Material = Enum.Material.Neon }),
-}
-
-local fenetreA, fenetreB = nil, nil
-majEscaliers = function(marcheCentre)
-    local a = math.max(0, math.floor(marcheCentre) - MARCHES_DERRIERE)
-    local b = math.max(a + 10, math.floor(marcheCentre) + MARCHES_DEVANT)
-    if a == fenetreA and b == fenetreB then
-        return
-    end
-    fenetreA, fenetreB = a, b
-    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
-    for numero, part in pairs(marches) do
-        if numero < a or numero > b then
-            marches[numero] = nil
-            part.Position = Vector3.new(0, -1000, 0)
-            table.insert(reserve, part)
-        end
-    end
-    for numero = a, b do
-        if not marches[numero] then
-            marches[numero] = placerMarche(numero)
-        end
-    end
-    local debut = Vector3.new(GEO.X0 + a * D, GEO.Y0 + a * H, Z_AVANT + 0.1)
-    local fin = Vector3.new(GEO.X0 + (b + 1) * D, GEO.Y0 + (b + 1) * H, Z_AVANT + 0.1)
-    couloirs[0].ligne.Size = Vector3.new((fin - debut).Magnitude, 0.35, 0.35)
-    couloirs[0].ligne.CFrame = CFrame.new((debut + fin) / 2) * CFrame.Angles(0, 0, math.atan2(H, D))
-end
-majEscaliers(0)
-
--- Là où le pied se pose, une dalle de lumière s'allume sur la marche (à la place du joueur)
-allumerMarche = function(couloir, numero, couleur)
-    if not couloir or numero < 0 then
-        return
-    end
-    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
-    local dalle = blocLocal({
-        Name = "Dalle",
-        Size = Vector3.new(D * 0.92, 0.12, 4.2),
-        Position = Vector3.new(GEO.X0 + (numero + 0.5) * D, GEO.Y0 + numero * H + 0.06, GEO.Z0 - couloir * GEO.ECART),
-        Color = couleur,
-        Material = Enum.Material.Neon,
-        Transparency = 0.05,
-    })
-    tween(dalle, 0.5, { Transparency = 1, Size = Vector3.new(D, 0.12, 5) })
-    task.delay(0.52, function()
-        dalle:Destroy()
-    end)
-end
-
--- Fond noir + poussière d'aura : ils suivent la caméra (les escaliers n'ont pas de fin)
-fondScene = blocLocal({ Name = "Fond", Size = Vector3.new(900, 600, 2), Color = Color3.fromRGB(8, 8, 14), Material = Enum.Material.SmoothPlastic })
-poussiere = blocLocal({ Name = "Poussiere", Size = Vector3.new(500, 300, 1), Transparency = 1 })
-nouveau("ParticleEmitter", {
-    Rate = 60,
-    Lifetime = NumberRange.new(6, 10),
-    Speed = NumberRange.new(1, 3),
-    SpreadAngle = Vector2.new(180, 180),
-    Size = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(0.5, 0.7),
-        NumberSequenceKeypoint.new(1, 0),
-    }),
-    Transparency = NumberSequence.new(0.3),
-    LightEmission = 1,
-    Color = ColorSequence.new(Color3.fromRGB(200, 200, 255)),
-    Parent = poussiere,
-})
-
--- Éclats (petites étincelles 3D) et onde au sol : pour les atterrissages, la danse et le check
 local porteEclats = blocLocal({ Name = "Eclats", Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1 })
 local emetteurEclats = nouveau("ParticleEmitter", {
     Rate = 0,
@@ -1513,7 +1376,7 @@ ondeSol = function(position, couleur, taille, vertical)
         Color = couleur,
         Transparency = 0.15,
         Size = Vector3.new(0.12, 1, 1),
-        -- à plat sur la marche, ou face à la caméra (vertical)
+        -- à plat sur le sol, ou debout (vertical)
         CFrame = CFrame.new(position) * (if vertical then CFrame.Angles(0, math.pi / 2, 0) else CFrame.Angles(0, 0, math.pi / 2)),
     })
     tween(onde, 0.4, { Size = Vector3.new(0.12, taille, taille), Transparency = 1 })
@@ -1521,30 +1384,19 @@ ondeSol = function(position, couleur, taille, vertical)
         onde:Destroy()
     end)
 end
-end -- fin du bloc des escaliers
+end -- fin du bloc des effets 3D
 
--- ========================== AVATARS SUR LES MARCHES ==========================
-local ANIMS = {
-    attente = "rbxassetid://507766388", -- animations R15 par défaut de Roblox
-    saut = "rbxassetid://507765000",
-    chute = "rbxassetid://507767968",
-    -- les 3 danses de base de Roblox (/e dance, /e dance2, /e dance3)
-    danses = { "rbxassetid://507771019", "rbxassetid://507776043", "rbxassetid://507777268" },
-}
+-- ========================== AVATARS ==========================
+-- Chaque grimpeur (toi, les autres joueurs, les bots) : son étiquette au-dessus de la tête,
+-- ses effets d'aura (série sans tomber) et sa danse s'il gagne.
 local avatars = {}  -- [config] = état de l'avatar
 local monEtat = nil
-local etatSuiviCamera = nil -- si défini, la caméra suit cet avatar (le vainqueur)
 
 local function couleurDe(etat)
     return COULEURS[etat.config:GetAttribute("Perso")] or Color3.fromRGB(200, 200, 210)
 end
-
-local function positionMarche(couloir, marche, hauteur)
-    return Vector3.new(
-        GEO.X0 + (marche + 0.5) * GEO.PROFONDEUR,
-        GEO.Y0 + marche * GEO.HAUTEUR + hauteur,
-        GEO.Z0 - couloir * GEO.ECART
-    )
+local function maCouleur()
+    return if monEtat then couleurDe(monEtat) else OR
 end
 
 local function hauteurRacine(modele)
@@ -1556,58 +1408,8 @@ local function hauteurRacine(modele)
     return 3
 end
 
-local function chargerAnims(etat)
-    local humanoid = etat.modele:FindFirstChildOfClass("Humanoid")
-    if not humanoid then
-        return
-    end
-    local animator = humanoid:FindFirstChildOfClass("Animator") or nouveau("Animator", { Parent = humanoid })
-    local function charger(id, priorite, boucle)
-        local animation = Instance.new("Animation")
-        animation.AnimationId = id
-        local ok, piste = pcall(function()
-            return animator:LoadAnimation(animation)
-        end)
-        if not ok then
-            return nil
-        end
-        piste.Priority = priorite
-        piste.Looped = boucle
-        return piste
-    end
-    etat.animAttente = charger(ANIMS.attente, Enum.AnimationPriority.Action, true)
-    etat.animSaut = charger(ANIMS.saut, Enum.AnimationPriority.Action2, false)
-    etat.animChute = charger(ANIMS.chute, Enum.AnimationPriority.Action2, true)
-    etat.animDanses = {}
-    for i, id in ipairs(ANIMS.danses) do
-        etat.animDanses[i] = charger(id, Enum.AnimationPriority.Action3, true)
-    end
-    etat.danseJouee = 0
-    if etat.animAttente and not etat.config:GetAttribute("Hub") then -- (dans le hub, il marche avec ses animations à lui)
-        etat.animAttente:Play()
-    end
-
-    -- traînée lumineuse pendant les sauts
-    local racine = etat.modele:FindFirstChild("HumanoidRootPart")
-    if racine then
-        local a0 = nouveau("Attachment", { Name = "MindsetTrainee0", Position = Vector3.new(0, 1, 0), Parent = racine })
-        local a1 = nouveau("Attachment", { Name = "MindsetTrainee1", Position = Vector3.new(0, -1.2, 0), Parent = racine })
-        etat.trainee = nouveau("Trail", {
-            Name = "MindsetTrainee",
-            Attachment0 = a0,
-            Attachment1 = a1,
-            Lifetime = 0.22,
-            MinLength = 0.05,
-            FaceCamera = true,
-            LightEmission = 1,
-            Transparency = NumberSequence.new(0.3, 1),
-            Color = ColorSequence.new(couleurDe(etat)),
-            Enabled = false,
-            Parent = racine,
-        })
-    end
-
-    -- les articulations (R15) qu'on plie à la main pour monter les marches pied par pied
+-- les articulations (R15) qu'on plie à la main pour la danse du gagnant
+local function chargerMembres(etat)
     etat.membres = {}
     for _, nom in ipairs({ "LeftHip", "RightHip", "LeftKnee", "RightKnee", "LeftShoulder", "RightShoulder", "Waist", "LeftElbow", "RightElbow", "Neck" }) do
         local moteur = etat.modele:FindFirstChild(nom, true)
@@ -1637,64 +1439,39 @@ local function poser(etat, pose)
     end
 end
 
--- La pose d'un pas : la jambe « pied » monte sur la marche, l'autre pousse, les bras balancent
-local function posePas(pied, k, style)
-    local b = math.sin(math.pi * k) -- 0 → 1 → 0 pendant le pas
-    local leve, appui = if pied == 0 then "Left" else "Right", if pied == 0 then "Right" else "Left"
-    local pose = {}
-    pose[leve .. "Hip"] = 1.25 * b
-    pose[leve .. "Knee"] = -1.5 * b
-    pose[appui .. "Hip"] = -0.3 * b
-    pose[appui .. "Knee"] = -0.25 * b
-    -- bras opposé à la jambe vers l'avant (comme quand on court), plus ample avec du style
-    pose[appui .. "Shoulder"] = (0.7 + 0.5 * style) * b
-    pose[leve .. "Shoulder"] = -(0.5 + 0.3 * style) * b
-    pose.Waist = -0.2 * b
-    return pose
-end
-
 -- La danse du gagnant (attribut « Danse » : 0 = rien, 1/2/3 = le mouvement en cours).
--- Plus d'animations Roblox : la danse est faite à la main, calée sur le rythme (voir danseBadass
--- dans la boucle d'affichage). Ici on démarre / arrête juste la danse et sa mise en scène.
+-- Faite à la main, calée sur le rythme (voir danseBadass, plus bas).
 local function majDanse(etat)
     local n = etat.config:GetAttribute("Danse") or 0
     if n == (etat.danseJouee or 0) then
         return
     end
-    local avant = etat.danseJouee or 0
     etat.danseJouee = n
     if n > 0 then
         etat.danse = etat.danse or { debut = os.clock(), dernierTemps = -1, effets = {} }
         etat.danse.mouvement = n
         etat.danse.changement = os.clock()
-        if avant == 0 and etat.animAttente then
-            etat.animAttente:Stop(0.2)
-        end
     elseif etat.danse then
         for _, effet in ipairs(etat.danse.effets) do
             effet:Destroy()
         end
         etat.danse = nil
         poser(etat, nil)
-        if etat.animAttente and not etat.config:GetAttribute("Hub") then
-            etat.animAttente:Play(0.3)
-        end
     end
 end
 
+-- l'étiquette : l'état d'esprit en grand, et en dessous « pseudo • marche »
 local function majEtiquette(etat)
     if not etat.etiquettePerso then
         return
     end
     local perso = etat.config:GetAttribute("Perso")
-    local combo = etat.config:GetAttribute("Combo") or 0
     etat.etiquettePerso.Text = if perso then string.upper(perso) else "???"
     etat.etiquettePerso.TextColor3 = couleurDe(etat)
-    if etat.trainee then
-        etat.trainee.Color = ColorSequence.new(couleurDe(etat))
-    end
     local nom = etat.config:GetAttribute("Nom") or ""
-    etat.etiquetteNom.Text = if combo >= 5 then nom .. "  •  x" .. combo else nom
+    local marche = etat.config:GetAttribute("Marche") or 0
+    etat.etiquetteNom.Text = if etat.config:GetAttribute("EnJeu") then nom .. "  •  " .. marche else nom
+    etat.etiquette.Enabled = not etat.config:GetAttribute("Hub") -- (dans le hub, c'est MindsetHub qui met son étiquette)
 end
 
 local function creerEtiquette(etat)
@@ -1706,28 +1483,28 @@ local function creerEtiquette(etat)
     if ancienne then
         ancienne:Destroy()
     end
-    local billboard = nouveau("BillboardGui", {
+    etat.etiquette = nouveau("BillboardGui", {
         Name = "MindsetEtiquette",
-        Enabled = not etat.config:GetAttribute("Hub"), -- (dans le hub, c'est MindsetHub qui met son étiquette)
-        Size = UDim2.fromOffset(if etat.estMoi then 240 else 190, if etat.estMoi then 76 else 60),
-        StudsOffsetWorldSpace = Vector3.new(0, 3.2, 0),
+        Size = UDim2.fromOffset(if etat.estMoi then 200 else 170, if etat.estMoi then 58 else 50),
+        StudsOffsetWorldSpace = Vector3.new(0, 2.8, 0),
         AlwaysOnTop = true,
-        MaxDistance = 3000,
+        MaxDistance = 250,
         LightInfluence = 0,
         Parent = tete,
     })
-    etat.etiquettePerso = texte({ Size = UDim2.fromScale(1, 0.62), Parent = billboard })
+    etat.etiquettePerso = texte({ Size = UDim2.fromScale(1, 0.58), Parent = etat.etiquette })
     etat.etiquetteNom = texte({
-        Position = UDim2.fromScale(0, 0.62),
-        Size = UDim2.fromScale(1, 0.38),
-        TextColor3 = Color3.fromRGB(220, 220, 230),
-        Parent = billboard,
+        Position = UDim2.fromScale(0, 0.58),
+        Size = UDim2.fromScale(1, 0.42),
+        TextColor3 = Color3.fromRGB(225, 225, 235),
+        Parent = etat.etiquette,
     })
     majEtiquette(etat)
 end
 
 local NOMS_NIVEAUX = { "✨ AURA LEVEL 1", "🔥 AURA LEVEL 2", "👑 MAX AURA" }
 
+-- les effets d'aura : plus tu enchaînes de marches sans tomber, plus tu brilles
 local function majAuraAvatar(etat)
     if not etat.modele then
         return
@@ -1750,131 +1527,22 @@ local function majAuraAvatar(etat)
         table.insert(etat.effets, nouveau("Fire", { Color = couleur, SecondaryColor = BLANC, Size = 5, Heat = 8, Parent = torse }))
     end
     if racine and niveau >= 3 then
-        table.insert(etat.effets, nouveau("Fire", { Color = BLANC, SecondaryColor = couleur, Size = 8, Heat = 14, Parent = torse }))
         table.insert(etat.effets, nouveau("PointLight", { Color = couleur, Brightness = 5, Range = 20, Parent = racine }))
         table.insert(etat.effets, nouveau("Highlight", {
             FillColor = couleur,
-            FillTransparency = 0.5,
+            FillTransparency = 0.6,
             OutlineColor = BLANC,
+            DepthMode = Enum.HighlightDepthMode.Occluded,
             Parent = etat.modele,
         }))
     end
-    if etat.estMoi and niveau > etat.niveauAffiche and NOMS_NIVEAUX[niveau] then
+    if etat.estMoi and niveau > (etat.niveauAffiche or 0) and NOMS_NIVEAUX[niveau] then
         auraTexte.TextColor3 = if niveau == 3 then OR else couleur
         apparaitre(auraTexte, NOMS_NIVEAUX[niveau], 1.6)
         flasher(couleur, 0.25 + niveau * 0.1)
         secousse(0.6 + niveau * 0.3)
     end
     etat.niveauAffiche = niveau
-end
-
--- Chaque client se voit dans le couloir de devant ; les autres sont derrière
-local function majCouloirs()
-    local liste = {}
-    for _, etat in pairs(avatars) do
-        if etat.config:GetAttribute("Hub") then
-            etat.couloir = nil -- il se balade dans le hub : pas de couloir sur les escaliers
-        else
-            table.insert(liste, etat)
-        end
-    end
-    table.sort(liste, function(a, b)
-        if a.estMoi ~= b.estMoi then
-            return a.estMoi
-        end
-        return (a.config:GetAttribute("Ordre") or 0) < (b.config:GetAttribute("Ordre") or 0)
-    end)
-    local occupants = {}
-    for i, etat in ipairs(liste) do
-        etat.couloir = if i <= NB_COULOIRS then i - 1 else nil
-        if etat.couloir then
-            occupants[etat.couloir] = etat
-        end
-    end
-    for couloir, co in pairs(couloirs) do
-        co.ligne.Color = if occupants[couloir] then couleurDe(occupants[couloir]) else Color3.fromRGB(70, 70, 80)
-    end
-end
-
-local effetsMoi -- défini plus bas (réactions quand TU montes/descends)
-
--- Une marche montée AVEC STYLE : l'avatar monte PIED PAR PIED.
---   chaque marche = un pas (pied gauche, puis pied droit, puis gauche...)
---   +2 marches = deux pas rapides enchaînés
---   avec du combo, les bras balancent plus fort ; tous les 10 de combo : une vrille sur le dernier pas
---   chaque pied qui se pose allume la marche (étincelles), une onde au sol à la fin
---   en ratant : il trébuche en arrière, les bras en l'air
-local function nouvelleMarche(etat)
-    local cible = etat.config:GetAttribute("Marche") or 0
-    local depart = etat.marcheAffichee or cible
-    if math.abs(cible - depart) < 0.01 then
-        return
-    end
-    local monte = cible > depart
-    if not monte and depart - cible > 6 then
-        -- grosse remise à zéro (nouvelle partie) : on le pose direct en bas, sans animation
-        etat.saut = nil
-        etat.marcheAffichee = cible
-        return
-    end
-    local ecart = math.abs(cible - depart)
-    local combo = etat.config:GetAttribute("Combo") or 0
-    local pas = if monte then math.max(1, math.floor(ecart + 0.5)) else 1
-    etat.saut = {
-        de = depart,
-        a = cible,
-        debut = os.clock(),
-        duree = if monte then math.min(0.6, 0.22 * pas) else 0.32,
-        monte = monte,
-        pas = pas,
-        pasFaits = 0,
-        pied = etat.prochainPied or 0,
-        style = math.clamp(combo / 20, 0, 1),
-        vrille = monte and combo > 0 and combo % 10 == 0,
-    }
-    if monte then
-        etat.prochainPied = ((etat.prochainPied or 0) + pas) % 2
-    end
-    if etat.trainee and monte and combo >= 5 then
-        etat.trainee.Enabled = true
-    end
-    if not monte and etat.animChute then
-        etat.animChute:Play(0.05)
-    end
-    if etat.estMoi and effetsMoi then
-        effetsMoi(depart, cible)
-    end
-end
-
--- un pied se pose sur une marche
-local function piedPose(etat, numero, fort)
-    if not etat.couloir then
-        return
-    end
-    local couleur = couleurDe(etat)
-    allumerMarche(etat.couloir, numero, couleur)
-    local sol = positionMarche(etat.couloir, numero, 0.1)
-    eclats(sol, couleur, if fort then 10 else 4, 0.6)
-    if fort then
-        ondeSol(sol, couleur, 5)
-    end
-end
-
-local function atterrir(etat, saut)
-    if etat.trainee then
-        etat.trainee.Enabled = false
-    end
-    if not etat.couloir then
-        return
-    end
-    if not saut.monte then
-        allumerMarche(etat.couloir, math.floor(saut.a + 0.5), ROUGE)
-    elseif etat.estMoi then
-        fovPulse = math.min(fovPulse, if saut.pas >= 2 then -2 else -0.7)
-        if saut.vrille then
-            secousse(0.5)
-        end
-    end
 end
 
 -- « +1 AURA » qui s'envole au-dessus du danseur
@@ -1895,13 +1563,14 @@ local function popupAura(etat)
     })
     local label = texte({ Size = UDim2.fromScale(1, 1), Text = "+1 AURA", TextColor3 = if math.random() < 0.3 then OR else couleur, Parent = bulle })
     tween(bulle, 0.8, { StudsOffsetWorldSpace = Vector3.new(decalX * 1.4, 8, 0) }, Enum.EasingStyle.Quint)
-    tween(label, 0.8, { TextTransparency = 1, TextStrokeTransparency = 1 }, Enum.EasingStyle.Quint)
+    tween(label, 0.8, { TextTransparency = 1, TextStrokeTransparency = 1 })
     task.delay(0.8, function()
         bulle:Destroy()
     end)
     eclats(tete.Position, couleur, 4, 0.6)
 end
-local surAuraFarmee -- défini plus bas (compteur à l'écran quand c'est TOI qui danses)
+local surAuraFarmee -- (défini plus bas : compteur à l'écran quand c'est TOI qui danses)
+local surMaMarche   -- (défini plus bas : les réactions quand TU montes)
 
 local function ajouterGrimpeur(config)
     if avatars[config] then
@@ -1912,7 +1581,6 @@ local function ajouterGrimpeur(config)
         estMoi = config:GetAttribute("UserId") == joueur.UserId,
         effets = {},
         niveauAffiche = 0,
-        marcheAffichee = config:GetAttribute("Marche") or 0,
     }
     avatars[config] = etat
     if etat.estMoi then
@@ -1923,15 +1591,14 @@ local function ajouterGrimpeur(config)
     local function majModele()
         etat.modele = valeur and valeur.Value
         etat.hauteur = nil
-        etat.animAttente, etat.animSaut, etat.animChute = nil, nil, nil
-        etat.animDanses, etat.danseJouee, etat.trainee = nil, 0, nil
+        etat.membres = nil
+        etat.danseJouee = 0
         if etat.danse then
             for _, effet in ipairs(etat.danse.effets) do
                 effet:Destroy()
             end
             etat.danse = nil
         end
-        etat.cinematique, etat.membres = nil, nil
         etat.effets = {}
         etat.niveauAffiche = 0
         local modele = etat.modele
@@ -1942,8 +1609,9 @@ local function ajouterGrimpeur(config)
             if not modele:WaitForChild("HumanoidRootPart", 10) or etat.modele ~= modele then
                 return
             end
+            modele:WaitForChild("Head", 5)
             etat.hauteur = hauteurRacine(modele)
-            chargerAnims(etat)
+            chargerMembres(etat)
             creerEtiquette(etat)
             majAuraAvatar(etat)
             majDanse(etat)
@@ -1954,48 +1622,25 @@ local function ajouterGrimpeur(config)
     end
     majModele()
 
+    for _, attribut in ipairs({ "Perso", "Nom", "EnJeu", "Hub" }) do
+        config:GetAttributeChangedSignal(attribut):Connect(function()
+            majEtiquette(etat)
+        end)
+    end
+    local derniereMarche = config:GetAttribute("Marche") or 0
     config:GetAttributeChangedSignal("Marche"):Connect(function()
-        nouvelleMarche(etat)
-    end)
-    config:GetAttributeChangedSignal("Perso"):Connect(function()
         majEtiquette(etat)
-        majCouloirs()
-    end)
-    config:GetAttributeChangedSignal("Combo"):Connect(function()
-        majEtiquette(etat)
+        local marche = config:GetAttribute("Marche") or 0
+        if etat.estMoi and surMaMarche then
+            surMaMarche(derniereMarche, marche)
+        end
+        derniereMarche = marche
     end)
     config:GetAttributeChangedSignal("NiveauAura"):Connect(function()
         majAuraAvatar(etat)
     end)
     config:GetAttributeChangedSignal("Danse"):Connect(function()
         majDanse(etat)
-    end)
-    -- 🏠 HUB : il se balade sur la place (le script MindsetHub s'en occupe) → on ne le touche plus
-    config:GetAttributeChangedSignal("Hub"):Connect(function()
-        local auHub = config:GetAttribute("Hub") == true
-        etat.saut = nil
-        poser(etat, nil) -- articulations remises droites
-        if etat.animAttente then
-            if auHub then
-                etat.animAttente:Stop(0.2)
-            else
-                etat.animAttente:Play(0.2)
-            end
-        end
-        if auHub then
-            if etat.animChute then
-                etat.animChute:Stop(0.1)
-            end
-            if etat.trainee then
-                etat.trainee.Enabled = false
-            end
-        end
-        local tete = etat.modele and (etat.modele:FindFirstChild("Head") or etat.modele:FindFirstChild("HumanoidRootPart"))
-        local etiquette = tete and tete:FindFirstChild("MindsetEtiquette")
-        if etiquette then
-            etiquette.Enabled = not auHub
-        end
-        majCouloirs()
     end)
     config:GetAttributeChangedSignal("AuraFarmee"):Connect(function()
         local n = config:GetAttribute("AuraFarmee") or 0
@@ -2010,7 +1655,6 @@ local function ajouterGrimpeur(config)
             end
         end
     end)
-    majCouloirs()
 end
 
 dossierGrimpeurs.ChildAdded:Connect(ajouterGrimpeur)
@@ -2019,19 +1663,20 @@ dossierGrimpeurs.ChildRemoved:Connect(function(config)
         monEtat = nil
     end
     avatars[config] = nil
-    majCouloirs()
 end)
 for _, config in ipairs(dossierGrimpeurs:GetChildren()) do
     task.spawn(ajouterGrimpeur, config)
 end
 
+-- est-ce que TU cours en ce moment ?
+local function jeCours()
+    return monEtat ~= nil and monEtat.config:GetAttribute("EnJeu") == true and ReplicatedStorage:GetAttribute("Phase") == "Manche"
+end
+
 -- ========================== MUSIQUE ==========================
 local musique = nouveau("Sound", { Name = "MindsetMusique", Volume = 0.8, SoundGroup = groupeMusique, Parent = SoundService })
-local partition = nil      -- infos de la manche en cours
-local intervalle = 0.5
-local musiqueLancee = false
-local dernierRecalage = 0
-local trainsPerdus = 0 -- combien de fois de suite la musique était perdue (voir la boucle d'affichage)
+local partition = nil      -- infos de la course en cours : debut, duree, bpm, musique, debutMusique, tempete
+local intervalle = 0.5     -- un temps de la musique (secondes) : la danse du gagnant est calée dessus
 
 local function couperMusique(duree)
     tween(musique, duree, { Volume = 0 })
@@ -2043,342 +1688,46 @@ local function couperMusique(duree)
     end)
 end
 
--- ========================== NOTES DE RYTHME ==========================
-local notesActives = {}   -- [index] = { cercle, anneau, temps, position }
-local prochaineNote = 1
-local jeJoue = false
-local dernierePosition = nil
-local compteurNotes = 0
-local clicsManche = 0 -- tes clics pendant la manche (0 = tu n'étais sûrement pas là → AFK)
-
-local function maCouleur()
-    return if monEtat then couleurDe(monEtat) else OR
-end
-
-local juger, creerNote
-local dernierClicUtilise = 0 -- l'heure du dernier clic qui a validé une note (un clic = une note)
-do
-local function effetTouche(position, verdict)
-    local couleur = if verdict == "Parfait" then OR elseif verdict == "Bien" then Color3.fromRGB(120, 255, 160) else ROUGE
-    local message = if verdict == "Parfait" then "PERFECT!" elseif verdict == "Bien" then "GOOD" else "MISS"
-    local popup = texte({
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(position.X, position.Y - 0.06),
-        Size = UDim2.fromOffset(200, 44),
-        Text = message,
-        Font = Enum.Font.Arcade, -- police rétro
-        TextColor3 = couleur,
-        ZIndex = 8,
-        Parent = zoneNotes,
-    })
-    tween(popup, 0.6, { Position = UDim2.fromScale(position.X, position.Y - 0.12), TextTransparency = 1, TextStrokeTransparency = 1 })
-    task.delay(0.6, function()
-        popup:Destroy()
-    end)
-    if verdict ~= "Rate" then
-        local onde = nouveau("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.fromScale(position.X, position.Y),
-            Size = UDim2.fromOffset(90, 90),
-            BackgroundTransparency = 1,
-            ZIndex = 7,
-            Parent = zoneNotes,
-        })
-        nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = onde })
-        local trait = nouveau("UIStroke", { Color = couleur, Thickness = 5, Parent = onde })
-        tween(onde, 0.35, { Size = UDim2.fromOffset(200, 200) })
-        tween(trait, 0.35, { Transparency = 1 })
-        task.delay(0.35, function()
-            onde:Destroy()
-        end)
-        fovPulse = math.min(fovPulse, if verdict == "Parfait" then -2 else -1)
-    else
-        secousse(0.8)
-    end
-end
-
-juger = function(index, expire)
-    local note = notesActives[index]
-    if not note or not partition then
+-- ========================== RÉACTIONS QUAND TU MONTES ==========================
+local sceneActive = false -- la caméra est sur la scène du vainqueur
+surMaMarche = function(avant, apres)
+    if not jeCours() or apres <= avant then
         return
     end
-    notesActives[index] = nil
-    local verdict = "Rate"
-    if not expire then
-        local ecart = math.abs(maintenantServeur() - (partition.debut + note.temps))
-        if ecart <= FENETRE_PARFAIT then
-            verdict = "Parfait"
-        elseif ecart <= FENETRE_BIEN then
-            verdict = "Bien"
-        end
-    end
-    NoteEvent:FireServer(index, verdict)
-    effetTouche(note.position, verdict)
-    -- le cercle grossit et s'efface
-    tween(note.echelle, 0.14, { Scale = 1.3 })
-    for _, morceau in ipairs(note.morceaux) do
-        tween(morceau, 0.14, { BackgroundTransparency = 1 })
-    end
-    note.anneau:Destroy()
-    task.delay(0.15, function()
-        note.cercle:Destroy()
-    end)
-end
-
--- un rond (Frame avec coins arrondis à fond)
-local function rond(proprietes)
-    local frame = nouveau("Frame", proprietes)
-    frame.BorderSizePixel = 0
-    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = frame })
-    return frame
-end
-
--- le centre d'une note à l'écran (en pixels)
-local function centreNote(note)
-    return note.cercle.AbsolutePosition + note.cercle.AbsoluteSize / 2
-end
-
-creerNote = function(index, tempsNote)
-    local taille = if surMobile then 110 else 90
-    -- Une position qui ne touche AUCUN autre cercle à l'écran (sinon un clic pourrait en valider deux),
-    -- pas trop loin de la précédente pour que ça reste fluide.
-    local zone = zoneNotes.AbsoluteSize
-    local ecartMin = taille * 1.4
-    local meilleur, meilleurScore = nil, -math.huge
-    for essai = 1, 40 do
-        local candidat = Vector2.new(0.15 + math.random() * 0.62, 0.3 + math.random() * 0.42)
-        local pixels = candidat * zone
-        local plusProche = math.huge
-        for _, autre in pairs(notesActives) do
-            plusProche = math.min(plusProche, (autre.position * zone - pixels).Magnitude)
-        end
-        if dernierePosition then
-            plusProche = math.min(plusProche, (dernierePosition * zone - pixels).Magnitude)
-        end
-        local score = math.min(plusProche, ecartMin * 1.5)
-        -- bonus si on reste assez près de la note d'avant (le regard n'a pas à traverser l'écran)
-        if dernierePosition and (candidat - dernierePosition).Magnitude < 0.35 then
-            score += ecartMin * 0.5
-        end
-        if score > meilleurScore then
-            meilleur, meilleurScore = candidat, score
-        end
-        if plusProche >= ecartMin and essai >= 8 then
-            break
-        end
-    end
-    local x, y = meilleur.X, meilleur.Y
-    dernierePosition = meilleur
-    compteurNotes += 1
-
-    -- 💠 le cercle, style NÉON : un disque sombre et brillant, un anneau lumineux de la couleur du perso,
-    -- un halo qui « respire » autour et un cœur lumineux au centre (aucune bordure blanche).
-    local couleur = maCouleur()
-    local cercle = nouveau("Frame", {
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(x, y),
-        Size = UDim2.fromOffset(taille, taille),
-        BackgroundTransparency = 1,
-        ZIndex = 6,
-        Parent = zoneNotes,
-    })
-    local echelleCercle = nouveau("UIScale", { Scale = 0.5, Parent = cercle })
-    -- le halo flou autour (2 couches de plus en plus transparentes)
-    local halo1 = rond({
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(1.45, 1.45),
-        BackgroundColor3 = couleur,
-        BackgroundTransparency = 0.88,
-        ZIndex = 6,
-        Parent = cercle,
-    })
-    local halo2 = rond({
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(1.22, 1.22),
-        BackgroundColor3 = couleur,
-        BackgroundTransparency = 0.75,
-        ZIndex = 6,
-        Parent = cercle,
-    })
-    -- le disque : sombre, teinté de la couleur, avec l'anneau néon
-    local disque = rond({
-        Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = couleur:Lerp(NOIR, 0.78),
-        BackgroundTransparency = 0.05,
-        ZIndex = 7,
-        Parent = cercle,
-    })
-    nouveau("UIGradient", {
-        Rotation = 90,
-        Color = ColorSequence.new(couleur:Lerp(NOIR, 0.55), couleur:Lerp(NOIR, 0.9)),
-        Parent = disque,
-    })
-    nouveau("UIStroke", { Color = couleur:Lerp(BLANC, 0.15), Thickness = 5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = disque })
-    -- un fin anneau intérieur
-    local anneauInterieur = rond({
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(0.6, 0.6),
-        BackgroundTransparency = 1,
-        ZIndex = 8,
-        Parent = cercle,
-    })
-    nouveau("UIStroke", { Color = couleur, Thickness = 2, Transparency = 0.35, Parent = anneauInterieur })
-    -- le cœur lumineux
-    local coeur = rond({
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(0.26, 0.26),
-        BackgroundColor3 = couleur:Lerp(BLANC, 0.45),
-        ZIndex = 9,
-        Parent = cercle,
-    })
-    local morceaux = { halo1, halo2, disque, coeur }
-    -- le halo respire au rythme de l'approche
-    tween(halo1, 0.5, { Size = UDim2.fromScale(1.6, 1.6) }, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
-    tween(echelleCercle, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
-
-    -- 🖱️ la zone de clic : un bouton invisible un peu plus grand que le cercle (plus facile à toucher).
-    -- Les cercles ne se superposent jamais, et un même clic ne peut valider qu'UNE note.
-    local zoneClic = nouveau("TextButton", {
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(0.5, 0.5),
-        Size = UDim2.fromScale(1.2, 1.2),
-        BackgroundTransparency = 1,
-        AutoButtonColor = false,
-        Text = "",
-        ZIndex = 12,
-        Parent = cercle,
-    })
-    zoneClic.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-            return
-        end
-        -- un même clic ne valide qu'une note : deux notes validées à moins de 30 ms d'écart,
-        -- c'est forcément le même clic (⚠ Roblox réutilise le même objet pour tous les clics de souris,
-        -- c'est pour ça qu'on compare l'heure et pas l'objet du clic)
-        local maintenant = os.clock()
-        if maintenant - dernierClicUtilise < 0.03 then
-            return
-        end
-        dernierClicUtilise = maintenant
-        juger(index, false)
-    end)
-
-    -- l'anneau qui se resserre (de la couleur du perso) : clique quand il touche le cercle !
-    local anneau = nouveau("Frame", {
-        AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.fromScale(x, y),
-        Size = UDim2.fromOffset(taille, taille),
-        BackgroundTransparency = 1,
-        ZIndex = 5,
-        Parent = zoneNotes,
-    })
-    nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = anneau })
-    local traitAnneau = nouveau("UIStroke", { Color = couleur:Lerp(BLANC, 0.25), Thickness = 3, Transparency = 0.6, Parent = anneau })
-    local echelle = nouveau("UIScale", { Scale = 3, Parent = anneau })
-    local reste = math.max(0.05, partition.debut + tempsNote - maintenantServeur())
-    tween(echelle, reste, { Scale = 1 }, Enum.EasingStyle.Linear)
-    tween(traitAnneau, reste, { Transparency = 0, Thickness = 4 }, Enum.EasingStyle.Linear)
-
-    notesActives[index] = {
-        cercle = cercle,
-        anneau = anneau,
-        echelle = echelleCercle,
-        morceaux = morceaux,
-        temps = tempsNote,
-        position = Vector2.new(x, y),
-        taille = taille,
-    }
-end
-
--- on compte tes clics pendant la manche (0 clic de toute la manche = tu n'étais sûrement pas là → AFK)
-UserInputService.InputBegan:Connect(function(input)
-    if jeJoue and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-        clicsManche += 1
-    end
-end)
-end -- fin du bloc des notes
-
-local function viderNotes()
-    for index, note in pairs(notesActives) do
-        note.cercle:Destroy()
-        note.anneau:Destroy()
-        notesActives[index] = nil
-    end
-    zoneNotes:ClearAllChildren()
-end
-
--- ========================== RÉACTIONS QUAND TU MONTES / DESCENDS ==========================
-local modeAura = false
-
-effetsMoi = function(depart, cible)
-    if cible < depart then
-        flasher(ROUGE, 0.25)
-        secousse(1.2)
-        auraTexte.TextColor3 = ROUGE
-        apparaitre(auraTexte, "💀 -" .. math.floor(depart - cible + 0.5) .. " STEP" .. (if depart - cible > 1.5 then "S" else ""), 0.8)
-        return
-    end
-    if math.floor(cible / 10) > math.floor(depart / 10) then
+    if math.floor(apres / 50) > math.floor(avant / 50) then
         grosTexte.TextColor3 = maCouleur()
-        apparaitre(grosTexte, "🪜 " .. math.floor(cible / 10) * 10 .. " STEPS!", 1, echelleGros)
+        apparaitre(grosTexte, "🪜 " .. math.floor(apres / 50) * 50 .. " STEPS!", 1, echelleGros)
         flasher(maCouleur(), 0.3)
         secousse(0.8)
+        fovPulse = math.min(fovPulse, -4)
     end
 end
 
-local function majModeAura(combo)
-    local actif = combo >= 20
-    if actif == modeAura then
-        return
-    end
-    modeAura = actif
-    if actif then
-        -- ✨ MODE AURA : image en noir et blanc très contrastée, comme les edits TikTok
-        tween(effetAura, 0.4, { Saturation = -1, Contrast = 0.35, Brightness = 0.02 })
-        grosTexte.TextColor3 = OR
-        apparaitre(grosTexte, "🔥 AURA MODE 🔥", 1.4, echelleGros)
-        flasher(BLANC, 0.6)
-        secousse(1.5)
-        flou.Size = 14
-        tween(flou, 0.6, { Size = 0 })
-    else
-        tween(effetAura, 0.6, { Saturation = 0, Contrast = 0, Brightness = 0 })
-        grosTexte.TextColor3 = ROUGE
-        apparaitre(grosTexte, "💀 AURA LOST", 1, echelleGros)
-    end
-end
-
-local dernierComboAffiche = 0
-local function majCombo()
-    local combo = if monEtat then monEtat.config:GetAttribute("Combo") or 0 else 0
-    if combo >= 3 then
-        comboTexte.TextColor3 = if combo >= 20 then OR else maCouleur()
-        comboTexte.Text = "x" .. combo .. " COMBO"
-        comboTexte.TextTransparency = 0
-        comboTexte.TextStrokeTransparency = 0
-        if combo > dernierComboAffiche then
-            echelleCombo.Scale = 1.25
-            tween(echelleCombo, 0.15, { Scale = 1 })
-        end
-    else
-        comboTexte.TextTransparency = 1
-        comboTexte.TextStrokeTransparency = 1
-    end
-    dernierComboAffiche = combo
-    majModeAura(combo)
-end
-
--- on surveille le combo de TON grimpeur
+-- ✨ MODE AURA : au niveau d'aura max (300 marches sans tomber), image en noir et blanc, comme les edits TikTok
+local modeAura = false
 task.spawn(function()
     while not monEtat do
         task.wait(0.2)
     end
     local config = monEtat.config
-    config:GetAttributeChangedSignal("Combo"):Connect(majCombo)
+    config:GetAttributeChangedSignal("NiveauAura"):Connect(function()
+        local actif = (config:GetAttribute("NiveauAura") or 0) >= 3
+        if actif == modeAura or sceneActive then
+            return
+        end
+        modeAura = actif
+        if actif then
+            tween(effetAura, 0.4, { Saturation = -1, Contrast = 0.35, Brightness = 0.02 })
+            grosTexte.TextColor3 = OR
+            apparaitre(grosTexte, "🔥 AURA MODE 🔥", 1.4, echelleGros)
+            flasher(BLANC, 0.6)
+            secousse(1.5)
+        else
+            tween(effetAura, 0.6, { Saturation = 0, Contrast = 0, Brightness = 0 })
+            grosTexte.TextColor3 = ROUGE
+            apparaitre(grosTexte, "💀 AURA LOST", 1, echelleGros)
+        end
+    end)
     config:GetAttributeChangedSignal("Perso"):Connect(function()
         local perso = config:GetAttribute("Perso")
         choisirPersoAffiche(perso)
@@ -2391,24 +1740,7 @@ task.spawn(function()
     choisirPersoAffiche(config:GetAttribute("Perso"))
 end)
 
--- ========================== SUR LES TEMPS DE LA MUSIQUE ==========================
-local dernierTemps = -1
-local function surTemps(numero)
-    -- chaque temps : petit zoom ; tous les 4 temps : flash (plus fort en mode aura)
-    fovPulse = math.min(fovPulse, if modeAura then -3 else -1.2)
-    if numero % 4 == 0 then
-        flasher(BLANC, if modeAura then 0.18 else 0.06)
-        if modeAura then
-            secousse(0.7)
-        end
-    end
-    if modeAura then
-        effetPulse.Contrast = 0.3
-        tween(effetPulse, intervalle * 0.9, { Contrast = 0 })
-    end
-end
-
--- ========================== DÉBUT D'UNE MANCHE ==========================
+-- ========================== DÉBUT D'UNE COURSE ==========================
 local function afficherDecompte(message, couleur)
     decompte.Text = message
     decompte.TextColor3 = couleur
@@ -2425,42 +1757,21 @@ end
 
 DebutEvent.OnClientEvent:Connect(function(infos)
     partition = infos
-    intervalle = 60 / infos.bpm
-    prochaineNote = 1
-    dernierTemps = -1
-    compteurNotes = 0
-    clicsManche = 0
-    dernierePosition = nil
-    musiqueLancee = false
-    viderNotes()
-    jeJoue = monEtat ~= nil and monEtat.config:GetAttribute("EnJeu") == true
-
+    intervalle = 60 / (infos.bpm or 120)
     if infos.musique and infos.musique ~= "" then
         musique.SoundId = infos.musique
         musique.Volume = 0.8
-        musique.PlaybackSpeed = 1
-        trainsPerdus = 0
         task.spawn(function()
             pcall(function()
-                ContentProvider:PreloadAsync({ musique }, function(_, statut)
-                    if statut ~= Enum.AssetFetchStatus.Success then
-                        warn("[MUSIQUE] Impossible de charger " .. tostring(infos.musique)
-                            .. " (statut : " .. tostring(statut) .. "). Son privé, en modération, jeu pas publié ou mauvais ID ?")
+                ContentProvider:PreloadAsync({ musique }, function(_, statutChargement)
+                    if statutChargement ~= Enum.AssetFetchStatus.Success then
+                        warn("[MUSIQUE] Impossible de charger " .. tostring(infos.musique) .. " (statut : " .. tostring(statutChargement) .. ")")
                     end
                 end)
             end)
-            if not musique.IsLoaded then
-                task.wait(3)
-                if not musique.IsLoaded and musique.SoundId == infos.musique then
-                    warn("[MUSIQUE] Toujours pas chargée après 3 s : " .. tostring(infos.musique))
-                end
-            end
         end)
     end
-
-    -- (le drop n'est pas annoncé : juste plein de cercles d'un coup, sans boum ni texte)
-
-    -- décompte 3, 2, 1
+    -- décompte 3, 2, 1, GO
     task.spawn(function()
         local couleurs = { Color3.fromRGB(120, 255, 140), Color3.fromRGB(255, 220, 80), ROUGE }
         for n = 3, 1, -1 do
@@ -2472,7 +1783,6 @@ DebutEvent.OnClientEvent:Connect(function(infos)
                 return
             end
             afficherDecompte(tostring(n), couleurs[n])
-            -- bip... bip... bip... façon borne d'arcade (deux notes à l'octave = son « 8 bits »)
             jouerSon("tic", 0.75, 0.7, nil, 0.16)
             jouerSon("tic", 1.5, 0.35, nil, 0.16)
             flasher(BLANC, 0.15)
@@ -2482,185 +1792,121 @@ DebutEvent.OnClientEvent:Connect(function(infos)
         if attente > 0 then
             task.wait(attente)
         end
-        if partition == infos then
-            afficherDecompte(if jeJoue then "CLICK TO THE BEAT!" else "SPECTATING", OR)
-            -- le dernier bip, plus aigu et plus long : GO !
-            jouerSon("tic", 1.5, 0.7, nil, 0.4)
-            jouerSon("tic", 3, 0.35, nil, 0.4)
-            jouerSon("tic", 2, 0.3, 0.08, 0.3)
-            flasher(BLANC, 0.5)
-            secousse(1)
+        if partition ~= infos then
+            return
+        end
+        afficherDecompte(if jeCours() then "CLIMB!" else "SPECTATING", OR)
+        jouerSon("tic", 1.5, 0.7, nil, 0.4)
+        jouerSon("tic", 3, 0.35, nil, 0.4)
+        jouerSon("tic", 2, 0.3, 0.08, 0.3)
+        flasher(BLANC, 0.5)
+        secousse(1)
+        fovPulse = -8
+        -- la musique part au GO
+        if infos.musique and infos.musique ~= "" then
+            musique.TimePosition = (infos.debutMusique or 0) + math.max(0, maintenantServeur() - infos.debut)
+            musique.PlaybackSpeed = 1
+            musique:Play()
         end
     end)
 end)
 
--- ========================== FIN DE PARTIE : GAGNANT ET CHECK PARFAIT ==========================
--- Pour bien voir le(s) gagnant(s) : ils sautent dans le couloir de DEVANT (le plus près de la caméra),
--- celui qui était devant est caché, puis ils se tournent vers la caméra pour danser.
--- Égalité : les deux s'élancent l'un vers l'autre, se tapent dans la main en l'air (CLAC !),
--- atterrissent côte à côte et se tournent vers la caméra.
-local focusCheck = nil -- si défini, la caméra regarde ce point
-local jouerCheck, presenterGagnant
+-- ========================== LE DOUBLE SAUT DE L'EGO ==========================
+-- En l'air, appuie encore sur SAUT : tu repars vers le haut (une fois par saut).
 do
-local COULOIR_SCENE = 0
-local BRAS_LEVE = math.rad(150)
-
-local function versCF(position, sens, tour)
-    return CFrame.lookAt(position, position + Vector3.new(sens, 0, 0)) * CFrame.Angles(0, tour or 0, 0)
-end
-
--- on cache ceux qui sont dans le couloir de devant (sauf les gagnants)
-local function libererScene(gagnants)
-    for _, etat in pairs(avatars) do
-        if not table.find(gagnants, etat) and etat.couloir == COULOIR_SCENE then
-            etat.cache = true
-        end
-    end
-end
-
-local function preparer(etat)
-    etat.saut = nil
-    if etat.animAttente then
-        etat.animAttente:Stop(0.1)
-    end
-    if etat.trainee then
-        etat.trainee.Enabled = true
-    end
-end
-
-local function poserSurScene(etat, marche, sens, retardTour)
-    poser(etat, nil)
-    if etat.trainee then
-        etat.trainee.Enabled = false
-    end
-    if etat.animAttente then
-        etat.animAttente:Play(0.2)
-    end
-    -- il se tourne vers la caméra (petit délai pour le style)
-    etat.positionForcee = { couloir = COULOIR_SCENE, marche = marche, sens = sens, versCamera = os.clock() + (retardTour or 0) }
-    allumerMarche(COULOIR_SCENE, marche, couleurDe(etat))
-    local sol = positionMarche(COULOIR_SCENE, marche, 0.1)
-    ondeSol(sol, couleurDe(etat), 6)
-    eclats(sol, couleurDe(etat), 12)
-    secousse(0.6)
-end
-
--- Un seul gagnant : il saute dans le couloir de devant en faisant une vrille, les bras en l'air
-presenterGagnant = function(etat)
-    if not (etat and etat.modele and etat.hauteur and etat.couloir) then
+local sautUtilise = false
+local decollage = 0
+local function suivreHumanoid(personnage)
+    local humanoid = personnage:WaitForChild("Humanoid", 10)
+    if not humanoid then
         return
     end
-    libererScene({ etat })
-    preparer(etat)
-    local m = math.floor((etat.config:GetAttribute("Marche") or 0) + 0.5)
-    local depart = positionMarche(etat.couloir, m, etat.hauteur)
-    local fin = positionMarche(COULOIR_SCENE, m, etat.hauteur)
-    local t0 = os.clock()
-    etat.cinematique = function(horloge)
-        local t = horloge - t0
-        if t < 0.3 then -- il prend son élan
-            local k = t / 0.3
-            poser(etat, { LeftKnee = -0.8 * k, RightKnee = -0.8 * k, LeftHip = 0.5 * k, RightHip = 0.5 * k, Waist = -0.25 * k })
-            return versCF(depart - Vector3.new(0, 0.6 * k, 0), 1)
-        elseif t < 1.05 then -- le saut, vrille, bras en l'air
-            local k = (t - 0.3) / 0.75
-            local doux = k * k * (3 - 2 * k)
-            local bosse = math.sin(math.pi * k)
-            poser(etat, { LeftShoulder = BRAS_LEVE * bosse, RightShoulder = BRAS_LEVE * bosse, LeftKnee = -0.6 * bosse, RightKnee = -0.6 * bosse })
-            local position = depart:Lerp(fin, doux) + Vector3.new(0, bosse * 5, 0)
-            return versCF(position, 1, 2 * math.pi * doux)
+    humanoid.StateChanged:Connect(function(_, nouvel)
+        if nouvel == Enum.HumanoidStateType.Jumping then
+            decollage = os.clock()
+        elseif nouvel == Enum.HumanoidStateType.Landed or nouvel == Enum.HumanoidStateType.Running then
+            sautUtilise = false
         end
-        return nil
-    end
-    etat.finCinematique = function()
-        poserSurScene(etat, m, 1, 0.1)
-    end
-    etatSuiviCamera = etat
-end
-
-local function clacParfait(point, couleurA, couleurB)
-    sonClaque()
-    flasher(BLANC, 0.85)
-    secousse(2.5)
-    fovPulse = -7
-    flou.Size = 12
-    tween(flou, 0.5, { Size = 0 })
-    eclats(point, couleurA, 30, 1.4)
-    eclats(point, couleurB, 30, 1.4)
-    eclats(point, OR, 20, 2)
-    ondeSol(point, BLANC, 12, true)
-    task.delay(0.08, function()
-        ondeSol(point, OR, 8, true)
     end)
-    grosTexte.TextColor3 = OR
-    apparaitre(grosTexte, "PERFECT HIGH FIVE!", 2, echelleGros)
 end
-
-jouerCheck = function(configA, configB)
-    local a, b = avatars[configA], avatars[configB]
-    if not (a and b and a.modele and b.modele and a.hauteur and b.hauteur and a.couloir and b.couloir) then
+joueur.CharacterAdded:Connect(suivreHumanoid)
+if joueur.Character then
+    task.spawn(suivreHumanoid, joueur.Character)
+end
+UserInputService.JumpRequest:Connect(function()
+    if not jeCours() or not monEtat.config:GetAttribute("DoubleSaut") or sautUtilise then
         return
     end
-    libererScene({ a, b })
-    local m = math.floor((a.config:GetAttribute("Marche") or 0) + 0.5)
-    local D, H = GEO.PROFONDEUR, GEO.HAUTEUR
-    local zScene = positionMarche(COULOIR_SCENE, m, 0).Z
-    local departA = positionMarche(a.couloir, m, a.hauteur)
-    local departB = positionMarche(b.couloir, m, b.hauteur)
-    local xMilieu = GEO.X0 + (m + 1) * D
-    local yPied = GEO.Y0 + m * H + 4.5 -- ils sautent à 4,5 studs au-dessus de la marche
-    local hautA = Vector3.new(xMilieu - 1.1, yPied + a.hauteur, zScene)
-    local hautB = Vector3.new(xMilieu + 1.1, yPied + b.hauteur, zScene)
-    local finA = positionMarche(COULOIR_SCENE, m, a.hauteur)
-    local finB = positionMarche(COULOIR_SCENE, m + 1, b.hauteur) -- B atterrit sur la marche d'après
-    local pointClac = Vector3.new(xMilieu, yPied + math.max(a.hauteur, b.hauteur) + 2.6, zScene + 0.6)
-    -- la caméra regarde pile le point du check, de face
-    focusCheck = Vector3.new(xMilieu, yPied + 1, zScene)
-    preparer(a)
-    preparer(b)
+    local personnage = joueur.Character
+    local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
+    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not racine or humanoid.FloorMaterial ~= Enum.Material.Air or os.clock() - decollage < 0.18 then
+        return
+    end
+    local etatHumanoid = humanoid:GetState()
+    if etatHumanoid ~= Enum.HumanoidStateType.Freefall and etatHumanoid ~= Enum.HumanoidStateType.Jumping then
+        return
+    end
+    sautUtilise = true
+    local v = racine.AssemblyLinearVelocity
+    racine.AssemblyLinearVelocity = Vector3.new(v.X, math.sqrt(2 * workspace.Gravity * humanoid.JumpHeight), v.Z)
+    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    local pieds = racine.Position - Vector3.new(0, hauteurRacine(personnage), 0)
+    ondeSol(pieds, COULEURS.Ego, 6)
+    eclats(pieds, COULEURS.Ego, 10, 0.8)
+    jouerSon("tic", 2.2, 0.35, nil, 0.12)
+end)
+end -- fin du bloc du double saut
 
-    local t0 = os.clock()
-    -- A lève le bras droit, B (qui se retourne) lève le gauche : les deux mains sont côté caméra
-    local function trajectoire(etat, depart, haut, fin, epaule, tourne)
-        etat.cinematique = function(horloge)
-            local t = horloge - t0
-            local position, bras, tour, genoux
-            if t < 0.35 then -- il se baisse pour prendre son élan
-                local k = t / 0.35
-                position = depart - Vector3.new(0, 0.7 * math.sin(k * math.pi / 2), 0)
-                bras, tour, genoux = 0.25 * k, 0, k
-            elseif t < 0.85 then -- le bond
-                local k = (t - 0.35) / 0.5
-                local doux = 1 - (1 - k) ^ 3
-                position = (depart - Vector3.new(0, 0.7, 0)):Lerp(haut, doux)
-                bras, tour, genoux = 0.25 + 0.75 * doux, (if tourne then math.pi * doux else 0), 1 - doux
-            elseif t < 1.35 then -- suspendus en l'air après le CLAC
-                local k = (t - 0.85) / 0.5
-                position = haut + Vector3.new(0, math.sin(k * math.pi) * 0.3, 0)
-                bras, tour, genoux = 1, (if tourne then math.pi else 0), 0.3 * math.sin(k * math.pi)
-            elseif t < 1.85 then -- ils redescendent
-                local k = (t - 1.35) / 0.5
-                position = haut:Lerp(fin, k * k) + Vector3.new(0, math.sin(k * math.pi) * 0.8, 0)
-                bras, tour, genoux = 1 - k, (if tourne then math.pi else 0), 0.5 * k
-            else
-                return nil
+-- ========================== LES ROCHERS ==========================
+-- Un rocher qui te touche te renverse et te fait dévaler quelques marches (sauf la chance de l'OBSESSION « UNSTOPPABLE »).
+do
+local dossierObstacles = workspace:WaitForChild("MindsetObstacles", 20)
+local dernierCoup = 0
+local function chanceTenace()
+    if not monEtat or monEtat.config:GetAttribute("Perso") ~= "Obsession" then
+        return 0
+    end
+    local def = DEFS.persos and DEFS.persos.Obsession and DEFS.persos.Obsession[2]
+    local niveau = tonumber(mesNiveaux("Obsession")[2]) or 0
+    if not def or niveau <= 0 then
+        return 0
+    end
+    return def.valeurs[math.min(niveau, #def.valeurs)] or 0
+end
+RunService.Heartbeat:Connect(function()
+    if not dossierObstacles or not jeCours() or os.clock() - dernierCoup < 1.2 then
+        return
+    end
+    local personnage = joueur.Character
+    local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
+    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not racine or racine.Anchored then
+        return
+    end
+    for _, rocher in ipairs(dossierObstacles:GetChildren()) do
+        if rocher:IsA("BasePart") and (rocher.Position - racine.Position).Magnitude < rocher.Size.X / 2 + 1.8 then
+            dernierCoup = os.clock()
+            if math.random(1, 100) <= chanceTenace() then
+                grosTexte.TextColor3 = COULEURS.Obsession
+                apparaitre(grosTexte, "UNSTOPPABLE!", 0.9, echelleGros)
+                eclats(racine.Position, COULEURS.Obsession, 14, 1)
+                return
             end
-            poser(etat, { [epaule] = BRAS_LEVE * bras, LeftKnee = -0.7 * genoux, RightKnee = -0.7 * genoux, Waist = -0.15 * genoux })
-            return versCF(position, 1, tour)
-        end
-        etat.finCinematique = function()
-            poserSurScene(etat, if etat == a then m else m + 1, if tourne then -1 else 1, 0.45)
-            -- la caméra recule un peu pour avoir les deux, de face
-            focusCheck = Vector3.new(xMilieu, GEO.Y0 + (m + 0.5) * H + 2.5, zScene)
+            humanoid:ChangeState(Enum.HumanoidStateType.FallingDown)
+            racine.AssemblyLinearVelocity = Vector3.new(-45, 30, math.clamp((racine.Position.Z - rocher.Position.Z) * 6, -25, 25))
+            flasher(ROUGE, 0.35)
+            secousse(2)
+            fovPulse = 6
+            auraTexte.TextColor3 = ROUGE
+            apparaitre(auraTexte, "💥 BOULDER!", 0.9)
+            jouerSon("boum", 0.9, 0.45, nil, 0.6)
+            return
         end
     end
-    trajectoire(a, departA, hautA, finA, "RightShoulder", false)
-    trajectoire(b, departB, hautB, finB, "LeftShoulder", true)
-    task.delay(0.85, function()
-        clacParfait(pointClac, couleurDe(a), couleurDe(b))
-    end)
-end
-end -- fin du bloc du check
+end)
+end -- fin du bloc des rochers
+
 
 -- ========================== DANSE DU GAGNANT ==========================
 local arreterDanseUI, demarrerDanseUI
@@ -2756,35 +2002,50 @@ surAuraFarmee = function(n)
 end
 end -- fin du bloc de la danse
 
+
+
 -- ========================== ÉVÉNEMENTS ==========================
-EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
-    if typeEvt == "Vainqueur" then
+EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b, c)
+    if typeEvt == "Chute" then
+        -- a = le grimpeur qui est tombé, b = combien de marches il a perdues, c = il est retombé sur son checkpoint
         local etat = avatars[a]
-        jeJoue = false
-        viderNotes()
-        etatSuiviCamera = etat
-        presenterGagnant(etat)
+        if etat and etat.estMoi then
+            flasher(ROUGE, 0.35)
+            secousse(1.4)
+            auraTexte.TextColor3 = if c then COULEURS.Discipline else ROUGE
+            apparaitre(auraTexte, if c then "🛡 CHECKPOINT" else "💀 -" .. tostring(b or 0) .. " STEPS", 1.2)
+            jouerSon("pose", 0.6, 0.5)
+        end
+        local racine = etat and etat.modele and etat.modele:FindFirstChild("HumanoidRootPart")
+        if racine then
+            task.delay(0.05, function()
+                ondeSol(racine.Position - Vector3.new(0, etat.hauteur or 3, 0), couleurDe(etat), 7)
+                eclats(racine.Position, couleurDe(etat), 12, 1)
+            end)
+        end
+    elseif typeEvt == "Tempete" then
+        -- le drop de la musique : TEMPÊTE DE ROCHERS
+        grosTexte.TextColor3 = ROUGE
+        apparaitre(grosTexte, "🪨 BOULDER STORM!", 2, echelleGros)
+        flasher(ROUGE, 0.5)
+        secousse(2)
+        fovPulse = -8
+    elseif typeEvt == "Vainqueur" then
+        -- a = la liste des gagnants : ils sont sur la scène, la caméra y va
+        sceneActive = true
         modeCinema(true)
         tween(effetAura, 0.5, { Saturation = -1, Contrast = 0.4 })
         flasher(OR, 0.7)
         secousse(2)
-        if etat then
-            grosTexte.TextColor3 = couleurDe(etat)
-            apparaitre(
-                grosTexte,
-                tostring(etat.config:GetAttribute("Nom")) .. " — " .. string.upper(tostring(etat.config:GetAttribute("Perso"))),
-                2.2,
-                echelleGros
-            )
+        local premier = a and a[1] and avatars[a[1]]
+        if premier then
+            local noms = {}
+            for _, config in ipairs(a) do
+                table.insert(noms, tostring(config:GetAttribute("Nom")))
+            end
+            grosTexte.TextColor3 = couleurDe(premier)
+            apparaitre(grosTexte, table.concat(noms, " & ") .. " — " .. string.upper(tostring(premier.config:GetAttribute("Perso"))), 2.2, echelleGros)
         end
-    elseif typeEvt == "Check" then
-        jeJoue = false
-        viderNotes()
-        modeCinema(true)
-        tween(effetAura, 0.5, { Saturation = -1, Contrast = 0.4 })
-        grosTexte.TextColor3 = BLANC
-        apparaitre(grosTexte, "TIE!", 0.8, echelleGros)
-        jouerCheck(a, b)
     elseif typeEvt == "Danse" then
         -- a = la liste des gagnants, b = l'heure (serveur) de fin de la danse
         -- noir et blanc bien contrasté, comme dans les edits de la trend (le danseur, lui, brille)
@@ -2811,8 +2072,8 @@ end)
 -- (style légende TikTok : blanc, gros contour noir, mot par mot) et des effets sur les avatars :
 --   début       : MOTIVATION brûle (grosse flamme sur le torse)  → « MOTIVATION gets you started. »
 --   38 %        : la flamme de MOTIVATION s'éteint, il fume       → « But MOTIVATION fades... »
---   EGO combo 15: une couronne en or apparaît sur sa tête         → « EGO wants everyone to watch. »
---   EGO qui rate: la couronne tombe                               → « EGO broke <pseudo>'s combo. »
+--   EGO 1er     : une couronne en or apparaît sur sa tête         → « EGO wants everyone to watch. »
+--   EGO qui tombe : la couronne tombe                             → « EGO made <pseudo> fall. »
 --   50 %        : DISCIPLINE (calme, régulier)                    → « DISCIPLINE keeps you going. »
 --   72 %        : OBSESSION se réveille (aura rouge sang)         → « OBSESSION makes you unstoppable. »
 --   à la fin    : une phrase selon l'état d'esprit du gagnant
@@ -3065,31 +2326,35 @@ RunService.Heartbeat:Connect(function()
             end
         end
     end
-    -- l'EGO : couronne quand il frime (combo 15), elle tombe quand il rate
+    -- l'EGO : une couronne quand il est PREMIER (il frime), elle tombe s'il perd la tête de la course
     for _, etat in ipairs(joueursDe("Ego")) do
-        local combo = etat.config:GetAttribute("Combo") or 0
-        local avant = etat.comboEgo or 0
-        etat.comboEgo = combo
-        if combo >= 15 and not etat.couronne then
+        local premier = etat.config:GetAttribute("Rang") == 1 and progression > 0.05
+        if premier and not etat.couronne then
             couronne(etat)
             if not suivi.egoMontre then
                 suivi.egoMontre = true
                 dire("EGO wants everyone to watch.", COULEURS.Ego)
             end
-        elseif combo == 0 and avant >= 10 then
+        elseif not premier and etat.couronne then
             enleverCouronne(etat)
-            if suivi.egoTombe < 2 then
-                suivi.egoTombe += 1
-                dire("EGO broke " .. tostring(etat.config:GetAttribute("Nom")) .. "'s combo.", COULEURS.Ego)
-            end
         end
     end
 end)
 
+-- l'EGO qui tombe : la couronne tombe avec lui
 -- à la fin : la phrase du gagnant ; au lobby : on enlève tout
 EvenementEvent.OnClientEvent:Connect(function(typeEvt, a)
-    if typeEvt == "Vainqueur" and a then
-        local perso = a:GetAttribute("Perso")
+    if typeEvt == "Chute" and a and a:GetAttribute("Perso") == "Ego" and ReplicatedStorage:GetAttribute("Phase") == "Manche" then
+        local etat = avatars[a]
+        if etat then
+            enleverCouronne(etat)
+        end
+        if suivi.egoTombe and suivi.egoTombe < 2 then
+            suivi.egoTombe += 1
+            dire("EGO made " .. tostring(a:GetAttribute("Nom")) .. " fall.", COULEURS.Ego)
+        end
+    elseif typeEvt == "Vainqueur" and a and a[1] then
+        local perso = a[1]:GetAttribute("Perso")
         if LIGNES_GAGNANT[perso] then
             task.delay(1.3, function()
                 attente = {}
@@ -3106,443 +2371,6 @@ ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(function()
 end)
 end -- fin du bloc de la trend
 
--- ========================== CLASSEMENTS ==========================
-local boutonClassement, fermerPanneau, ouvrirPanneau
-do
-boutonClassement = nouveau("TextButton", {
-    Position = UDim2.new(0, 20, 0, 70),
-    Size = UDim2.fromOffset(200, 44),
-    BackgroundColor3 = Color3.fromRGB(14, 14, 22),
-    BackgroundTransparency = 0.1,
-    AutoButtonColor = false,
-    Font = Enum.Font.GothamBlack,
-    Text = "LEADERBOARDS",
-    TextScaled = true,
-    TextColor3 = OR,
-    ZIndex = 25,
-    Parent = gui,
-})
-nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = boutonClassement })
-nouveau("UIStroke", { Color = OR, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = boutonClassement })
-nouveau("UIPadding", { PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), Parent = boutonClassement })
-local echelleBoutonClassement = nouveau("UIScale", { Parent = boutonClassement })
-boutonClassement.MouseEnter:Connect(function()
-    sonSurvol(6)
-    tween(echelleBoutonClassement, 0.2, { Scale = 1.06 }, Enum.EasingStyle.Back)
-end)
-boutonClassement.MouseLeave:Connect(function()
-    tween(echelleBoutonClassement, 0.2, { Scale = 1 })
-end)
-
-local fondPanneau = nouveau("TextButton", { -- clic à côté du panneau = fermer
-    Size = UDim2.fromScale(1, 1),
-    BackgroundColor3 = NOIR,
-    BackgroundTransparency = 1,
-    AutoButtonColor = false,
-    Text = "",
-    Visible = false,
-    ZIndex = 40,
-    Parent = gui,
-})
-local panneau = nouveau("TextButton", { -- bouton « vide » : un clic sur le panneau ne le ferme pas
-    AnchorPoint = Vector2.new(0.5, 0.5),
-    Position = UDim2.fromScale(0.5, 0.5),
-    Size = UDim2.fromScale(0.92, 0.88),
-    BackgroundColor3 = Color3.fromRGB(12, 12, 18),
-    AutoButtonColor = false,
-    Text = "",
-    ZIndex = 41,
-    Parent = fondPanneau,
-})
-nouveau("UISizeConstraint", { MaxSize = Vector2.new(660, 620), Parent = panneau })
-nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = panneau })
-nouveau("UIStroke", { Color = OR, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = panneau })
-local echellePanneau = nouveau("UIScale", { Parent = panneau })
-texte({
-    Position = UDim2.new(0, 20, 0, 14),
-    Size = UDim2.new(1, -310, 0, 38),
-    Text = "LEADERBOARDS",
-    TextColor3 = OR,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ZIndex = 42,
-    Parent = panneau,
-})
--- ce qu'on regarde : « EGO + EMPIRE », « MONDE ENTIER »...
-local sousTitre = texte({
-    Position = UDim2.new(0, 20, 0, 54),
-    Size = UDim2.new(1, -40, 0, 18),
-    Text = "Most steps climbed in one game",
-    Font = Enum.Font.GothamMedium,
-    TextColor3 = Color3.fromRGB(170, 170, 190),
-    TextStrokeTransparency = 1,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    ZIndex = 42,
-    Parent = panneau,
-})
-local boutonFermer = nouveau("TextButton", {
-    AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -16, 0, 16),
-    Size = UDim2.fromOffset(110, 34),
-    BackgroundColor3 = Color3.fromRGB(40, 40, 55),
-    AutoButtonColor = false,
-    Font = Enum.Font.GothamBlack,
-    Text = "CLOSE",
-    TextScaled = true,
-    TextColor3 = BLANC,
-    ZIndex = 42,
-    Parent = panneau,
-})
-nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = boutonFermer })
-nouveau("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), Parent = boutonFermer })
--- 🌍 le classement du monde entier (toutes musiques, tous états d'esprit, tous les joueurs)
-local COULEUR_MONDE = Color3.fromRGB(110, 230, 160)
-local boutonMonde = nouveau("TextButton", {
-    AnchorPoint = Vector2.new(1, 0),
-    Position = UDim2.new(1, -134, 0, 16),
-    Size = UDim2.fromOffset(160, 34),
-    BackgroundColor3 = Color3.fromRGB(24, 24, 34),
-    AutoButtonColor = false,
-    Font = Enum.Font.GothamBlack,
-    Text = "WORLDWIDE",
-    TextScaled = true,
-    TextColor3 = COULEUR_MONDE,
-    ZIndex = 42,
-    Parent = panneau,
-})
-nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = boutonMonde })
-nouveau("UIStroke", { Color = COULEUR_MONDE, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = boutonMonde })
-nouveau("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), Parent = boutonMonde })
-
-local function titreRangee(y, message)
-    texte({
-        Position = UDim2.new(0, 20, 0, y),
-        Size = UDim2.new(1, -40, 0, 16),
-        Text = message,
-        Font = Enum.Font.GothamBlack,
-        TextColor3 = Color3.fromRGB(140, 140, 160),
-        TextStrokeTransparency = 1,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 42,
-        Parent = panneau,
-    })
-end
-titreRangee(84, "MINDSETS")
-local rangeeOngletsPersos = nouveau("Frame", {
-    Position = UDim2.new(0, 20, 0, 104),
-    Size = UDim2.new(1, -40, 0, 36),
-    BackgroundTransparency = 1,
-    ZIndex = 42,
-    Parent = panneau,
-})
-nouveau("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6), Parent = rangeeOngletsPersos })
-titreRangee(150, "SONGS")
-local rangeeOngletsMusiques = nouveau("ScrollingFrame", {
-    Position = UDim2.new(0, 20, 0, 170),
-    Size = UDim2.new(1, -40, 0, 44),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    CanvasSize = UDim2.new(),
-    AutomaticCanvasSize = Enum.AutomaticSize.X,
-    ScrollingDirection = Enum.ScrollingDirection.X,
-    ScrollBarThickness = 4,
-    ScrollBarImageColor3 = BLEU_MUSIQUE,
-    ZIndex = 42,
-    Parent = panneau,
-})
-nouveau("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6), Parent = rangeeOngletsMusiques })
-
-local listeClassement = nouveau("ScrollingFrame", {
-    Position = UDim2.new(0, 20, 0, 224),
-    Size = UDim2.new(1, -40, 1, -284),
-    BackgroundTransparency = 1,
-    BorderSizePixel = 0,
-    CanvasSize = UDim2.new(),
-    AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    ScrollingDirection = Enum.ScrollingDirection.Y,
-    ScrollBarThickness = 4,
-    ScrollBarImageColor3 = OR,
-    ZIndex = 42,
-    Parent = panneau,
-})
-nouveau("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 4), Parent = listeClassement })
-local etatListe = texte({
-    AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.new(0.5, 0, 0, 260),
-    Size = UDim2.new(1, -60, 0, 24),
-    Font = Enum.Font.GothamBold,
-    TextColor3 = Color3.fromRGB(170, 170, 190),
-    TextStrokeTransparency = 1,
-    ZIndex = 43,
-    Parent = panneau,
-})
-local monRecordTexte = texte({
-    AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -14),
-    Size = UDim2.new(1, -40, 0, 30),
-    TextColor3 = OR,
-    ZIndex = 42,
-    Parent = panneau,
-})
-
-local onglets = {} -- [cle] = { bouton, couleur }
--- Ce qu'on regarde : clique un état d'esprit, PUIS une musique → le classement de cette combinaison.
--- (un seul des deux = toutes les musiques / tous les états d'esprit ; MONDE ENTIER = tout)
-local choixPerso, choixMusique, modeMonde = nil, nil, false
-local demandeClassement = 0
-local COULEURS_PODIUM = { OR, Color3.fromRGB(210, 215, 230), Color3.fromRGB(220, 140, 80) }
-
-local function nomOnglet(cle)
-    local valeur = cle and dossierClassements:FindFirstChild(cle)
-    return if valeur then valeur.Value else "?"
-end
-
-local function cleSelection()
-    if modeMonde or not (choixPerso or choixMusique) then
-        return "G", "WORLDWIDE  ·  the best of all players, every song and mindset"
-    end
-    if choixPerso and choixMusique then
-        return "C_" .. string.sub(choixPerso, 3) .. "_" .. choixMusique, nomOnglet(choixPerso) .. "  +  " .. nomOnglet(choixMusique)
-    end
-    if choixPerso then
-        return choixPerso, nomOnglet(choixPerso) .. "  ·  all songs (also pick a song)"
-    end
-    return choixMusique, nomOnglet(choixMusique) .. "  ·  all mindsets (also pick a mindset)"
-end
-
-local function styleOnglets()
-    for cle, o in pairs(onglets) do
-        local choisi = not modeMonde and (cle == choixPerso or cle == choixMusique)
-        tween(o.bouton, 0.2, { BackgroundColor3 = if choisi then o.couleur else Color3.fromRGB(24, 24, 34) })
-        o.bouton.TextColor3 = if choisi then NOIR else o.couleur
-    end
-    local monde = cleSelection() == "G"
-    tween(boutonMonde, 0.2, { BackgroundColor3 = if monde then COULEUR_MONDE else Color3.fromRGB(24, 24, 34) })
-    boutonMonde.TextColor3 = if monde then NOIR else COULEUR_MONDE
-end
-
-local function ligneClassement(rang, nom, score, estMoi, details)
-    local ligne = nouveau("Frame", {
-        Size = UDim2.new(1, -8, 0, if details and details.perso then 44 else 34),
-        BackgroundTransparency = 1,
-        LayoutOrder = rang,
-        ZIndex = 42,
-        Parent = listeClassement,
-    })
-    -- le contenu glisse depuis la droite, une ligne après l'autre
-    local contenu = nouveau("Frame", {
-        Position = UDim2.new(0, 60, 0, 0),
-        Size = UDim2.fromScale(1, 1),
-        BackgroundColor3 = if estMoi then Color3.fromRGB(60, 52, 20) elseif rang % 2 == 1 then Color3.fromRGB(26, 26, 38) else Color3.fromRGB(20, 20, 30),
-        BackgroundTransparency = 1,
-        ZIndex = 42,
-        Parent = ligne,
-    })
-    nouveau("UICorner", { CornerRadius = UDim.new(0, 8), Parent = contenu })
-    if estMoi then
-        nouveau("UIStroke", { Color = OR, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = contenu })
-    end
-    local couleurRang = COULEURS_PODIUM[rang] or Color3.fromRGB(170, 170, 190)
-    local labels = {
-        texte({ Position = UDim2.new(0, 10, 0, 5), Size = UDim2.new(0, 40, 1, -10), Text = tostring(rang), TextColor3 = couleurRang, ZIndex = 43, Parent = contenu }),
-        texte({
-            Position = UDim2.new(0, 60, 0, 6),
-            Size = UDim2.new(1, -200, 1, -12),
-            Text = nom,
-            Font = Enum.Font.GothamBold,
-            TextStrokeTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 43,
-            Parent = contenu,
-        }),
-        texte({
-            AnchorPoint = Vector2.new(1, 0),
-            Position = UDim2.new(1, -12, 0, 5),
-            Size = UDim2.new(0, 130, 1, -10),
-            Text = score .. " steps",
-            TextColor3 = couleurRang,
-            TextXAlignment = Enum.TextXAlignment.Right,
-            ZIndex = 43,
-            Parent = contenu,
-        }),
-    }
-    -- 🌍 monde entier : avec quel état d'esprit et quelle musique (petite ligne sous le pseudo)
-    if details and details.perso then
-        local couleurPerso = COULEURS[details.perso] or Color3.fromRGB(170, 170, 190)
-        local ligneDetails = texte({
-            Position = UDim2.new(0, 60, 0, 25),
-            Size = UDim2.new(1, -200, 0, 14),
-            Text = string.upper(details.perso) .. "  ·  " .. tostring(details.musique or "?"),
-            Font = Enum.Font.GothamBold,
-            TextColor3 = couleurPerso,
-            TextStrokeTransparency = 1,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 43,
-            Parent = contenu,
-        })
-        table.insert(labels, ligneDetails)
-        -- le pseudo remonte un peu pour laisser la place
-        labels[2].Position = UDim2.new(0, 60, 0, 5)
-        labels[2].Size = UDim2.new(1, -200, 0, 18)
-    end
-    for _, label in ipairs(labels) do
-        label.TextTransparency = 1
-        label.TextStrokeTransparency = 1
-    end
-    task.delay(rang * 0.035, function()
-        tween(contenu, 0.35, { Position = UDim2.new(), BackgroundTransparency = 0 }, Enum.EasingStyle.Quint)
-        for i, label in ipairs(labels) do
-            tween(label, 0.3, { TextTransparency = 0, TextStrokeTransparency = if i == 1 or i == 3 then 0.4 else 1 })
-        end
-    end)
-end
-
-local function afficherClassement()
-    local cle, description = cleSelection()
-    sousTitre.Text = description
-    styleOnglets()
-    demandeClassement += 1
-    local numero = demandeClassement
-    for _, enfant in ipairs(listeClassement:GetChildren()) do
-        if enfant:IsA("Frame") then
-            enfant:Destroy()
-        end
-    end
-    etatListe.Text = "Loading..."
-    etatListe.Visible = true
-    monRecordTexte.Text = ""
-    task.spawn(function()
-        local ok, resultat = pcall(function()
-            return ClassementFonction:InvokeServer(cle)
-        end)
-        if numero ~= demandeClassement then
-            return -- on a changé d'onglet entre temps
-        end
-        if not ok or type(resultat) ~= "table" then
-            etatListe.Text = "Leaderboard unavailable right now"
-            return
-        end
-        local lignes = resultat.liste or {}
-        etatListe.Visible = #lignes == 0
-        etatListe.Text = "Nobody yet. Be the first!"
-        for rang, l in ipairs(lignes) do
-            ligneClassement(rang, tostring(l.nom), l.score or 0, l.userId == joueur.UserId, { perso = l.perso, musique = l.musique })
-        end
-        local moi = resultat.moi or 0
-        monRecordTexte.Text = if moi > 0 then "YOUR RECORD: " .. moi .. " steps" else "YOUR RECORD: none yet"
-    end)
-end
-
-local function creerOnglet(valeur)
-    if onglets[valeur.Name] then
-        return
-    end
-    local estPerso = valeur:GetAttribute("Type") == "Perso"
-    local couleur = if estPerso then (COULEURS[string.sub(valeur.Name, 3)] or OR) else BLEU_MUSIQUE
-    local bouton = nouveau("TextButton", {
-        Size = if estPerso then UDim2.new(0.25, -5, 1, 0) else UDim2.new(0, 0, 1, -8),
-        AutomaticSize = if estPerso then Enum.AutomaticSize.None else Enum.AutomaticSize.X,
-        BackgroundColor3 = Color3.fromRGB(24, 24, 34),
-        AutoButtonColor = false,
-        Font = Enum.Font.GothamBlack,
-        Text = valeur.Value,
-        TextScaled = estPerso,
-        TextSize = 15,
-        TextColor3 = couleur,
-        LayoutOrder = valeur:GetAttribute("Ordre") or 99,
-        ZIndex = 43,
-        Parent = if estPerso then rangeeOngletsPersos else rangeeOngletsMusiques,
-    })
-    nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = bouton })
-    nouveau("UIStroke", { Color = couleur, Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = bouton })
-    nouveau("UIPadding", {
-        PaddingTop = UDim.new(0, 8),
-        PaddingBottom = UDim.new(0, 8),
-        PaddingLeft = UDim.new(0, 12),
-        PaddingRight = UDim.new(0, 12),
-        Parent = bouton,
-    })
-    local echelle = nouveau("UIScale", { Parent = bouton })
-    local note = if estPerso then (valeur:GetAttribute("Ordre") or 1) else 5
-    bouton.MouseEnter:Connect(function()
-        sonSurvol(note)
-        tween(echelle, 0.18, { Scale = 1.06 }, Enum.EasingStyle.Back)
-    end)
-    bouton.MouseLeave:Connect(function()
-        tween(echelle, 0.18, { Scale = 1 })
-    end)
-    bouton.Activated:Connect(function()
-        echelle.Scale = 0.9
-        tween(echelle, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
-        sonClic(note)
-        -- recliquer le même onglet le désélectionne
-        modeMonde = false
-        if estPerso then
-            choixPerso = if choixPerso == valeur.Name then nil else valeur.Name
-        else
-            choixMusique = if choixMusique == valeur.Name then nil else valeur.Name
-        end
-        afficherClassement()
-    end)
-    onglets[valeur.Name] = { bouton = bouton, couleur = couleur }
-end
-dossierClassements.ChildAdded:Connect(creerOnglet)
-for _, valeur in ipairs(dossierClassements:GetChildren()) do
-    creerOnglet(valeur)
-end
-
-ouvrirPanneau = function()
-    if panneauOuvert then
-        return
-    end
-    panneauOuvert = true
-    for _, c in ipairs(toutesCartes) do
-        c.survole = false
-    end
-    fondPanneau.Visible = true
-    fondPanneau.BackgroundTransparency = 1
-    tween(fondPanneau, 0.3, { BackgroundTransparency = 0.45 })
-    echellePanneau.Scale = 0.75
-    tween(echellePanneau, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
-    if not (choixPerso or choixMusique or modeMonde) then
-        choixPerso = "P_" .. (persoChoisi or "Motivation")
-    end
-    afficherClassement()
-end
-boutonMonde.MouseEnter:Connect(function()
-    sonSurvol(7)
-end)
-boutonMonde.Activated:Connect(function()
-    sonClic(7)
-    modeMonde = true
-    afficherClassement()
-end)
-fermerPanneau = function()
-    if not panneauOuvert then
-        return
-    end
-    panneauOuvert = false
-    tween(fondPanneau, 0.2, { BackgroundTransparency = 1 })
-    tween(echellePanneau, 0.2, { Scale = 0.8 })
-    task.delay(0.2, function()
-        if not panneauOuvert then
-            fondPanneau.Visible = false
-        end
-    end)
-end
-boutonClassement.Activated:Connect(function()
-    sonClic(6)
-    if panneauOuvert then
-        fermerPanneau()
-    else
-        ouvrirPanneau()
-    end
-end)
-boutonFermer.Activated:Connect(function()
-    sonClic(1)
-    fermerPanneau()
-end)
-fondPanneau.Activated:Connect(fermerPanneau)
-end -- fin du bloc des classements
 
 -- ========================== LANGUE (anglais / français) ==========================
 -- Tout le jeu est écrit en anglais. Ce bloc traduit À LA VOLÉE chaque texte affiché (ce script,
@@ -3570,6 +2398,20 @@ local FR_EXACT = {
     ["HARD"] = "DIFFICILE",
     ["EXTREME"] = "EXTRÊME",
     ["The fire of the start"] = "Le feu du départ",
+    ["Fast start. Then it fades."] = "Départ en feu. Puis ça s'éteint.",
+    ["Double jump. Falls harder."] = "Double saut. Tombe de plus haut.",
+    ["Steady. Checkpoints."] = "Régulier. Des checkpoints.",
+    ["Slow start. Unstoppable end."] = "Départ lent. Fin inarrêtable.",
+    -- l'escalier 3D
+    ["CLIMB!"] = "GRIMPE !",
+    ["🪨 BOULDER STORM!"] = "🪨 TEMPÊTE DE ROCHERS !",
+    ["💥 BOULDER!"] = "💥 ROCHER !",
+    ["UNSTOPPABLE!"] = "INARRÊTABLE !",
+    ["HIGHEST"] = "PLUS HAUT",
+    ["FALLS"] = "CHUTES",
+    ["BOULDERS"] = "ROCHERS",
+    ["Slow and steady. As always."] = "Lentement mais sûrement. Comme toujours.",
+    ["Didn't move the whole round: AFK MODE on"] = "Tu n'as pas bougé de toute la course : MODE AFK activé",
     ["The king of combos"] = "Le roi des combos",
     ["The unbreakable wall"] = "Le mur incassable",
     ["The late-game monster"] = "Le monstre de fin de partie",
@@ -3734,18 +2576,21 @@ local FR_MOTIFS = {
     { "^LEVEL UP!  (.+) is now level (%d+)$", "NIVEAU SUPÉRIEUR !  %1 passe niveau %2" },
     { "^Not enough aura: you need (%d+) more%. Play to farm some!$", "Pas assez d'aura : il t'en manque %1. Joue pour en farmer !" },
     -- les compétences (textes du serveur)
-    { "^Start every round (%d+) steps up$", "Commence chaque manche %1 marches plus haut" },
-    { "^%+1 step per hit in the first (%d+)%% of the song$", "+1 marche par note dans les premiers %1 %% de la musique" },
-    { "^(%d+)%% chance a miss costs nothing %(1st half%)$", "%1 %% de chance qu'une note ratée ne coûte rien (1re moitié)" },
-    { "^PERFECT = %+2 steps from combo (%d+)$", "PARFAIT = +2 marches dès le combo %1" },
-    { "^%+(%d+) bonus steps every 10 combo$", "+%1 marches bonus tous les 10 de combo" },
-    { "^Your first (%d+) misses don't break your combo$", "Tes %1 premières notes ratées ne cassent pas ton combo" },
-    { "^(%d+)%% chance a miss costs nothing$", "%1 %% de chance qu'une note ratée ne coûte rien" },
-    { "^%+1 bonus step every (%d+) hits$", "+1 marche bonus toutes les %1 notes" },
+    { "^Start every round (%d+) steps up$", "Commence chaque course %1 marches plus haut" },
+    { "^%+(%d+)%% speed in the first 30%% of the round$", "+%1 %% de vitesse pendant les premiers 30 %% de la course" },
+    { "^A (%d+)%-second speed boost at mid%-round$", "Un boost de vitesse de %1 s au milieu de la course" },
+    { "^%+(%d+)%% jump height$", "+%1 %% de hauteur de saut" },
+    { "^%+(%d+)%% speed while you're 1st$", "+%1 %% de vitesse quand tu es 1er" },
+    { "^Your first (%d+) falls cost half$", "Tes %1 premières chutes coûtent moitié moins" },
+    { "^A checkpoint every (%d+) steps$", "Un checkpoint toutes les %1 marches" },
+    { "^%+(%d+)%% speed, all round long$", "+%1 %% de vitesse, toute la course" },
     { "^%+(%d+)%% aura earned$", "+%1 %% d'aura gagnée" },
-    { "^%+1 step per hit after (%d+)%% of the song$", "+1 marche par note après %1 %% de la musique" },
-    { "^(%d+)%% chance a PERFECT gives %+1 more$", "%1 %% de chance qu'un PARFAIT donne +1 de plus" },
-    { "^%+1 step per hit in the last (%d+) seconds$", "+1 marche par note dans les %1 dernières secondes" },
+    { "^%+(%d+) top speed at the end$", "+%1 de vitesse max à la fin" },
+    { "^(%d+)%% chance boulders don't knock you$", "%1 %% de chance que les rochers ne te renversent pas" },
+    { "^%+30%% speed in the last (%d+) seconds$", "+30 %% de vitesse dans les %1 dernières secondes" },
+    -- le nouveau jeu (escalier 3D)
+    { "^EGO made (.+) fall%.$", "L'EGO a fait tomber %1." },
+    { "^Fell (%d+) times?%. Still the main character%.$", "Tombé %1 fois. Toujours le personnage principal." },
 }
 
 local actuelle = "en"
@@ -3854,14 +2699,16 @@ for _, dossier in ipairs({ joueur:WaitForChild("PlayerGui"), workspace }) do
 end
 end -- fin du bloc de la langue
 
+
+
 -- ========================== PHASES ==========================
-local menuPrincipalOuvert = true -- au lancement : le menu principal (PLAY / CLASSEMENTS / PARAMÈTRES)
-local modeAfk = false -- AFK : on regarde les autres jouer, on n'est pas lancé dans la partie
-local boutonsCoin = {} -- les petits boutons du lobby sous CLASSEMENTS (PARAMÈTRES, AFK, MENU), créés plus bas
+local menuPrincipalOuvert = true -- au lancement : le hub (script MindsetHub)
+local modeAfk = false -- AFK : on regarde les autres jouer depuis la tribune
+local boutonsCoin = {} -- les petits boutons du lobby (PARAMÈTRES, AFK, MENU), créés plus bas
 local majBandeauAfk -- (défini plus bas)
 local function majPhase()
     local phase = ReplicatedStorage:GetAttribute("Phase")
-    local enMenu = menuPrincipalOuvert -- tant qu'on n'a pas appuyé sur PLAY, on ne voit que le menu principal
+    local enMenu = menuPrincipalOuvert -- tant qu'on n'a pas passé le portail, on est dans le hub
     if phase == "Lobby" and not enMenu and not modeAfk then
         ouvrirMenu()
     else
@@ -3869,50 +2716,41 @@ local function majPhase()
     end
     statut.Visible = (phase ~= "Lobby" or modeAfk) and not enMenu -- le menu a son propre titre et son chrono
     chrono.afficher((phase ~= "Lobby" or modeAfk) and not enMenu)
-    barre.Visible = (phase == "Manche" or phase == "Fin") and not enMenu
-    marcheTexte.Visible = phase == "Manche" and not enMenu and not modeAfk
-    -- les classements ne sont QUE dans le hub (les tableaux TOP 100) : pas de bouton dans le jeu,
-    -- et la liste des joueurs de Roblox (en haut à droite) est cachée pendant le jeu
-    boutonClassement.Visible = false
+    barre.Visible = phase == "Manche" and not enMenu
+    local enCourse = phase == "Manche" and not enMenu and jeCours()
+    marcheTexte.Visible = enCourse
+    rangTexte.Visible = enCourse
+    vitesseTexte.Visible = enCourse
+    -- la liste des joueurs de Roblox (en haut à droite) : seulement dans le hub
     pcall(function()
         StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, enMenu)
     end)
     for _, bouton in ipairs(boutonsCoin) do
-        bouton.Visible = phase ~= "Manche" and not enMenu -- pas pendant qu'on clique les cercles
+        bouton.Visible = phase ~= "Manche" and not enMenu -- pas pendant la course
     end
     if majBandeauAfk then
         majBandeauAfk()
     end
-    if phase == "Manche" then
-        fermerPanneau()
-    end
     if phase == "Lobby" then
         partition = nil
-        jeJoue = false
-        etatSuiviCamera = nil
-        focusCheck = nil
+        sceneActive = false
         arreterDanseUI()
-        for _, etat in pairs(avatars) do
-            if etat.cinematique then
-                etat.cinematique = nil
-                if etat.finCinematique then
-                    etat.finCinematique()
-                end
-            end
-            etat.positionForcee = nil
-            etat.cache = nil
-        end
-        viderNotes()
         modeCinema(false)
         modeAura = false
         tween(effetAura, 0.5, { Saturation = 0, Contrast = 0, Brightness = 0 })
         couperMusique(1)
     elseif phase == "Fin" then
-        jeJoue = false
-        viderNotes()
+        couperMusique(4)
     end
 end
 ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(majPhase)
+task.spawn(function()
+    while not monEtat do
+        task.wait(0.2)
+    end
+    monEtat.config:GetAttributeChangedSignal("EnJeu"):Connect(majPhase)
+    majPhase()
+end)
 majPhase()
 
 -- ========================== MENU PRINCIPAL + PARAMÈTRES ==========================
@@ -4028,7 +2866,6 @@ end
 local function menuEstOuvert()
     menuPrincipalOuvert = true
     modeAfk = false
-    fermerPanneau()
     majPhase()
 end
 
@@ -4063,8 +2900,8 @@ ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(function()
         jouaitCetteManche = monEtat ~= nil and monEtat.config:GetAttribute("EnJeu") == true
     elseif phase == "Fin" and jouaitCetteManche then
         jouaitCetteManche = false
-        if clicsManche == 0 and not modeAfk and not menuPrincipalOuvert then
-            passerAfk("No clicks the whole round: AFK MODE on")
+        if monEtat and (monEtat.config:GetAttribute("Marche") or 0) < 3 and not modeAfk and not menuPrincipalOuvert then
+            passerAfk("Didn't move the whole round: AFK MODE on")
         end
     end
 end)
@@ -4426,7 +3263,7 @@ versJeu.Event:Connect(function(action)
     elseif action == "Afk" then
         passerAfk(nil)
     elseif action == "Classements" then
-        ouvrirPanneau()
+        -- (plus de panneau des classements : ils sont sur les tableaux du hub)
     elseif action == "Reglages" then
         ouvrirReglages()
     elseif action == "MenuOuvert" then
@@ -4450,6 +3287,7 @@ ReplicatedStorage:GetAttributeChangedSignal("Statut"):Connect(majStatut)
 majStatut()
 chrono.maj(ReplicatedStorage:GetAttribute("Temps") or 0)
 chronoMenu.maj(ReplicatedStorage:GetAttribute("Temps") or 0)
+
 
 -- ========================== ÉCRAN DE FIN ==========================
 -- Une carte propre : bandeau avec ton état d'esprit et ta place, 4 cases de stats,
@@ -4499,7 +3337,7 @@ local finSur = petitTexte({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fr
 
 -- les 4 cases de stats
 local cases = {}
-local NOMS_CASES = { "STEPS", "ACCURACY", "PERFECTS", "MAX COMBO" }
+local NOMS_CASES = { "STEPS", "HIGHEST", "FALLS", "BOULDERS" }
 for i, nom in ipairs(NOMS_CASES) do
     local case = nouveau("Frame", {
         Position = UDim2.new(0.04 + (i - 1) * 0.235, 0, 0.27, 0),
@@ -4572,11 +3410,11 @@ local function statDrole(data)
     if data.perso == "Obsession" then
         return "Never looked down."
     elseif data.perso == "Ego" then
-        return "Combo max x" .. data.comboMax .. ". He'll tell everyone."
+        return "Fell " .. tostring(data.chutes or 0) .. (if data.chutes == 1 then " time" else " times") .. ". Still the main character."
     elseif data.perso == "Motivation" then
         return "Fiery start... and then?"
     elseif data.perso == "Discipline" then
-        return "Steps lost: 0. Obviously."
+        return "Slow and steady. As always."
     end
     return ""
 end
@@ -4618,7 +3456,7 @@ FinEvent.OnClientEvent:Connect(function(data)
     ecranFin.Visible = true
     echelleFin.Scale = 0.6
     tween(echelleFin, 0.45, { Scale = 1 }, Enum.EasingStyle.Back)
-    local valeurs = { { data.marches, "" }, { data.precision, " %" }, { data.parfaits, "" }, { data.comboMax, "" } }
+    local valeurs = { { data.marches or 0, "" }, { data.plusHaut or 0, "" }, { data.chutes or 0, "" }, { data.coups or 0, "" } }
     for i, c in ipairs(cases) do
         c.valeur.Text = "0" .. valeurs[i][2]
         c.valeur.TextColor3 = if i == 1 then couleur else BLANC
@@ -4844,240 +3682,133 @@ danseBadass = function(etat, horloge)
 end
 end -- fin du bloc de la danse badass
 
+
+
 -- ========================== BOUCLE D'AFFICHAGE ==========================
-local positionCamera = nil
+-- La caméra : la caméra Roblox normale derrière ton avatar pendant la course ;
+-- en spectateur (tribune / AFK) elle suit le premier ; dans le menu du lobby elle survole l'escalier ;
+-- à la fin elle filme la scène du vainqueur. (Dans le hub, c'est le script MindsetHub qui la tient.)
 local pointsCarte = {} -- [config] = point sur la mini-carte
-local dernierSuiviAfk = nil -- celui que la caméra suit en mode AFK
+local modeCamera = nil
+local sujetCamera = nil
+local dernierSuiviAfk = nil
+
+local function enTete()
+    local meilleur = nil
+    for _, etat in pairs(avatars) do
+        if etat.config:GetAttribute("EnJeu") and etat.modele and etat.modele.Parent
+            and (not meilleur or (etat.config:GetAttribute("Marche") or 0) > (meilleur.config:GetAttribute("Marche") or 0)) then
+            meilleur = etat
+        end
+    end
+    return meilleur
+end
 
 RunService.RenderStepped:Connect(function(dt)
     local horloge = os.clock()
-
-    -- 1) Les avatars montent les marches pied par pied (avec style)
-    for _, etat in pairs(avatars) do
-        local modele = etat.modele
-        if modele and modele.Parent and etat.hauteur and not etat.config:GetAttribute("Hub") then -- (ceux du hub marchent tout seuls)
-            local cfCinematique = etat.cinematique and etat.cinematique(horloge)
-            if etat.cinematique and not cfCinematique then
-                -- fin de la cinématique (gagnant / check parfait)
-                etat.cinematique = nil
-                if etat.finCinematique then
-                    etat.finCinematique()
-                end
-            end
-            if etat.cache then
-                modele:PivotTo(CFrame.new(0, -500, 0)) -- caché pendant la scène de fin
-            elseif cfCinematique then
-                modele:PivotTo(cfCinematique)
-            else
-                local m = etat.config:GetAttribute("Marche") or 0
-                local arc, rotation, pose = 0, CFrame.identity, nil
-                if etat.saut then
-                    local s = etat.saut
-                    local t = math.clamp((horloge - s.debut) / s.duree, 0, 1)
-                    if s.monte then
-                        -- quel pas, et où on en est dans ce pas
-                        local progres = t * s.pas
-                        local numeroPas = math.min(math.floor(progres), s.pas - 1)
-                        local k = progres - numeroPas
-                        local lisseK = k * k * (3 - 2 * k)
-                        m = s.de + (s.a - s.de) * (numeroPas + lisseK) / s.pas
-                        local bosse = math.sin(math.pi * k)
-                        local pied = (s.pied + numeroPas) % 2
-                        arc = bosse * (0.35 + 0.3 * s.style) -- petit rebond à chaque pas
-                        pose = posePas(pied, k, s.style)
-                        -- penché en avant + léger déhanché du côté du pied qui monte
-                        rotation = CFrame.Angles(-bosse * 0.12, (if pied == 0 then 1 else -1) * bosse * 0.15, 0)
-                        if s.vrille and numeroPas == s.pas - 1 then
-                            rotation = rotation * CFrame.Angles(0, 2 * math.pi * lisseK, 0)
-                        end
-                        -- chaque pied posé allume sa marche
-                        local faits = if t >= 1 then s.pas else math.floor(progres)
-                        while s.pasFaits < faits do
-                            s.pasFaits += 1
-                            local numero = math.floor(s.de + (s.a - s.de) * s.pasFaits / s.pas + 0.5)
-                            piedPose(etat, numero, s.pasFaits == s.pas and (s.pas >= 2 or s.vrille))
-                        end
-                    else
-                        -- raté : il trébuche en arrière, les bras en l'air
-                        local lisse = t * t * (3 - 2 * t)
-                        m = s.de + (s.a - s.de) * lisse
-                        local bosse = math.sin(math.pi * t)
-                        arc = bosse * 0.6
-                        rotation = CFrame.Angles(bosse * 0.6, 0, 0)
-                        pose = { LeftShoulder = 2.4 * bosse, RightShoulder = 2.1 * bosse, LeftHip = 0.6 * bosse, RightKnee = -0.7 * bosse }
-                    end
-                    if t >= 1 then
-                        etat.saut = nil
-                        pose = nil
-                        if etat.animChute then
-                            etat.animChute:Stop(0.15)
-                        end
-                        atterrir(etat, s)
-                    end
-                end
-                if etat.danse and not etat.saut then
-                    pose, rotation, arc = danseBadass(etat, horloge) -- 💃 le gagnant danse
-                end
-                poser(etat, pose)
-                etat.marcheAffichee = m
-                local forcee = etat.positionForcee
-                local couloir = if forcee then forcee.couloir else etat.couloir
-                if forcee then
-                    m = forcee.marche
-                end
-                if couloir then
-                    local position = positionMarche(couloir, m, etat.hauteur) + Vector3.new(0, arc, 0)
-                    local direction = Vector3.new(1, 0, 0)
-                    if forcee then
-                        -- scène de fin : il se tourne vers la caméra
-                        local k = math.clamp((horloge - forcee.versCamera) / 0.4, 0, 1)
-                        k = k * k * (3 - 2 * k)
-                        direction = Vector3.new(forcee.sens * (1 - k), 0, k)
-                    end
-                    modele:PivotTo(CFrame.lookAt(position, position + direction) * rotation)
-                else
-                    modele:PivotTo(CFrame.new(0, -500, 0)) -- plus de place : caché
-                end
-            end
-        end
-    end
-
-    -- 2) Caméra 2D : vue de côté qui suit ton avatar ; à la fin, de face sur le(s) gagnant(s)
-    -- (dans le menu 3D, c'est le script MindsetHub qui tient la caméra)
     local camera = workspace.CurrentCamera
+    local phase = ReplicatedStorage:GetAttribute("Phase")
+    local personnage = joueur.Character
+    local monHumanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
+
+    -- 1) le(s) gagnant(s) dansent sur la scène
+    for _, etat in pairs(avatars) do
+        if etat.danse and etat.modele and etat.modele.Parent then
+            local base = etat.config:GetAttribute("Scene")
+            if typeof(base) == "CFrame" then
+                local pose, rotation, arc = danseBadass(etat, horloge)
+                poser(etat, pose)
+                etat.modele:PivotTo(base * CFrame.new(0, arc or 0, 0) * (rotation or CFrame.identity))
+            end
+        end
+    end
+
+    -- 2) la caméra
+    forceSecousse = math.max(0, forceSecousse - dt * 4)
+    fovPulse += (0 - fovPulse) * math.min(1, dt * 6)
+    local tremble = Vector3.new((math.random() - 0.5) * forceSecousse, (math.random() - 0.5) * forceSecousse, 0) * 0.5
     if camera and not menuPrincipalOuvert then
-        camera.CameraType = Enum.CameraType.Scriptable
-        local focus
-        local decalage = Vector3.new(7, 3, 0)
-        local distance = 75
-        local vitesseCamera = 5
-        local suiviModele = etatSuiviCamera and etatSuiviCamera.modele
-        if not partition then
-            dernierSuiviAfk = nil -- nouvelle manche : on réaffichera le nom de celui qu'on suit
-        end
-        if focusCheck then
-            focus = focusCheck
-            decalage = Vector3.new(0, 1, 0)
-            distance = 26
-            vitesseCamera = 4
-        elseif suiviModele and suiviModele.Parent then
-            focus = suiviModele:GetPivot().Position
-            decalage = Vector3.new(0, 1.2, 0)
-            distance = 22
-            vitesseCamera = 4
-        elseif modeAfk and not menuPrincipalOuvert and partition and not jeJoue then
-            -- AFK / spectateur pendant une manche : la caméra suit celui qui est en tête
-            local enTete = nil
-            for _, etat in pairs(avatars) do
-                if etat.config:GetAttribute("EnJeu") and etat.couloir and etat.hauteur
-                    and (not enTete or (etat.marcheAffichee or 0) > (enTete.marcheAffichee or 0)) then
-                    enTete = etat
-                end
-            end
-            if enTete then
-                focus = positionMarche(enTete.couloir, enTete.marcheAffichee or 0, enTete.hauteur)
-                vitesseCamera = 3
-                distance = 58 -- un peu plus près pour bien le voir jouer
-                if enTete ~= dernierSuiviAfk then
-                    dernierSuiviAfk = enTete
-                    majBandeauAfk(tostring(enTete.config:GetAttribute("Nom")) .. " (leading)")
-                end
-            else
-                focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
-                distance = 100
-                vitesseCamera = 1.2
-            end
-        elseif menuOuvert or menuPrincipalOuvert or modeAfk then
-            -- menu du lobby : la caméra se balade doucement le long des escaliers (floutés derrière le menu)
-            focus = positionMarche(2, 30 + 24 * math.sin(horloge * 0.06), 3)
-            distance = 100
-            vitesseCamera = 1.2
-        elseif monEtat and monEtat.couloir and monEtat.hauteur then
-            focus = positionMarche(monEtat.couloir, monEtat.marcheAffichee or 0, monEtat.hauteur)
+        local vueScene = ReplicatedStorage:GetAttribute("SceneCamera")
+        local voulu
+        if sceneActive and phase == "Fin" and typeof(vueScene) == "CFrame" then
+            voulu = "scene"
+        elseif menuOuvert then
+            voulu = "survol"
         else
-            focus = positionMarche(0, 0, 3)
+            voulu = "normal"
         end
-        local cible = focus + decalage + Vector3.new(0, 0, distance)
-        positionCamera = if positionCamera then positionCamera:Lerp(cible, math.min(1, dt * vitesseCamera)) else cible
-        forceSecousse = math.max(0, forceSecousse - dt * 4)
-        local tremble = Vector3.new((math.random() - 0.5) * forceSecousse, (math.random() - 0.5) * forceSecousse, 0)
-        local roulis = (math.random() - 0.5) * forceSecousse * 0.01
-        local oeil = positionCamera + tremble
-        camera.CFrame = CFrame.lookAt(oeil, oeil - Vector3.new(0, 0, 1)) * CFrame.Angles(0, 0, roulis)
-        fovPulse += (0 - fovPulse) * math.min(1, dt * 8)
-        camera.FieldOfView = FOV_BASE + fovPulse
-
-        -- les escaliers infinis se construisent autour de la caméra, le fond la suit
-        majEscaliers((positionCamera.X - GEO.X0) / GEO.PROFONDEUR)
-        fondScene.Position = Vector3.new(positionCamera.X, positionCamera.Y, FOND_Z)
-        poussiere.Position = Vector3.new(positionCamera.X, positionCamera.Y, FOND_Z + 8)
-    end
-
-    -- 3) Musique, temps et notes
-    if partition then
-        local maintenant = maintenantServeur()
-        local ecoule = maintenant - partition.debut
-
-        if partition.musique ~= "" and ecoule >= 0 and ecoule < partition.duree + 4 then
-            local attendu = partition.debutMusique + ecoule
-            if not musiqueLancee then
-                musiqueLancee = true
-                musique.TimePosition = attendu
-                musique:Play()
-            elseif horloge - dernierRecalage > 0.5 and musique.IsPlaying then
-                -- On recolle la musique au rythme SANS la faire sauter (sauter = la musique saccade) :
-                -- on l'accélère ou la ralentit très légèrement (2 % max, inaudible) pour qu'elle rattrape.
-                -- On ne saute que si elle est vraiment perdue (plus de 0,4 s d'écart deux fois de suite).
-                dernierRecalage = horloge
-                local ecart = musique.TimePosition - attendu
-                if math.abs(ecart) > 0.4 then
-                    trainsPerdus += 1
-                    if trainsPerdus >= 2 then
-                        trainsPerdus = 0
-                        musique.TimePosition = attendu
-                        musique.PlaybackSpeed = 1
+        if voulu == "scene" then
+            camera.CameraType = Enum.CameraType.Scriptable
+            camera.CFrame = vueScene * CFrame.new(math.sin(horloge * 0.4) * 1.5, math.sin(horloge * 0.3) * 0.4, 0) * CFrame.new(tremble)
+            camera.FieldOfView = 50 + fovPulse
+        elseif voulu == "survol" then
+            -- derrière le menu flouté : la caméra longe doucement l'escalier
+            camera.CameraType = Enum.CameraType.Scriptable
+            local n = 25 + 20 * math.sin(horloge * 0.08)
+            local vise = Vector3.new(ESC.X + n * ESC.D, ESC.Y + n * ESC.H + 4, ESC.Z)
+            local oeil = vise + Vector3.new(-30, 16, 34 * math.cos(horloge * 0.05))
+            camera.CFrame = CFrame.lookAt(oeil, vise)
+            camera.FieldOfView = 60
+        else
+            -- la caméra Roblox normale : sur toi, ou sur le premier si tu ne cours pas (spectateur)
+            local suivi = monHumanoid
+            if phase == "Manche" and not jeCours() then
+                local premier = enTete()
+                local humanoidPremier = premier and premier.modele:FindFirstChildOfClass("Humanoid")
+                if humanoidPremier then
+                    suivi = humanoidPremier
+                    if premier ~= dernierSuiviAfk and majBandeauAfk then
+                        dernierSuiviAfk = premier
+                        majBandeauAfk(tostring(premier.config:GetAttribute("Nom")) .. " (leading)")
                     end
-                else
-                    trainsPerdus = 0
-                    musique.PlaybackSpeed = if math.abs(ecart) > 0.03 then 1 - math.clamp(ecart * 0.5, -0.02, 0.02) else 1
                 end
             end
-        elseif ecoule >= partition.duree + 4 and musique.IsPlaying then
-            couperMusique(1)
-        end
-
-        local tempsMusique = ecoule - partition.decalage
-        if tempsMusique >= 0 and ecoule < partition.duree then
-            local numero = math.floor(tempsMusique / intervalle)
-            if numero ~= dernierTemps then
-                dernierTemps = numero
-                surTemps(numero)
+            if modeCamera ~= "normal" or camera.CameraType ~= Enum.CameraType.Custom then
+                camera.CameraType = Enum.CameraType.Custom
+            end
+            if suivi and sujetCamera ~= suivi then
+                sujetCamera = suivi
+                camera.CameraSubject = suivi
+            end
+            camera.FieldOfView = FOV_BASE + fovPulse
+            if monHumanoid then
+                monHumanoid.CameraOffset = tremble
             end
         end
-
-        if jeJoue then
-            while partition.notes[prochaineNote] and partition.notes[prochaineNote] - APPROCHE <= ecoule do
-                creerNote(prochaineNote, partition.notes[prochaineNote])
-                prochaineNote += 1
-            end
-            for index, note in pairs(notesActives) do
-                if ecoule > note.temps + FENETRE_MAX then
-                    juger(index, true)
-                end
-            end
+        if voulu ~= "normal" and monHumanoid then
+            monHumanoid.CameraOffset = Vector3.zero
+        end
+        modeCamera = voulu
+    else
+        modeCamera = "hub"
+        sujetCamera = nil
+        if monHumanoid and monHumanoid.CameraOffset ~= Vector3.zero then
+            monHumanoid.CameraOffset = Vector3.zero
         end
     end
 
-    -- 4) Compteur de marches + mini-carte
-    if monEtat then
-        marcheTexte.Text = "🪜 " .. (monEtat.config:GetAttribute("Marche") or 0) .. " steps"
+    -- 3) le compteur de marches, le rang, la vitesse
+    if monEtat and marcheTexte.Visible then
+        local config = monEtat.config
+        marcheTexte.Text = "🪜 " .. (config:GetAttribute("Marche") or 0)
         marcheTexte.TextColor3 = maCouleur()
+        local nombre = 0
+        for _, etat in pairs(avatars) do
+            if etat.config:GetAttribute("EnJeu") then
+                nombre += 1
+            end
+        end
+        rangTexte.Text = "#" .. (config:GetAttribute("Rang") or 0) .. " / " .. nombre
+        vitesseTexte.Text = "⚡ " .. (config:GetAttribute("Vitesse") or 16)
     end
+
+    -- 4) la mini-carte à droite : un point par coureur (le haut = le premier)
     if barre.Visible then
-        -- pas de sommet : le haut de la barre = le premier (au moins 10 marches)
         local plusHaut = 0
         for _, etat in pairs(avatars) do
-            plusHaut = math.max(plusHaut, etat.config:GetAttribute("Marche") or 0)
+            if etat.config:GetAttribute("EnJeu") then
+                plusHaut = math.max(plusHaut, etat.config:GetAttribute("Marche") or 0)
+            end
         end
         hautBarre.Text = tostring(plusHaut)
         local echelleBarre = math.max(10, plusHaut)
@@ -5093,10 +3824,11 @@ RunService.RenderStepped:Connect(function(dt)
                 nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = point })
                 pointsCarte[config] = point
             end
+            point.Visible = config:GetAttribute("EnJeu") == true
             local taille = if etat.estMoi then 22 else 14
             point.Size = UDim2.fromOffset(taille, taille)
             point.BackgroundColor3 = couleurDe(etat)
-            point.Position = UDim2.fromScale(0.5, 1 - math.clamp((etat.marcheAffichee or 0) / echelleBarre, 0, 1))
+            point.Position = UDim2.fromScale(0.5, 1 - math.clamp((config:GetAttribute("Marche") or 0) / echelleBarre, 0, 1))
             point.ZIndex = if etat.estMoi then 5 else 4
         end
         for config, point in pairs(pointsCarte) do
@@ -5107,3 +3839,4 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
 end)
+
