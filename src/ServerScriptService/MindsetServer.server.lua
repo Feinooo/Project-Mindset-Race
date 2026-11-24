@@ -434,6 +434,52 @@ local function preparerAvatar(modele, ordre)
     modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(1, 0, 0)))
 end
 
+-- ========================== LE HUB (la place où on se balade) ==========================
+-- La déco est construite par chaque client (script MindsetHub). Le serveur pose juste un sol et
+-- un mur invisibles, pour qu'on ne tombe jamais (même avant que la déco soit chargée).
+-- ⚠️ Mêmes nombres que dans MindsetHub : O = (-3000, 400, 0), place de 118 de large.
+local HUB_O = Vector3.new(-3000, 400, 0)
+local HUB_SOL = HUB_O.Y + 0.5
+do
+    local dossierHub = creer("Folder", { Name = "MindsetHubSol", Parent = workspace })
+    local function invisible(proprietes)
+        proprietes.Anchored = true
+        proprietes.CanCollide = true
+        proprietes.Transparency = 1
+        proprietes.CastShadow = false
+        proprietes.Parent = dossierHub
+        return creer("Part", proprietes)
+    end
+    invisible({ Name = "Sol", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, 118, 118), CFrame = CFrame.new(HUB_O) * CFrame.Angles(0, 0, math.pi / 2) })
+    for i = 0, 47 do
+        local a = i / 48 * math.pi * 2
+        local position = Vector3.new(HUB_O.X + math.cos(a) * 58, HUB_SOL + 12, HUB_O.Z + math.sin(a) * 58)
+        invisible({ Name = "Mur", Size = Vector3.new(2, 24, 2 * math.pi * 58 / 48 * 1.1), CFrame = CFrame.lookAt(position, position + Vector3.new(-math.sin(a), 0, math.cos(a))) })
+    end
+end
+
+-- Met l'avatar d'un joueur sur la place du hub : il peut marcher et sauter
+local function placerAuHub(joueur, modele)
+    local racine = modele:WaitForChild("HumanoidRootPart", 10)
+    local humanoid = modele:WaitForChild("Humanoid", 10)
+    if not racine or not humanoid then
+        return
+    end
+    humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None -- le hub affiche sa propre étiquette
+    humanoid.UseJumpPower = false
+    humanoid.WalkSpeed = 16
+    humanoid.JumpHeight = 7.2
+    humanoid.JumpPower = 50
+    local hauteur = if humanoid.RigType == Enum.HumanoidRigType.R15 then humanoid.HipHeight + racine.Size.Y / 2 else 3
+    local position = Vector3.new(HUB_O.X + math.random(-8, 8), HUB_SOL + hauteur + 0.2, HUB_O.Z + 6 + math.random(0, 4))
+    modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(0, 0, -1))) -- tourné vers le portail
+    racine.AssemblyLinearVelocity = Vector3.zero
+    racine.Anchored = false
+    pcall(function()
+        racine:SetNetworkOwner(joueur)
+    end)
+end
+
 local function joueurArrive(joueur)
     arrivees[joueur] = os.clock()
     -- en haut à droite, dans cet ordre : TEMPS, MARCHES, VICTOIRES
@@ -448,13 +494,18 @@ local function joueurArrive(joueur)
     creer("IntValue", { Name = "Secondes", Parent = cachees })
 
     local g = nouveauGrimpeur(joueur.DisplayName, nil, joueur.Character, joueur)
+    g:SetAttribute("Hub", true) -- au début, on se balade dans le hub (pas sur les escaliers)
     grimpeurDesJoueurs[joueur] = g
     joueurDuGrimpeur[g] = joueur
     task.spawn(chargerJoueur, joueur) -- (après le grimpeur : on lui remet son état d'esprit sauvegardé)
 
     local function surPersonnage(personnage)
         g.Modele.Value = personnage
-        preparerAvatar(personnage, g:GetAttribute("Ordre"))
+        if g:GetAttribute("Hub") then
+            placerAuHub(joueur, personnage)
+        else
+            preparerAvatar(personnage, g:GetAttribute("Ordre"))
+        end
     end
     joueur.CharacterAdded:Connect(surPersonnage)
     if joueur.Character then
@@ -507,10 +558,30 @@ end)
 -- PLAY : le joueur quitte le menu principal et participe aux prochaines manches
 -- PLAY (true) : le joueur participe aux prochaines manches.
 -- AFK / retour au menu (false) : il regarde les autres jouer, sans être lancé dans la partie.
+-- "Hub" : retour sur la place du hub (il se balade, il ne joue pas).
 JouerEvent.OnServerEvent:Connect(function(joueur, participe)
     local g = grimpeurDesJoueurs[joueur]
-    if g then
-        g:SetAttribute("Pret", participe ~= false)
+    if not g then
+        return
+    end
+    local personnage = joueur.Character
+    if participe == "Hub" then
+        g:SetAttribute("Pret", false)
+        if not g:GetAttribute("Hub") then
+            g:SetAttribute("Hub", true)
+            if personnage then
+                task.spawn(placerAuHub, joueur, personnage)
+            end
+        end
+        return
+    end
+    g:SetAttribute("Pret", participe ~= false)
+    if g:GetAttribute("Hub") then
+        -- il quitte le hub : son avatar retourne sur les escaliers
+        g:SetAttribute("Hub", false)
+        if personnage then
+            task.spawn(preparerAvatar, personnage, g:GetAttribute("Ordre"))
+        end
     end
 end)
 
@@ -1015,7 +1086,7 @@ local function enregistrerDetailsMonde(userId, perso, musique)
     end
 end
 
--- Top 10 d'un classement (gardé 30 s en mémoire pour ne pas spammer la sauvegarde)
+-- Top 10 d'un classement (top 100 pour le monde entier), gardé 30 s en mémoire pour ne pas spammer la sauvegarde
 local function lireClassement(cle)
     local t = tableaux[cle]
     if not t then
@@ -1024,10 +1095,11 @@ local function lireClassement(cle)
     if t.cache and os.clock() - t.cacheA < 30 then
         return t.cache
     end
+    local nombre = if cle == "G" then 100 else 10
     local scores = {}
     if t.store then
         local ok, page = pcall(function()
-            return t.store:GetSortedAsync(false, 10):GetCurrentPage()
+            return t.store:GetSortedAsync(false, nombre):GetCurrentPage()
         end)
         if ok then
             for _, ligne in ipairs(page) do
@@ -1052,10 +1124,25 @@ local function lireClassement(cle)
     table.sort(liste, function(a, b)
         return a.score > b.score
     end)
+    -- les pseudos qu'on ne connaît pas encore : on les demande tous en même temps (5 s max)
+    local enAttente = 0
+    for i = 1, math.min(nombre, #liste) do
+        if not nomsCache[liste[i].id] then
+            enAttente += 1
+            task.spawn(function()
+                nomDe(liste[i].id)
+                enAttente -= 1
+            end)
+        end
+    end
+    local limiteNoms = os.clock() + 5
+    while enAttente > 0 and os.clock() < limiteNoms do
+        task.wait(0.05)
+    end
     local resultat = {}
-    for i = 1, math.min(10, #liste) do
-        resultat[i] = { nom = nomDe(liste[i].id), score = liste[i].score, userId = liste[i].id }
-        if cle == "G" then
+    for i = 1, math.min(nombre, #liste) do
+        resultat[i] = { nom = nomsCache[liste[i].id] or ("Player " .. liste[i].id), score = liste[i].score, userId = liste[i].id }
+        if cle == "G" and i <= 10 then
             -- 🌍 monde entier : avec quel état d'esprit et quelle musique il a fait ce record
             local details = detailsMonde(liste[i].id)
             if details then
@@ -1120,7 +1207,8 @@ local function enregistrerRecord(cle, joueur, score)
 end
 
 local dernierAppelClassement = {}
-ClassementFonction.OnServerInvoke = function(demandeur, cle)
+-- (tout = true : le hub veut tout le top 100 ; sinon on n'envoie que les 10 premiers)
+ClassementFonction.OnServerInvoke = function(demandeur, cle, tout)
     if typeof(cle) ~= "string" or not tableaux[cle] then
         return nil
     end
@@ -1129,11 +1217,28 @@ ClassementFonction.OnServerInvoke = function(demandeur, cle)
         task.wait(0.25) -- anti-spam
     end
     dernierAppelClassement[demandeur] = os.clock()
-    return { liste = lireClassement(cle), moi = recordDe(cle, demandeur.UserId) }
+    local liste = lireClassement(cle)
+    if tout ~= true and #liste > 10 then
+        liste = table.move(liste, 1, 10, 1, {})
+    end
+    return { liste = liste, moi = recordDe(cle, demandeur.UserId) }
 end
 Players.PlayerRemoving:Connect(function(parti)
     dernierAppelClassement[parti] = nil
 end)
+
+-- 🏆 le record de chaque joueur (le plus de marches en une partie), affiché au-dessus de sa tête dans le hub
+local function publierRecord(joueur)
+    if joueur.Parent then
+        joueur:SetAttribute("Record", recordDe("G", joueur.UserId))
+    end
+end
+Players.PlayerAdded:Connect(function(joueur)
+    task.spawn(publierRecord, joueur)
+end)
+for _, joueur in ipairs(Players:GetPlayers()) do
+    task.spawn(publierRecord, joueur)
+end
 
 -- ========================== VOTE DE LA MUSIQUE ==========================
 local propositions = {}   -- les musiques proposées pendant ce lobby
@@ -1433,6 +1538,7 @@ while true do
                 -- 🌍 monde entier (et on retient avec quel état d'esprit + quelle musique)
                 if enregistrerRecord("G", joueurRecord, score) then
                     enregistrerDetailsMonde(joueurRecord.UserId, tostring(perso), if musique.id ~= "" then musique.nom else "(no music)")
+                    publierRecord(joueurRecord)
                 end
                 nouveauxRecords[g] = recordPerso or recordMusique or recordCombo
             end)

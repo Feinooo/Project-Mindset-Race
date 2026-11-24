@@ -3,11 +3,12 @@
     À mettre dans : StarterPlayer > StarterPlayerScripts  (type : LocalScript, nom : MindsetHub)
     (à côté de MindsetClient : les deux scripts se parlent par le dossier « MindsetLiens » du joueur)
 
-    Le menu principal est une petite scène 3D, loin des escaliers :
-      à GAUCHE  : le MARCHAND D'AURA → tu dépenses ton aura pour améliorer les compétences de ton état d'esprit
-      au MILIEU : le PORTAIL → PLAY : la caméra plonge dedans (transition) et tu arrives dans le jeu
-      à DROITE  : le CLASSEMENT du monde entier (top 10) + le bouton qui ouvre tous les classements
-    On passe d'un endroit à l'autre avec les boutons en bas, les flèches / A-D, ou en cliquant dans la scène.
+    Le HUB est une place 3D, loin des escaliers, où on se BALADE avec son avatar (comme dans la plupart
+    des jeux Roblox) et où on voit les autres joueurs, avec leur état d'esprit, leur niveau et leur record :
+      à GAUCHE  : le MARCHAND D'AURA → touche E devant lui : tu améliores les compétences de ton état d'esprit
+      au MILIEU : le PORTAIL → tu marches dedans : la caméra plonge (transition) et tu arrives dans le jeu
+      à DROITE  : le TOP 100 du monde entier (le plus de marches en une partie) → touche E pour le voir en grand
+    Le serveur pose ton avatar sur la place (attribut « Hub » du grimpeur) ; le script du jeu ne le touche plus.
 ]]
 
 local Players = game:GetService("Players")
@@ -24,6 +25,7 @@ local remotes = ReplicatedStorage:WaitForChild("MindsetRemotes")
 local ChoisirEvent = remotes:WaitForChild("Choisir")
 local AmeliorerFonction = remotes:WaitForChild("Ameliorer")
 local ClassementFonction = remotes:WaitForChild("Classement")
+local JouerEvent = remotes:WaitForChild("Jouer") -- "Hub" = retour sur la place
 local liens = joueur:WaitForChild("MindsetLiens")
 local versJeu = liens:WaitForChild("VersJeu") -- vers le script du jeu : "Jouer", "Afk", "Classements", "Reglages", "MenuOuvert"
 local versHub = liens:WaitForChild("VersHub") -- du script du jeu : "Ouvrir" (bouton MENU)
@@ -100,9 +102,10 @@ end
 lireDefs()
 ReplicatedStorage:GetAttributeChangedSignal("Competences"):Connect(lireDefs)
 
-local function mesNiveaux(perso)
+-- (cible = un autre joueur : ses niveaux à lui, pour son étiquette dans le hub)
+local function mesNiveaux(perso, cible)
     local ok, niveaux = pcall(function()
-        return HttpService:JSONDecode(joueur:GetAttribute("Niveaux"))
+        return HttpService:JSONDecode((cible or joueur):GetAttribute("Niveaux"))
     end)
     local liste = ok and type(niveaux) == "table" and niveaux[perso]
     return if type(liste) == "table" then liste else {}
@@ -202,6 +205,12 @@ end
 local function neon(proprietes)
     proprietes.Material = Enum.Material.Neon
     return bloc(proprietes)
+end
+
+-- une part contre laquelle on se cogne (comptoir, mur, socle...) : le reste de la déco, on passe à travers
+local function solide(part)
+    part.CanCollide = true
+    return part
 end
 
 -- un texte posé sur une face d'une part (panneau, chiffre du podium...)
@@ -371,7 +380,9 @@ do
     CENTRE_PORTAIL = base + Vector3.new(0, 10.5, 0)
 
     -- le socle avec ses marches
-    bloc({ Size = Vector3.new(24, 1, 9), CFrame = CFrame.new(base + Vector3.new(0, 0.5, 0)), Color = Color3.fromRGB(26, 22, 40), Parent = modele })
+    solide(bloc({ Size = Vector3.new(24, 1, 9), CFrame = CFrame.new(base + Vector3.new(0, 0.5, 0)), Color = Color3.fromRGB(26, 22, 40), Parent = modele }))
+    -- une petite marche devant le socle pour monter dessus sans sauter
+    solide(bloc({ Size = Vector3.new(24, 0.5, 2), CFrame = CFrame.new(base + Vector3.new(0, 0.25, 5.5)), Color = Color3.fromRGB(26, 22, 40), Parent = modele }))
     neon({ Size = Vector3.new(24.1, 0.15, 0.2), CFrame = CFrame.new(base + Vector3.new(0, 1, 4.5)), Color = OR, Parent = modele })
     socleAvatar = CFrame.lookAt(base + Vector3.new(0, 1, 2), base + Vector3.new(0, 1, 10)) -- là où tu te tiens (tourné vers la caméra)
 
@@ -476,15 +487,15 @@ do
     local BOIS_SOMBRE = Color3.fromRGB(45, 30, 24)
     bloc({ Size = Vector3.new(17, 0.4, 11), CFrame = ici(0, 0.2, 0), Color = BOIS_SOMBRE, Material = Enum.Material.WoodPlanks, Parent = modele })
     -- le comptoir
-    bloc({ Size = Vector3.new(12, 3.4, 2.4), CFrame = ici(0, 2.1, -3.6), Color = BOIS, Material = Enum.Material.Wood, Parent = modele })
+    solide(bloc({ Size = Vector3.new(12, 3.4, 2.4), CFrame = ici(0, 2.1, -3.6), Color = BOIS, Material = Enum.Material.Wood, Parent = modele }))
     bloc({ Size = Vector3.new(12.4, 0.3, 2.8), CFrame = ici(0, 3.95, -3.6), Color = Color3.fromRGB(40, 30, 56), Parent = modele })
     neon({ Size = Vector3.new(12.4, 0.12, 0.12), CFrame = ici(0, 3.85, -5.0), Color = VIOLET, Parent = modele })
     neon({ Size = Vector3.new(12.1, 0.12, 0.12), CFrame = ici(0, 0.9, -4.82), Color = VIOLET, Parent = modele })
     -- le mur du fond, les poteaux, le toit
-    bloc({ Size = Vector3.new(15, 13, 0.8), CFrame = ici(0, 6.9, 4), Color = Color3.fromRGB(26, 20, 40), Parent = modele })
+    solide(bloc({ Size = Vector3.new(15, 13, 0.8), CFrame = ici(0, 6.9, 4), Color = Color3.fromRGB(26, 20, 40), Parent = modele }))
     for _, x in ipairs({ -7, 7 }) do
-        bloc({ Size = Vector3.new(0.8, 13, 0.8), CFrame = ici(x, 6.9, -4.6), Color = BOIS_SOMBRE, Material = Enum.Material.Wood, Parent = modele })
-        bloc({ Size = Vector3.new(0.8, 13, 0.8), CFrame = ici(x, 6.9, 3.4), Color = BOIS_SOMBRE, Material = Enum.Material.Wood, Parent = modele })
+        solide(bloc({ Size = Vector3.new(0.8, 13, 0.8), CFrame = ici(x, 6.9, -4.6), Color = BOIS_SOMBRE, Material = Enum.Material.Wood, Parent = modele }))
+        solide(bloc({ Size = Vector3.new(0.8, 13, 0.8), CFrame = ici(x, 6.9, 3.4), Color = BOIS_SOMBRE, Material = Enum.Material.Wood, Parent = modele }))
     end
     bloc({ Size = Vector3.new(17, 0.7, 11.5), CFrame = ici(0, 13.6, -0.4) * CFrame.Angles(math.rad(-9), 0, 0), Color = Color3.fromRGB(60, 30, 90), Parent = modele })
     neon({ Size = Vector3.new(17.1, 0.25, 0.25), CFrame = ici(0, 12.7, -6.1), Color = VIOLET, Parent = modele })
@@ -648,8 +659,54 @@ local function animerMarchand(nom)
     end
 end
 
--- ---------- À DROITE : le grand tableau du CLASSEMENT (monde entier) + un podium ----------
-local tableau = { lignes = {}, podium = {}, moi = nil, statut = nil }
+-- le point où apparaît le bouton « E » du marchand (devant son comptoir)
+local pointShop = bloc({ Size = Vector3.new(1, 1, 1), CFrame = F_SHOP * CFrame.new(0, 3, -6.5), Transparency = 1, CanQuery = false, Parent = modelesStations[SHOP] })
+
+-- ---------- À DROITE : le grand tableau du CLASSEMENT : TOP 100 (le plus de marches en une partie) ----------
+local NB_TOP = 100
+local COULEURS_PODIUM = { OR, Color3.fromRGB(210, 215, 230), Color3.fromRGB(220, 140, 80) }
+local tableau = { lignes = {}, podium = {}, moi = nil, statut = nil, liste = {}, record = 0, defile = nil, y = 0, pause = 4 }
+local pointTableau
+
+-- une ligne du classement (sur le tableau 3D et dans le panneau en grand)
+local function couleurFondLigne(rang, estMoi)
+    if estMoi then
+        return Color3.fromRGB(22, 56, 40)
+    end
+    return if rang % 2 == 0 then Color3.fromRGB(24, 24, 36) else Color3.fromRGB(18, 18, 28)
+end
+
+local function creerLigne(parent, rang, hauteur)
+    local ligne = nouveau("Frame", {
+        Size = UDim2.new(1, -12, 0, hauteur),
+        LayoutOrder = rang,
+        BackgroundColor3 = couleurFondLigne(rang, false),
+        BorderSizePixel = 0,
+        Visible = false,
+        Parent = parent,
+    })
+    nouveau("UICorner", { CornerRadius = UDim.new(0.3, 0), Parent = ligne })
+    local couleurRang = COULEURS_PODIUM[rang] or GRIS
+    texte({ Position = UDim2.fromScale(0.015, 0.14), Size = UDim2.fromScale(0.11, 0.72), Text = "#" .. rang, Font = Enum.Font.GothamBlack, TextColor3 = couleurRang, Parent = ligne })
+    return {
+        rang = rang,
+        cadre = ligne,
+        nom = texte({ Position = UDim2.fromScale(0.14, 0.14), Size = UDim2.fromScale(0.54, 0.72), TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBlack, Parent = ligne }),
+        score = texte({ Position = UDim2.fromScale(0.7, 0.14), Size = UDim2.fromScale(0.28, 0.72), TextXAlignment = Enum.TextXAlignment.Right, Font = Enum.Font.GothamBlack, TextColor3 = couleurRang, Parent = ligne }),
+    }
+end
+
+local function remplirLigne(ligne, entree)
+    ligne.cadre.Visible = entree ~= nil
+    if entree then
+        local estMoi = entree.userId == joueur.UserId
+        ligne.nom.Text = tostring(entree.nom)
+        ligne.nom.TextColor3 = if estMoi then VERT else BLANC
+        ligne.score.Text = tostring(entree.score) .. " steps"
+        ligne.cadre.BackgroundColor3 = couleurFondLigne(ligne.rang, estMoi)
+    end
+end
+
 do
     local modele = modeleStation(TABLEAU, "Classement")
     local base = Vector3.new(O.X, SOL, O.Z) + direction(STATIONS[TABLEAU].angle) * R
@@ -657,7 +714,7 @@ do
     local function ici(x, y, z)
         return F * CFrame.new(x, y, z)
     end
-    local planche = bloc({ Size = Vector3.new(22, 14, 0.8), CFrame = ici(0, 10.5, 0), Color = Color3.fromRGB(12, 12, 20), Parent = modele })
+    local planche = solide(bloc({ Size = Vector3.new(22, 14, 0.8), CFrame = ici(0, 10.5, 0), Color = Color3.fromRGB(12, 12, 20), Parent = modele }))
     for _, barre in ipairs({
         { Vector3.new(22.8, 0.4, 0.4), ici(0, 17.7, -0.3) },
         { Vector3.new(22.8, 0.4, 0.4), ici(0, 3.3, -0.3) },
@@ -667,11 +724,11 @@ do
         neon({ Size = barre[1], CFrame = barre[2], Color = OR, Parent = modele })
     end
     for _, x in ipairs({ -8, 8 }) do
-        bloc({ Size = Vector3.new(1, 3.2, 1), CFrame = ici(x, 1.9, 0), Color = Color3.fromRGB(30, 28, 44), Parent = modele })
+        solide(bloc({ Size = Vector3.new(1, 3.2, 1), CFrame = ici(x, 1.9, 0), Color = Color3.fromRGB(30, 28, 44), Parent = modele }))
     end
     nouveau("PointLight", { Range = 22, Brightness = 1.2, Color = OR, Parent = planche })
 
-    -- l'écran du tableau
+    -- l'écran du tableau : les 100 premiers défilent tout seuls
     local surface = nouveau("SurfaceGui", {
         Face = Enum.NormalId.Front,
         SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
@@ -679,35 +736,31 @@ do
         LightInfluence = 0,
         Parent = planche,
     })
-    texte({ Position = UDim2.fromScale(0.04, 0.03), Size = UDim2.fromScale(0.92, 0.1), Text = "WORLDWIDE  ·  TOP 10", Font = Enum.Font.GothamBlack, TextColor3 = OR, Parent = surface })
+    texte({ Position = UDim2.fromScale(0.04, 0.025), Size = UDim2.fromScale(0.92, 0.08), Text = "TOP 100  ·  MOST STEPS", Font = Enum.Font.GothamBlack, TextColor3 = OR, Parent = surface })
+    texte({ Position = UDim2.fromScale(0.04, 0.105), Size = UDim2.fromScale(0.92, 0.035), Text = "the most steps climbed in ONE game", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, Parent = surface })
     tableau.statut = texte({ Position = UDim2.fromScale(0.04, 0.45), Size = UDim2.fromScale(0.92, 0.07), Text = "Loading...", TextColor3 = GRIS, Parent = surface })
-    local COULEURS_PODIUM = { OR, Color3.fromRGB(210, 215, 230), Color3.fromRGB(220, 140, 80) }
-    for rang = 1, 10 do
-        local y = 0.15 + (rang - 1) * 0.073
-        local ligne = nouveau("Frame", {
-            Position = UDim2.fromScale(0.03, y),
-            Size = UDim2.fromScale(0.94, 0.065),
-            BackgroundColor3 = if rang % 2 == 0 then Color3.fromRGB(24, 24, 36) else Color3.fromRGB(18, 18, 28),
-            BorderSizePixel = 0,
-            Visible = false,
-            Parent = surface,
-        })
-        nouveau("UICorner", { CornerRadius = UDim.new(0.3, 0), Parent = ligne })
-        local couleurRang = COULEURS_PODIUM[rang] or GRIS
-        texte({ Position = UDim2.fromScale(0.01, 0.12), Size = UDim2.fromScale(0.07, 0.76), Text = "#" .. rang, Font = Enum.Font.GothamBlack, TextColor3 = couleurRang, Parent = ligne })
-        tableau.lignes[rang] = {
-            cadre = ligne,
-            nom = texte({ Position = UDim2.fromScale(0.1, 0.12), Size = UDim2.fromScale(0.4, 0.76), TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBlack, Parent = ligne }),
-            details = texte({ Position = UDim2.fromScale(0.5, 0.2), Size = UDim2.fromScale(0.28, 0.6), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = GRIS, Font = Enum.Font.GothamMedium, Parent = ligne }),
-            score = texte({ Position = UDim2.fromScale(0.78, 0.12), Size = UDim2.fromScale(0.2, 0.76), TextXAlignment = Enum.TextXAlignment.Right, Font = Enum.Font.GothamBlack, TextColor3 = couleurRang, Parent = ligne }),
-        }
+    tableau.defile = nouveau("ScrollingFrame", {
+        Position = UDim2.fromScale(0.03, 0.16),
+        Size = UDim2.fromScale(0.94, 0.71),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 5,
+        ScrollBarImageColor3 = OR,
+        ScrollingEnabled = false,
+        CanvasSize = UDim2.new(),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Parent = surface,
+    })
+    nouveau("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = tableau.defile })
+    for rang = 1, NB_TOP do
+        tableau.lignes[rang] = creerLigne(tableau.defile, rang, 40)
     end
     tableau.moi = texte({ Position = UDim2.fromScale(0.04, 0.89), Size = UDim2.fromScale(0.92, 0.07), TextColor3 = VERT, Font = Enum.Font.GothamBlack, Parent = surface })
 
     -- le podium devant, avec les 3 premiers
     for rang, infos in ipairs({ { 0, 3.2 }, { -4.4, 2.2 }, { 4.4, 1.5 } }) do
         local x, hauteur = infos[1], infos[2]
-        local marche = bloc({ Size = Vector3.new(4.2, hauteur, 3), CFrame = ici(x, hauteur / 2, -6), Color = Color3.fromRGB(30, 28, 44), Parent = modele })
+        local marche = solide(bloc({ Size = Vector3.new(4.2, hauteur, 3), CFrame = ici(x, hauteur / 2, -6), Color = Color3.fromRGB(30, 28, 44), Parent = modele }))
         neon({ Size = Vector3.new(4.25, 0.15, 3.05), CFrame = ici(x, hauteur, -6), Color = COULEURS_PODIUM[rang], Parent = modele })
         local chiffre = bloc({ Size = Vector3.new(2, math.min(hauteur - 0.2, 1.6), 0.05), CFrame = ici(x, hauteur / 2, -7.53), Transparency = 1, Parent = modele })
         panneauTexte(chiffre, tostring(rang), COULEURS_PODIUM[rang])
@@ -717,10 +770,27 @@ do
             score = texte({ Position = UDim2.fromScale(0, 0.58), Size = UDim2.fromScale(1, 0.42), TextColor3 = COULEURS_PODIUM[rang], TextStrokeTransparency = 0.3, Parent = etiquette }),
         }
     end
+    -- le point où apparaît le bouton « E » (devant le podium)
+    pointTableau = bloc({ Size = Vector3.new(1, 1, 1), CFrame = ici(0, 3, -10), Transparency = 1, CanQuery = false, Parent = modele })
 end
 
--- On demande le top 10 au serveur (pas plus d'une fois toutes les 10 secondes)
+-- ton record et ta place dans le top 100
+local function texteMonRang()
+    local record = tableau.record or 0
+    if record <= 0 then
+        return "YOUR BEST: —  (go climb!)"
+    end
+    for rang, entree in ipairs(tableau.liste) do
+        if entree.userId == joueur.UserId then
+            return "YOUR BEST: " .. record .. " steps  ·  RANK #" .. rang
+        end
+    end
+    return "YOUR BEST: " .. record .. " steps  ·  not in the top 100 yet"
+end
+
+-- On demande le top 100 au serveur (pas plus d'une fois toutes les 10 secondes)
 local dernierTableau = -math.huge
+local remplirPanneauTop -- (défini plus bas : le top 100 en grand, à l'écran)
 local function majTableau(force)
     if not force and os.clock() - dernierTableau < 10 then
         return
@@ -728,125 +798,126 @@ local function majTableau(force)
     dernierTableau = os.clock()
     task.spawn(function()
         local ok, resultat = pcall(function()
-            return ClassementFonction:InvokeServer("G")
+            return ClassementFonction:InvokeServer("G", true)
         end)
         if not ok or type(resultat) ~= "table" then
+            tableau.statut.Visible = true
             tableau.statut.Text = "Leaderboard unavailable for now"
             return
         end
         local liste = resultat.liste or {}
+        tableau.liste = liste
+        tableau.record = tonumber(resultat.moi) or 0
         tableau.statut.Visible = #liste == 0
         tableau.statut.Text = "No record yet: be the first!"
         for rang, ligne in ipairs(tableau.lignes) do
-            local entree = liste[rang]
-            ligne.cadre.Visible = entree ~= nil
-            if entree then
-                local estMoi = entree.userId == joueur.UserId
-                ligne.nom.Text = tostring(entree.nom)
-                ligne.nom.TextColor3 = if estMoi then VERT else BLANC
-                ligne.details.Text = if entree.perso then string.upper(tostring(entree.perso)) .. (if entree.musique then "  ·  " .. tostring(entree.musique) else "") else ""
-                ligne.details.TextColor3 = COULEURS[entree.perso] or GRIS
-                ligne.score.Text = tostring(entree.score) .. " steps"
-            end
+            remplirLigne(ligne, liste[rang])
         end
         for rang, place in ipairs(tableau.podium) do
             local entree = liste[rang]
             place.nom.Text = if entree then tostring(entree.nom) else "—"
             place.score.Text = if entree then tostring(entree.score) .. " steps" else ""
         end
-        local record = tonumber(resultat.moi) or 0
-        tableau.moi.Text = if record > 0 then "YOUR BEST: " .. record .. " steps" else "YOUR BEST: —  (go climb!)"
+        tableau.moi.Text = texteMonRang()
+        if remplirPanneauTop then
+            remplirPanneauTop()
+        end
     end)
 end
 
--- ---------- TOI : une copie de ton avatar devant le portail, avec l'aura de ton état d'esprit ----------
-local maCopie = { modele = nil, aura = nil, anneau = nil, etiquette = nil }
-local function majAuraCopie()
-    local perso = joueur:GetAttribute("Perso")
-    local couleur = COULEURS[perso] or Color3.fromRGB(200, 200, 215)
-    if maCopie.aura then
-        maCopie.aura.Color = ColorSequence.new(couleur)
-        maCopie.aura.Enabled = perso ~= nil
-    end
-    if maCopie.anneau then
-        maCopie.anneau.Color = couleur
-    end
-    if maCopie.etiquette then
-        maCopie.etiquette.Text = if perso then string.upper(perso) else "NO MINDSET YET"
-        maCopie.etiquette.TextColor3 = couleur
-    end
-end
+-- ---------- LES JOUEURS : une étiquette au-dessus de chaque joueur du hub ----------
+-- (état d'esprit + niveau, pseudo, record) : c'est comme ça qu'on voit l'évolution des autres
+local dossierGrimpeurs = ReplicatedStorage:WaitForChild("Grimpeurs")
+local etiquettes = {} -- [config] = { gui, perso, nom, record }
 
-local function copierAvatar()
-    local personnage = joueur.Character
-    if not personnage then
+local function majEtiquetteHub(config)
+    local e = etiquettes[config]
+    if not e then
         return
     end
-    -- on attend que les vêtements / accessoires soient chargés (5 s max)
-    local limite = os.clock() + 5
-    while not joueur:HasAppearanceLoaded() and os.clock() < limite do
-        task.wait(0.2)
-    end
-    task.wait(0.3)
-    if joueur.Character ~= personnage then
-        return
-    end
-    local archivable = personnage.Archivable
-    personnage.Archivable = true
-    local copie = personnage:Clone()
-    personnage.Archivable = archivable
-    if not copie then
-        return
-    end
-    -- on enlève ce qui ne sert pas dans le menu (scripts, effets du jeu, étiquettes...)
-    for _, objet in ipairs(copie:GetDescendants()) do
-        if objet:IsA("LuaSourceContainer") or objet:IsA("Trail") or objet:IsA("ParticleEmitter") or objet:IsA("BillboardGui")
-            or objet:IsA("Highlight") or objet:IsA("Sound") or objet:IsA("ForceField") or objet:IsA("Light") then
-            objet:Destroy()
+    local cible = Players:GetPlayerByUserId(config:GetAttribute("UserId") or 0)
+    local perso = config:GetAttribute("Perso")
+    local total = 0
+    if cible and perso then
+        for _, n in ipairs(mesNiveaux(perso, cible)) do
+            total += tonumber(n) or 0
         end
     end
-    if maCopie.modele then
-        maCopie.modele:Destroy()
-    end
-    copie.Name = "MaCopie"
-    copie.Parent = modelesStations[PORTAIL]
-    maCopie.modele = copie
-    poserAvatar(copie, socleAvatar)
-    local racine = copie:FindFirstChild("HumanoidRootPart")
-    if racine then
-        maCopie.aura = nouveau("ParticleEmitter", {
-            Rate = 18,
-            Lifetime = NumberRange.new(0.8, 1.6),
-            Speed = NumberRange.new(1, 3),
-            SpreadAngle = Vector2.new(30, 30),
-            EmissionDirection = Enum.NormalId.Top,
-            Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) }),
-            Transparency = NumberSequence.new(0.2, 1),
-            LightEmission = 1,
-            Parent = racine,
-        })
-        local etiquette = nouveau("BillboardGui", { Adornee = racine, Size = UDim2.fromOffset(180, 26), StudsOffsetWorldSpace = Vector3.new(0, 4.2, 0), MaxDistance = 90, Parent = copie })
-        maCopie.etiquette = texte({ Size = UDim2.fromScale(1, 1), Font = Enum.Font.GothamBlack, TextStrokeTransparency = 0.3, Parent = etiquette })
-    end
-    if not maCopie.anneau then
-        maCopie.anneau = neon({
-            Shape = Enum.PartType.Cylinder,
-            Size = Vector3.new(0.08, 4.5, 4.5),
-            CFrame = socleAvatar * CFrame.new(0, 0.05, 0) * CFrame.Angles(0, 0, math.pi / 2),
-            Transparency = 0.35,
-            Parent = modelesStations[PORTAIL],
-        })
-    end
-    majAuraCopie()
+    e.perso.Text = if perso then string.upper(perso) .. "  ·  LV " .. total else "NO MINDSET YET"
+    e.perso.TextColor3 = COULEURS[perso] or GRIS
+    e.nom.Text = tostring(config:GetAttribute("Nom") or "")
+    local record = if cible then tonumber(cible:GetAttribute("Record")) or 0 else 0
+    e.record.Text = if record > 0 then "BEST: " .. record .. " STEPS" else "NEW CLIMBER"
+    e.gui.Enabled = config:GetAttribute("Hub") == true
 end
-joueur.CharacterAdded:Connect(function()
-    task.wait(1)
-    copierAvatar()
+
+local function poserEtiquetteHub(config)
+    local ancienne = etiquettes[config]
+    if ancienne then
+        ancienne.gui:Destroy()
+    end
+    etiquettes[config] = nil
+    local valeur = config:FindFirstChild("Modele")
+    local modele = valeur and valeur.Value
+    if not modele then
+        return
+    end
+    task.spawn(function()
+        local tete = modele:WaitForChild("Head", 10)
+        if not tete or valeur.Value ~= modele or etiquettes[config] then
+            return
+        end
+        local gui = nouveau("BillboardGui", {
+            Name = "MindsetHubEtiquette",
+            Adornee = tete,
+            Size = UDim2.fromOffset(210, 64),
+            StudsOffsetWorldSpace = Vector3.new(0, 2.8, 0),
+            MaxDistance = 80,
+            LightInfluence = 0,
+            Parent = tete,
+        })
+        etiquettes[config] = {
+            gui = gui,
+            perso = texte({ Size = UDim2.fromScale(1, 0.4), Font = Enum.Font.GothamBlack, TextStrokeTransparency = 0.3, Parent = gui }),
+            nom = texte({ Position = UDim2.fromScale(0, 0.4), Size = UDim2.fromScale(1, 0.32), TextStrokeTransparency = 0.4, Parent = gui }),
+            record = texte({ Position = UDim2.fromScale(0, 0.72), Size = UDim2.fromScale(1, 0.28), Font = Enum.Font.GothamBold, TextColor3 = OR, TextStrokeTransparency = 0.4, Parent = gui }),
+        }
+        majEtiquetteHub(config)
+    end)
+end
+
+local function suivreGrimpeur(config)
+    if (config:GetAttribute("UserId") or 0) == 0 then
+        return -- les bots ne viennent jamais dans le hub
+    end
+    local valeur = config:WaitForChild("Modele", 10)
+    if valeur then
+        valeur.Changed:Connect(function()
+            poserEtiquetteHub(config)
+        end)
+    end
+    poserEtiquetteHub(config)
+    for _, attribut in ipairs({ "Hub", "Perso", "Nom" }) do
+        config:GetAttributeChangedSignal(attribut):Connect(function()
+            majEtiquetteHub(config)
+        end)
+    end
+    local cible = Players:GetPlayerByUserId(config:GetAttribute("UserId"))
+    if cible then
+        for _, attribut in ipairs({ "Niveaux", "Record" }) do
+            cible:GetAttributeChangedSignal(attribut):Connect(function()
+                majEtiquetteHub(config)
+            end)
+        end
+    end
+end
+dossierGrimpeurs.ChildAdded:Connect(suivreGrimpeur)
+dossierGrimpeurs.ChildRemoved:Connect(function(config)
+    etiquettes[config] = nil
 end)
-if joueur.Character then
-    task.spawn(copierAvatar)
+for _, config in ipairs(dossierGrimpeurs:GetChildren()) do
+    task.spawn(suivreGrimpeur, config)
 end
-joueur:GetAttributeChangedSignal("Perso"):Connect(majAuraCopie)
 
 -- ========================== L'INTERFACE ==========================
 local playerGui = joueur:WaitForChild("PlayerGui")
@@ -854,7 +925,7 @@ local gui = nouveau("ScreenGui", {
     Name = "MindsetHubGui",
     ResetOnSpawn = false,
     IgnoreGuiInset = true,
-    DisplayOrder = 1, -- sous le jeu : CLASSEMENTS et PARAMÈTRES s'ouvrent par-dessus
+    DisplayOrder = 1, -- sous le jeu : PARAMÈTRES s'ouvre par-dessus
     Parent = playerGui,
 })
 -- le voile des transitions (au-dessus de tout)
@@ -862,20 +933,8 @@ local guiTransition = nouveau("ScreenGui", { Name = "MindsetTransition", ResetOn
 local fondu = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = NOIR, BackgroundTransparency = 0, BorderSizePixel = 0, Parent = guiTransition })
 
 local racine = nouveau("CanvasGroup", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = gui })
--- un peu d'ombre en haut et en bas pour bien lire
-local ombre = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = NOIR, BorderSizePixel = 0, Parent = racine })
-nouveau("UIGradient", {
-    Rotation = 90,
-    Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.35),
-        NumberSequenceKeypoint.new(0.22, 1),
-        NumberSequenceKeypoint.new(0.75, 1),
-        NumberSequenceKeypoint.new(1, 0.3),
-    }),
-    Parent = ombre,
-})
 
--- le titre du jeu, chaque état d'esprit dans sa couleur
+-- le titre du jeu (au début seulement), chaque état d'esprit dans sa couleur
 local function enCouleur(mot, couleur)
     local function octet(x)
         return math.floor(x * 255 + 0.5)
@@ -884,8 +943,8 @@ local function enCouleur(mot, couleur)
 end
 local titre = texte({
     AnchorPoint = Vector2.new(0.5, 0),
-    Position = UDim2.fromScale(0.5, 0.03),
-    Size = UDim2.fromScale(0.62, 0.1),
+    Position = UDim2.fromScale(0.5, 0.06),
+    Size = UDim2.fromScale(0.56, 0.09),
     RichText = true,
     Font = Enum.Font.GothamBlack,
     Text = enCouleur("EGO", COULEURS.Ego) .. ' <font color="#DCDCE6">vs</font> ' .. enCouleur("DISCIPLINE", COULEURS.Discipline) .. "\n"
@@ -896,7 +955,7 @@ local titre = texte({
 })
 local echelleTitre = nouveau("UIScale", { Parent = titre })
 
--- un bouton du menu (survol = grossit + son, clic = rebond)
+-- un bouton (survol = grossit + son, clic = rebond)
 local function bouton(proprietes, couleur, plein, note)
     proprietes.BackgroundColor3 = if plein then couleur else FOND_PANNEAU
     proprietes.BackgroundTransparency = if plein then 0 else 0.1
@@ -923,7 +982,7 @@ local function bouton(proprietes, couleur, plein, note)
     return b, trait
 end
 
--- ---------- en haut à gauche : ton aura + PARAMÈTRES ----------
+-- ---------- en haut à gauche : ton aura + PARAMÈTRES + AFK ----------
 local auraValeur = joueur:WaitForChild("StatsCachees", 30) and joueur.StatsCachees:WaitForChild("Aura", 30)
 local pastilleAura = nouveau("Frame", {
     Position = UDim2.new(0, 20, 0, 70),
@@ -939,54 +998,21 @@ local texteAura = texte({ Position = UDim2.new(0, 80, 0.15, 0), Size = UDim2.new
 local echelleAura = nouveau("UIScale", { Parent = pastilleAura })
 
 local boutonReglages = bouton({ Position = UDim2.new(0, 20, 0, 128), Size = UDim2.fromOffset(160, 40), Text = "SETTINGS", Parent = racine }, Color3.fromRGB(200, 200, 220), false, 3)
+local boutonAfk = bouton({ Position = UDim2.new(0, 20, 0, 176), Size = UDim2.fromOffset(160, 40), Text = "AFK · WATCH", Parent = racine }, Color3.fromRGB(140, 200, 255), false, 2)
 
--- ---------- en bas : les 3 endroits ----------
-local barreNav = nouveau("Frame", {
+-- ---------- en bas : ce qu'on peut faire ici ----------
+local aide = texte({
     AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -16),
-    Size = UDim2.new(0.94, 0, 0, 54),
-    BackgroundTransparency = 1,
+    Position = UDim2.new(0.5, 0, 1, if surMobile then -150 else -24),
+    Size = UDim2.new(0.9, 0, 0, 22),
+    RichText = true,
+    Text = 'Walk into the <font color="#FFDC50">PORTAL</font> to play  ·  Talk to the <font color="#AA5AFF">AURA MERCHANT</font> to upgrade  ·  Check the <font color="#6EE6A0">TOP 100</font>',
+    Font = Enum.Font.GothamBold,
+    TextColor3 = Color3.fromRGB(220, 220, 235),
+    TextStrokeTransparency = 0.4,
     Parent = racine,
 })
-nouveau("UISizeConstraint", { MaxSize = Vector2.new(660, 54), Parent = barreNav })
-nouveau("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, HorizontalAlignment = Enum.HorizontalAlignment.Center, Padding = UDim.new(0.02, 0), SortOrder = Enum.SortOrder.LayoutOrder, Parent = barreNav })
-local boutonsNav = {}
-for i, station in ipairs(STATIONS) do
-    local b, trait = bouton({ Size = UDim2.fromScale(0.31, 1), Text = station.nom, LayoutOrder = i, Parent = barreNav }, station.couleur, false, i * 2)
-    boutonsNav[i] = { bouton = b, trait = trait }
-end
-local aideClavier = texte({
-    AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -76),
-    Size = UDim2.fromOffset(420, 16),
-    Text = "A / D or arrows to move  ·  click the scene",
-    Font = Enum.Font.GothamMedium,
-    TextColor3 = Color3.fromRGB(140, 140, 160),
-    Visible = not surMobile,
-    Parent = racine,
-})
-
--- ---------- PORTAIL : le gros bouton PLAY (à droite) ----------
-local panneauJouer = nouveau("Frame", {
-    AnchorPoint = Vector2.new(1, 0.5),
-    Position = UDim2.new(1, -30, 0.56, 0),
-    Size = UDim2.fromOffset(300, 210),
-    BackgroundTransparency = 1,
-    Parent = racine,
-})
-local texteMindset = texte({ Size = UDim2.new(1, 0, 0, 22), Font = Enum.Font.GothamBlack, Parent = panneauJouer })
-local texteNiveau = texte({ Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 0, 16), Font = Enum.Font.GothamMedium, TextColor3 = GRIS, Parent = panneauJouer })
-local boutonJouer = bouton({ Position = UDim2.fromOffset(0, 50), Size = UDim2.new(1, 0, 0, 84), Text = "PLAY", Parent = panneauJouer }, OR, true, 6)
-local boutonAfk = bouton({ Position = UDim2.fromOffset(30, 146), Size = UDim2.new(1, -60, 0, 44), Text = "AFK  ·  WATCH", Parent = panneauJouer }, Color3.fromRGB(140, 200, 255), false, 3)
-
--- ---------- CLASSEMENT : le bouton qui ouvre tous les classements ----------
-local boutonClassements = bouton({
-    AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -96),
-    Size = UDim2.fromOffset(320, 52),
-    Text = "ALL LEADERBOARDS",
-    Parent = racine,
-}, VERT, true, 7)
+nouveau("UISizeConstraint", { MaxSize = Vector2.new(900, 22), Parent = aide })
 
 -- ---------- MARCHAND : la boutique (à droite) ----------
 local boutique = { onglets = {}, lignes = {}, perso = nil }
@@ -996,6 +1022,7 @@ local panneauShop = nouveau("Frame", {
     Size = UDim2.fromScale(0.44, 0.68),
     BackgroundColor3 = FOND_PANNEAU,
     BackgroundTransparency = 0.06,
+    Visible = false,
     Parent = racine,
 })
 nouveau("UISizeConstraint", { MaxSize = Vector2.new(560, 620), Parent = panneauShop })
@@ -1003,7 +1030,8 @@ nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = panneauShop })
 local traitShop = nouveau("UIStroke", { Color = VIOLET, Thickness = 2, Parent = panneauShop })
 local echelleShop = nouveau("UIScale", { Parent = panneauShop })
 texte({ Position = UDim2.fromScale(0.05, 0.025), Size = UDim2.fromScale(0.5, 0.065), Text = "AURA SHOP", Font = Enum.Font.GothamBlack, TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauShop })
-boutique.solde = texte({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(0.95, 0.03), Size = UDim2.fromScale(0.4, 0.05), Font = Enum.Font.GothamBlack, TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Right, Parent = panneauShop })
+boutique.solde = texte({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(0.85, 0.03), Size = UDim2.fromScale(0.32, 0.05), Font = Enum.Font.GothamBlack, TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Right, Parent = panneauShop })
+local boutonFermerShop = bouton({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14), Size = UDim2.fromOffset(38, 38), Text = "X", Parent = panneauShop }, ROUGE, false, 2)
 texte({ Position = UDim2.fromScale(0.05, 0.088), Size = UDim2.fromScale(0.9, 0.032), Text = "Spend the aura you farm in game to upgrade your mindset.", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauShop })
 
 -- les 4 onglets (un par état d'esprit)
@@ -1197,7 +1225,7 @@ boutique.boutonEquiper.Activated:Connect(function()
 end)
 joueur:GetAttributeChangedSignal("Perso"):Connect(function()
     local perso = joueur:GetAttribute("Perso")
-    if perso then
+    if perso and panneauShop.Visible then
         messageBoutique(string.upper(perso) .. " equipped!", COULEURS[perso])
         direMarchand("equipe")
     end
@@ -1235,92 +1263,183 @@ if auraValeur then
 end
 majAura()
 
--- le texte au-dessus de PLAY : ton état d'esprit et son niveau
-local function majPanneauJouer()
-    local perso = joueur:GetAttribute("Perso")
-    if perso then
-        local total = 0
-        for _, n in ipairs(mesNiveaux(perso)) do
-            total += tonumber(n) or 0
-        end
-        texteMindset.Text = "MINDSET: " .. string.upper(perso)
-        texteMindset.TextColor3 = COULEURS[perso]
-        texteNiveau.Text = "Skill level " .. total .. "  ·  upgrade it at the AURA SHOP"
-    else
-        texteMindset.Text = "NO MINDSET YET"
-        texteMindset.TextColor3 = GRIS
-        texteNiveau.Text = "Pick one at the AURA SHOP (or in the lobby)"
-    end
+-- ---------- TOP 100 en grand (bouton « E » devant le tableau) ----------
+local panneauTop = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.52),
+    Size = UDim2.fromScale(0.5, 0.78),
+    BackgroundColor3 = FOND_PANNEAU,
+    BackgroundTransparency = 0.04,
+    Visible = false,
+    Parent = racine,
+})
+nouveau("UISizeConstraint", { MinSize = Vector2.new(320, 300), MaxSize = Vector2.new(540, 680), Parent = panneauTop })
+nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = panneauTop })
+nouveau("UIStroke", { Color = OR, Thickness = 2, Parent = panneauTop })
+local echelleTop = nouveau("UIScale", { Parent = panneauTop })
+texte({ Position = UDim2.new(0.05, 0, 0, 16), Size = UDim2.new(0.75, 0, 0, 30), Text = "TOP 100  ·  MOST STEPS", Font = Enum.Font.GothamBlack, TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauTop })
+texte({ Position = UDim2.new(0.05, 0, 0, 48), Size = UDim2.new(0.9, 0, 0, 16), Text = "The most steps climbed in ONE game, all mindsets and songs", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauTop })
+local boutonFermerTop = bouton({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14), Size = UDim2.fromOffset(38, 38), Text = "X", Parent = panneauTop }, ROUGE, false, 2)
+local listeTop = nouveau("ScrollingFrame", {
+    Position = UDim2.new(0.04, 0, 0, 76),
+    Size = UDim2.new(0.92, 0, 1, -126),
+    BackgroundTransparency = 1,
+    BorderSizePixel = 0,
+    ScrollBarThickness = 6,
+    ScrollBarImageColor3 = OR,
+    CanvasSize = UDim2.new(),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    Parent = panneauTop,
+})
+nouveau("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = listeTop })
+local lignesTop = {}
+for rang = 1, NB_TOP do
+    lignesTop[rang] = creerLigne(listeTop, rang, 34)
 end
-joueur:GetAttributeChangedSignal("Perso"):Connect(majPanneauJouer)
-joueur:GetAttributeChangedSignal("Niveaux"):Connect(majPanneauJouer)
-majPanneauJouer()
+local statutTop = texte({ Position = UDim2.new(0.05, 0, 0.4, 0), Size = UDim2.new(0.9, 0, 0, 24), Text = "Loading...", TextColor3 = GRIS, Parent = panneauTop })
+local moiTop = texte({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0.05, 0, 1, -14), Size = UDim2.new(0.9, 0, 0, 24), Font = Enum.Font.GothamBlack, TextColor3 = VERT, Parent = panneauTop })
 
--- ========================== NAVIGATION + CAMÉRA ==========================
+remplirPanneauTop = function()
+    local liste = tableau.liste
+    statutTop.Visible = #liste == 0
+    statutTop.Text = "No record yet: be the first!"
+    for rang, ligne in ipairs(lignesTop) do
+        remplirLigne(ligne, liste[rang])
+    end
+    moiTop.Text = texteMonRang()
+end
+
+-- ========================== SE BALADER ==========================
 local etat = {
-    ouvert = true,      -- le menu 3D est à l'écran
-    station = PORTAIL,  -- où on regarde
-    angle = 0,          -- angle actuel de la caméra (il glisse vers celui de l'endroit)
-    decalage = 0,
-    vise = STATIONS[PORTAIL].vise,
-    px = 0,
-    py = 0,
+    ouvert = true,    -- on est dans le hub
+    transition = nil, -- la plongée dans le portail
+    occupe = false,   -- une transition en fondu est en cours
     intro = os.clock(),
-    introDepuis = "haut", -- "haut" (au lancement) ou "portail" (en revenant du jeu)
-    transition = nil,     -- la plongée dans le portail
-    occupe = false,       -- une transition en fondu est en cours
+    panneau = nil,    -- "shop" / "top" / nil
 }
 
-local function majStation()
-    for i, nav in ipairs(boutonsNav) do
-        local actif = i == etat.station
-        local couleur = STATIONS[i].couleur
-        nav.bouton.BackgroundColor3 = if actif then couleur else FOND_PANNEAU
-        nav.bouton.TextColor3 = if actif then NOIR else couleur
+local function maRacine()
+    local personnage = joueur.Character
+    return personnage and personnage:FindFirstChild("HumanoidRootPart")
+end
+
+local function monHumanoid()
+    local personnage = joueur.Character
+    return personnage and personnage:FindFirstChildOfClass("Humanoid")
+end
+
+-- la caméra Roblox normale, derrière ton avatar
+local function cameraHub()
+    local camera = workspace.CurrentCamera
+    local humanoid = monHumanoid()
+    local r = maRacine()
+    if r then
+        camera.CFrame = CFrame.lookAt(r.Position + Vector3.new(0, 7, 16), r.Position + Vector3.new(0, 2, 0))
     end
-    panneauJouer.Visible = etat.station == PORTAIL
-    boutonClassements.Visible = etat.station == TABLEAU
-    local shop = etat.station == SHOP
-    if shop and not panneauShop.Visible then
+    camera.CameraType = Enum.CameraType.Custom
+    if humanoid then
+        camera.CameraSubject = humanoid
+        humanoid.WalkSpeed = 16
+    end
+    camera.FieldOfView = 70
+end
+
+-- on attend que le serveur ait posé ton avatar sur la place (max secondes)
+local function attendreAuHub(max)
+    local limite = os.clock() + max
+    while os.clock() < limite do
+        local r = maRacine()
+        if r and (r.Position - O).Magnitude < 80 then
+            return
+        end
+        task.wait(0.05)
+    end
+end
+
+local function fermerPanneaux()
+    panneauShop.Visible = false
+    panneauTop.Visible = false
+    etat.panneau = nil
+end
+
+local function ouvrirShop()
+    if not etat.ouvert or etat.transition then
+        return
+    end
+    panneauTop.Visible = false
+    if not panneauShop.Visible then
         echelleShop.Scale = 0.85
         tween(echelleShop, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
     end
-    panneauShop.Visible = shop
-    titre.Visible = not shop or not surMobile
+    panneauShop.Visible = true
+    etat.panneau = "shop"
+    sonClic(2)
+    afficherBoutique()
+    messageBoutique("", GRIS)
+    direMarchand("salut")
+    animerMarchand("coucou")
 end
 
-local function aller(numero)
-    numero = math.clamp(numero, 1, #STATIONS)
-    if numero == etat.station or not etat.ouvert or etat.transition then
+local function ouvrirTop()
+    if not etat.ouvert or etat.transition then
         return
     end
-    etat.station = numero
-    sonSurvol(numero * 2)
-    jouerSon("vent", 2.4, 0.12, nil, 0.45)
-    majStation()
-    if numero == SHOP then
-        afficherBoutique()
-        messageBoutique("", GRIS)
-        direMarchand("salut")
-        animerMarchand("coucou")
-    elseif numero == TABLEAU then
-        majTableau(false)
+    panneauShop.Visible = false
+    if not panneauTop.Visible then
+        echelleTop.Scale = 0.85
+        tween(echelleTop, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
     end
+    panneauTop.Visible = true
+    etat.panneau = "top"
+    sonClic(7)
+    remplirPanneauTop()
+    majTableau(false)
+    -- on descend la liste jusqu'à toi si tu es dans le top 100
+    for rang, entree in ipairs(tableau.liste) do
+        if entree.userId == joueur.UserId then
+            listeTop.CanvasPosition = Vector2.new(0, math.max(0, (rang - 4) * 38))
+            return
+        end
+    end
+    listeTop.CanvasPosition = Vector2.zero
 end
 
--- PLAY : la caméra plonge dans le portail, flash blanc, et on arrive dans le jeu
+-- les boutons « E » (ProximityPrompt) devant le marchand et devant le tableau
+local function boutonE(part, action, objet, quand)
+    local prompt = nouveau("ProximityPrompt", {
+        ActionText = action,
+        ObjectText = objet,
+        KeyboardKeyCode = Enum.KeyCode.E,
+        HoldDuration = 0,
+        MaxActivationDistance = 12,
+        RequiresLineOfSight = false,
+        Parent = part,
+    })
+    prompt.Triggered:Connect(quand)
+    return prompt
+end
+boutonE(pointShop, "Upgrade", "Aura Merchant", ouvrirShop)
+boutonE(pointTableau, "View", "Top 100", ouvrirTop)
+
+-- PORTAIL : quand tu marches dedans, la caméra plonge, flash blanc, et on arrive dans le jeu
 local function jouer()
     if not etat.ouvert or etat.transition or etat.occupe then
         return
     end
     local camera = workspace.CurrentCamera
-    etat.transition = { debut = os.clock(), duree = 1.35, de = camera.CFrame, fov = camera.FieldOfView, flash = false }
+    local humanoid = monHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = 0 -- on ne bouge plus pendant la plongée
+    end
+    fermerPanneaux()
+    camera.CameraType = Enum.CameraType.Scriptable
+    etat.transition = { debut = os.clock(), duree = 1.1, de = camera.CFrame, fov = camera.FieldOfView, flash = false }
     sonClic(1)
     jouerSon("vent", 1.1, 0.7, nil, 1.6)
     tween(racine, 0.25, { GroupTransparency = 1 })
     emetteurPortail.Rate = 220
     emetteurPortail.Speed = NumberRange.new(6, 14)
-    tween(lumierePortail, 1.2, { Brightness = 8, Range = 50 })
+    tween(lumierePortail, 1.0, { Brightness = 8, Range = 50 })
 end
 
 -- un fondu au noir, puis action() au milieu, puis on revient
@@ -1341,6 +1460,7 @@ end
 local function fermerHub()
     etat.ouvert = false
     etat.transition = nil
+    fermerPanneaux()
     racine.Visible = false
     emetteurPortail.Rate = 35
     emetteurPortail.Speed = NumberRange.new(1.5, 4.5)
@@ -1348,32 +1468,45 @@ local function fermerHub()
     lumierePortail.Range = 30
 end
 
-local function ouvrirHub(depuis)
+local function afficherTitre()
+    titre.Visible = true
+    titre.TextTransparency = 0
+    titre.TextStrokeTransparency = 0
+    local numero = os.clock()
+    etat.titre = numero
+    task.delay(6, function()
+        if etat.titre == numero then
+            tween(titre, 1, { TextTransparency = 1, TextStrokeTransparency = 1 })
+        end
+    end)
+end
+
+-- retour dans le hub : le serveur remet ton avatar sur la place
+local function ouvrirHub()
+    JouerEvent:FireServer("Hub")
+    versJeu:Fire("MenuOuvert") -- le script du jeu lâche la caméra
     etat.ouvert = true
     etat.transition = nil
-    etat.station = PORTAIL
-    etat.angle = 0
-    etat.decalage = 0
-    etat.vise = STATIONS[PORTAIL].vise
     etat.intro = os.clock()
-    etat.introDepuis = depuis
+    attendreAuHub(3)
+    cameraHub()
     racine.Visible = true
     racine.GroupTransparency = 1
     tween(racine, 0.6, { GroupTransparency = 0 })
-    majStation()
+    afficherTitre()
     afficherBoutique()
-    majPanneauJouer()
     majTableau(true)
 end
 
 -- les boutons
-for i, nav in ipairs(boutonsNav) do
-    nav.bouton.Activated:Connect(function()
-        sonClic(i * 2)
-        aller(i)
-    end)
-end
-boutonJouer.Activated:Connect(jouer)
+boutonFermerShop.Activated:Connect(function()
+    sonClic(1)
+    fermerPanneaux()
+end)
+boutonFermerTop.Activated:Connect(function()
+    sonClic(1)
+    fermerPanneaux()
+end)
 boutonAfk.Activated:Connect(function()
     if not etat.ouvert or etat.transition then
         return
@@ -1384,115 +1517,43 @@ boutonAfk.Activated:Connect(function()
         versJeu:Fire("Afk")
     end)
 end)
-boutonClassements.Activated:Connect(function()
-    sonClic(7)
-    versJeu:Fire("Classements")
-end)
 boutonReglages.Activated:Connect(function()
     sonClic(4)
     versJeu:Fire("Reglages")
 end)
 
--- le bouton MENU du jeu : retour au menu 3D (on ressort du portail)
+-- le bouton MENU du jeu : retour au hub (on ressort du portail)
 versHub.Event:Connect(function(action)
     if action == "Ouvrir" and not etat.ouvert then
-        task.spawn(enFondu, function()
-            ouvrirHub("portail")
-            versJeu:Fire("MenuOuvert")
-        end)
+        task.spawn(enFondu, ouvrirHub)
     end
 end)
 
--- quel endroit est sous la souris / le doigt ?
-local parametresRayon = RaycastParams.new()
-parametresRayon.FilterType = Enum.RaycastFilterType.Include
-parametresRayon.FilterDescendantsInstances = { scene }
--- (enViewport = true : position de GetMouseLocation, qui compte la barre du haut ;
---  false : position d'un clic (InputObject), qui ne la compte pas)
-local function stationSous(position, enViewport)
-    local camera = workspace.CurrentCamera
-    local rayon = if enViewport then camera:ViewportPointToRay(position.X, position.Y) else camera:ScreenPointToRay(position.X, position.Y)
-    local touche = workspace:Raycast(rayon.Origin, rayon.Direction * 300, parametresRayon)
-    local objet = touche and touche.Instance
-    while objet and objet ~= scene do
-        local numero = objet:GetAttribute("Station")
-        if numero then
-            return numero
+-- un nouvel avatar (mort, reset...) : la caméra le suit
+joueur.CharacterAdded:Connect(function()
+    if etat.ouvert and not etat.transition then
+        task.wait(0.5)
+        attendreAuHub(3)
+        if etat.ouvert and not etat.transition then
+            cameraHub()
         end
-        objet = objet.Parent
     end
-    return nil
-end
+end)
 
-local surbrillance = nouveau("Highlight", {
-    FillColor = OR,
-    FillTransparency = 0.92,
-    OutlineColor = OR,
-    OutlineTransparency = 0.25,
-    DepthMode = Enum.HighlightDepthMode.Occluded,
-    Enabled = false,
-    Parent = scene,
-})
-local bulleSouris = texte({
-    AnchorPoint = Vector2.new(0, 1),
-    Size = UDim2.fromOffset(220, 22),
-    Font = Enum.Font.GothamBlack,
-    TextColor3 = OR,
-    TextStrokeTransparency = 0.3,
-    TextXAlignment = Enum.TextXAlignment.Left,
-    Visible = false,
-    Parent = racine,
-})
-local stationSurvolee = nil
-
+-- Échap / Retour arrière ferme le panneau ouvert
 UserInputService.InputBegan:Connect(function(input, gere)
-    if not etat.ouvert or etat.transition or etat.occupe then
-        return
-    end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        if gere then
-            return
-        end
-        local numero = stationSous(input.Position, false)
-        if not numero then
-            return
-        end
-        if numero ~= etat.station then
-            sonClic(numero * 2)
-            aller(numero)
-        elseif numero == PORTAIL then
-            jouer()
-        elseif numero == SHOP then
-            direMarchand("salut")
-            animerMarchand("coucou")
-        elseif numero == TABLEAU then
-            sonClic(7)
-            versJeu:Fire("Classements")
-        end
-    elseif not gere then
-        local touche = input.KeyCode
-        if touche == Enum.KeyCode.Left or touche == Enum.KeyCode.A or touche == Enum.KeyCode.Q then
-            aller(etat.station - 1)
-        elseif touche == Enum.KeyCode.Right or touche == Enum.KeyCode.D or touche == Enum.KeyCode.E then
-            aller(etat.station + 1)
-        elseif (touche == Enum.KeyCode.Return or touche == Enum.KeyCode.Space) and etat.station == PORTAIL then
-            jouer()
-        end
+    if etat.panneau and not gere and (input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Escape) then
+        fermerPanneaux()
     end
 end)
 
 -- ========================== À CHAQUE IMAGE ==========================
-local function lisse(k)
-    return k * k * (3 - 2 * k)
-end
-
 RunService.RenderStepped:Connect(function(dt)
     if not etat.ouvert then
         return
     end
     local t = os.clock()
     local camera = workspace.CurrentCamera
-    camera.CameraType = Enum.CameraType.Scriptable
 
     -- 1) la scène bouge : l'anneau du portail tourne, les cristaux et les cubes flottent
     anneauPortail:PivotTo(CFrame.new(CENTRE_PORTAIL) * CFrame.Angles(0, 0, t * 0.5))
@@ -1509,107 +1570,83 @@ RunService.RenderStepped:Connect(function(dt)
         end
     end
     echelleTitre.Scale = 1 + math.sin(t * 2.2) * 0.02
-    boutonJouer.Rotation = math.sin(t * 3) * 1.2
 
-    -- 2) la caméra glisse d'un endroit à l'autre (en tournant autour de la place)
-    local station = STATIONS[etat.station]
-    local vitesse = math.min(1, dt * 3.5)
-    etat.angle += (station.angle - etat.angle) * vitesse
-    etat.decalage += (station.decalage - etat.decalage) * vitesse
-    etat.vise += (station.vise - etat.vise) * vitesse
-    -- petit effet de profondeur avec la souris
-    if not surMobile then
-        local souris = UserInputService:GetMouseLocation()
-        local ecran = camera.ViewportSize
-        etat.px += ((souris.X / math.max(ecran.X, 1) - 0.5) - etat.px) * math.min(1, dt * 3)
-        etat.py += ((souris.Y / math.max(ecran.Y, 1) - 0.5) - etat.py) * math.min(1, dt * 3)
-    end
-    local d, r = direction(etat.angle), droite(etat.angle)
-    local oeil = Vector3.new(O.X, SOL, O.Z) + d * (R - 26) + r * (etat.decalage + etat.px * 2.2)
-        + Vector3.new(0, 6 - etat.py * 1.2 + math.sin(t * 0.7) * 0.15, 0)
-    local vise = Vector3.new(O.X, SOL, O.Z) + d * R + r * etat.decalage + Vector3.new(0, etat.vise, 0)
-    local cf = CFrame.lookAt(oeil, vise)
-    local fov = 50
-
-    -- l'arrivée dans le menu : de haut (au lancement) ou en sortant du portail (retour du jeu)
-    local ki = math.clamp((t - etat.intro) / 2.4, 0, 1)
-    if ki < 1 then
-        local e = 1 - (1 - ki) ^ 3
-        local depart
-        if etat.introDepuis == "portail" then
-            depart = CFrame.lookAt(CENTRE_PORTAIL + Vector3.new(0, 0, 1.5), CENTRE_PORTAIL - Vector3.new(0, 0, 10))
+    -- 2) le tableau du top 100 défile tout seul (pause en haut, pause en bas, puis on remonte)
+    local defile = tableau.defile
+    local maximum = math.max(0, defile.AbsoluteCanvasSize.Y - defile.AbsoluteWindowSize.Y)
+    if maximum > 0 then
+        if tableau.pause > 0 then
+            tableau.pause -= dt
+            if tableau.pause <= 0 and tableau.enBas then
+                tableau.enBas = false
+                tableau.y = 0 -- retour en haut
+                tableau.pause = 4
+            end
         else
-            depart = CFrame.lookAt(Vector3.new(O.X, SOL + 60, O.Z + 55), CENTRE_PORTAIL)
+            tableau.y += dt * 45
+            if tableau.y >= maximum then
+                tableau.y = maximum
+                tableau.enBas = true
+                tableau.pause = 3
+            end
         end
-        cf = depart:Lerp(cf, e)
-        fov = 75 + (50 - 75) * e
+        defile.CanvasPosition = Vector2.new(0, math.min(tableau.y, maximum))
     end
 
-    -- 3) la plongée dans le portail (PLAY)
+    -- 3) la plongée dans le portail
     local tr = etat.transition
     if tr then
         local k = math.clamp((t - tr.debut) / tr.duree, 0, 1)
         local e = k * k * k
         local but = CFrame.lookAt(CENTRE_PORTAIL + Vector3.new(0, 0, -2), CENTRE_PORTAIL - Vector3.new(0, 0, 20))
-        cf = tr.de:Lerp(but, e) * CFrame.Angles(0, 0, e * 0.7)
-        fov = tr.fov + (95 - tr.fov) * e
+        camera.CameraType = Enum.CameraType.Scriptable
+        camera.CFrame = tr.de:Lerp(but, e) * CFrame.Angles(0, 0, e * 0.7)
+        camera.FieldOfView = tr.fov + (95 - tr.fov) * e
         if k >= 0.72 and not tr.flash then
             tr.flash = true
             fondu.BackgroundColor3 = BLANC
-            tween(fondu, 0.35, { BackgroundTransparency = 0 })
+            tween(fondu, 0.3, { BackgroundTransparency = 0 })
         end
         if k >= 1 then
             -- on est dans le portail : on passe au jeu
             fermerHub()
-            camera.FieldOfView = 50
             versJeu:Fire("Jouer")
             jouerSon("boum", 0.7, 0.35, nil, 0.8)
             task.delay(0.15, function()
                 tween(fondu, 0.8, { BackgroundTransparency = 1 })
             end)
-            return
         end
+        return
     end
 
-    camera.CFrame = cf
-    camera.FieldOfView = fov
+    local r = maRacine()
+    if not r or etat.occupe then
+        return
+    end
+    local p = r.Position
 
-    -- 4) ce qu'il y a sous la souris : contour doré + petit texte
-    local survolee = nil
-    if not surMobile and not tr and not etat.occupe then
-        local souris = UserInputService:GetMouseLocation()
-        local barreHaut = GuiService:GetGuiInset()
-        -- pas de survol de la scène si la souris est sur un bouton ou sur la boutique
-        local surInterface = false
-        for _, objet in ipairs(playerGui:GetGuiObjectsAtPosition(souris.X - barreHaut.X, souris.Y - barreHaut.Y)) do
-            if objet:IsA("GuiButton") or objet == panneauShop or objet:IsDescendantOf(panneauShop) or objet == pastilleAura then
-                surInterface = true
-                break
-            end
-        end
-        if not surInterface then
-            survolee = stationSous(souris, true)
-        end
-        if survolee then
-            bulleSouris.Position = UDim2.fromOffset(souris.X + 16, souris.Y - 8)
-            bulleSouris.Text = if survolee == etat.station
-                then (if survolee == PORTAIL then "CLICK TO PLAY" elseif survolee == TABLEAU then "ALL LEADERBOARDS" else "")
-                else STATIONS[survolee].nom
-        end
+    -- 4) tu marches dans le portail → PLAY
+    local d = p - CENTRE_PORTAIL
+    if t - etat.intro > 1.5 and math.abs(d.X) < 7.5 and d.Z < 0.8 and d.Z > -3.5 and d.Y > -12 and d.Y < 8 then
+        jouer()
+        return
     end
-    if survolee ~= stationSurvolee then
-        stationSurvolee = survolee
-        surbrillance.Adornee = if survolee then modelesStations[survolee] else nil
-        surbrillance.Enabled = survolee ~= nil
-        if survolee then
-            sonSurvol(survolee * 2)
-        end
+
+    -- 5) tombé de la place (ça ne devrait pas arriver) : on te remet au milieu
+    if p.Y < SOL - 40 then
+        r.AssemblyLinearVelocity = Vector3.zero
+        r.CFrame = CFrame.lookAt(Vector3.new(O.X, SOL + 4, O.Z + 8), Vector3.new(O.X, SOL + 4, O.Z - 10))
     end
-    bulleSouris.Visible = survolee ~= nil and bulleSouris.Text ~= ""
+
+    -- 6) tu t'éloignes du marchand / du tableau : son panneau se ferme
+    if etat.panneau == "shop" and (p - pointShop.Position).Magnitude > 18 then
+        fermerPanneaux()
+    elseif etat.panneau == "top" and (p - pointTableau.Position).Magnitude > 22 then
+        fermerPanneaux()
+    end
 end)
 
 -- ========================== DÉPART ==========================
-majStation()
 afficherBoutique()
 majTableau(true)
 -- le tableau se remet à jour tout seul de temps en temps
@@ -1621,6 +1658,8 @@ task.spawn(function()
         end
     end
 end)
-liens:SetAttribute("HubPret", true) -- le script du jeu sait que le menu 3D est là
-task.wait(0.4)
+liens:SetAttribute("HubPret", true) -- le script du jeu sait que le hub est là
+afficherTitre()
+attendreAuHub(6)
+cameraHub()
 tween(fondu, 1.2, { BackgroundTransparency = 1 })

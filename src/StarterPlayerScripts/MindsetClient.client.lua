@@ -1583,7 +1583,7 @@ local function chargerAnims(etat)
         etat.animDanses[i] = charger(id, Enum.AnimationPriority.Action3, true)
     end
     etat.danseJouee = 0
-    if etat.animAttente then
+    if etat.animAttente and not etat.config:GetAttribute("Hub") then -- (dans le hub, il marche avec ses animations à lui)
         etat.animAttente:Play()
     end
 
@@ -1696,6 +1696,7 @@ local function creerEtiquette(etat)
     end
     local billboard = nouveau("BillboardGui", {
         Name = "MindsetEtiquette",
+        Enabled = not etat.config:GetAttribute("Hub"), -- (dans le hub, c'est MindsetHub qui met son étiquette)
         Size = UDim2.fromOffset(if etat.estMoi then 240 else 190, if etat.estMoi then 76 else 60),
         StudsOffsetWorldSpace = Vector3.new(0, 3.2, 0),
         AlwaysOnTop = true,
@@ -1759,7 +1760,11 @@ end
 local function majCouloirs()
     local liste = {}
     for _, etat in pairs(avatars) do
-        table.insert(liste, etat)
+        if etat.config:GetAttribute("Hub") then
+            etat.couloir = nil -- il se balade dans le hub : pas de couloir sur les escaliers
+        else
+            table.insert(liste, etat)
+        end
     end
     table.sort(liste, function(a, b)
         if a.estMoi ~= b.estMoi then
@@ -1946,6 +1951,33 @@ local function ajouterGrimpeur(config)
     end)
     config:GetAttributeChangedSignal("Danse"):Connect(function()
         majDanse(etat)
+    end)
+    -- 🏠 HUB : il se balade sur la place (le script MindsetHub s'en occupe) → on ne le touche plus
+    config:GetAttributeChangedSignal("Hub"):Connect(function()
+        local auHub = config:GetAttribute("Hub") == true
+        etat.saut = nil
+        poser(etat, nil) -- articulations remises droites
+        if etat.animAttente then
+            if auHub then
+                etat.animAttente:Stop(0.2)
+            else
+                etat.animAttente:Play(0.2)
+            end
+        end
+        if auHub then
+            if etat.animChute then
+                etat.animChute:Stop(0.1)
+            end
+            if etat.trainee then
+                etat.trainee.Enabled = false
+            end
+        end
+        local tete = etat.modele and (etat.modele:FindFirstChild("Head") or etat.modele:FindFirstChild("HumanoidRootPart"))
+        local etiquette = tete and tete:FindFirstChild("MindsetEtiquette")
+        if etiquette then
+            etiquette.Enabled = not auHub
+        end
+        majCouloirs()
     end)
     config:GetAttributeChangedSignal("AuraFarmee"):Connect(function()
         local n = config:GetAttribute("AuraFarmee") or 0
@@ -3938,7 +3970,7 @@ RunService.RenderStepped:Connect(function(dt)
     -- 1) Les avatars montent les marches pied par pied (avec style)
     for _, etat in pairs(avatars) do
         local modele = etat.modele
-        if modele and modele.Parent and etat.hauteur then
+        if modele and modele.Parent and etat.hauteur and not etat.config:GetAttribute("Hub") then -- (ceux du hub marchent tout seuls)
             local cfCinematique = etat.cinematique and etat.cinematique(horloge)
             if etat.cinematique and not cfCinematique then
                 -- fin de la cinématique (gagnant / check parfait)
