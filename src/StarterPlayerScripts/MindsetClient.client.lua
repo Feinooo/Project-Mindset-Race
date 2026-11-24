@@ -143,7 +143,7 @@ local gui = nouveau("ScreenGui", {
 })
 
 -- ⚙️ PARAMÈTRES du joueur (réglés dans le menu « PARAMÈTRES », sauvegardés par le serveur)
-local REGLAGES = { musique = 1, bruitages = 1, secousses = true, flashs = true }
+local REGLAGES = { musique = 1, bruitages = 1, secousses = true, flashs = true, langue = "auto" } -- langue : "auto" (celle de Roblox), "en", "fr"
 local groupeMusique = nouveau("SoundGroup", { Name = "MindsetGroupeMusique", Volume = 1, Parent = SoundService })
 local groupeBruitages = nouveau("SoundGroup", { Name = "MindsetGroupeBruitages", Volume = 1, Parent = SoundService })
 
@@ -1609,16 +1609,18 @@ local function chargerAnims(etat)
 
     -- les articulations (R15) qu'on plie à la main pour monter les marches pied par pied
     etat.membres = {}
-    for _, nom in ipairs({ "LeftHip", "RightHip", "LeftKnee", "RightKnee", "LeftShoulder", "RightShoulder", "Waist" }) do
+    for _, nom in ipairs({ "LeftHip", "RightHip", "LeftKnee", "RightKnee", "LeftShoulder", "RightShoulder", "Waist", "LeftElbow", "RightElbow", "Neck" }) do
         local moteur = etat.modele:FindFirstChild(nom, true)
         if moteur and moteur:IsA("Motor6D") then
-            etat.membres[nom] = { moteur = moteur, c0 = moteur.C0, angle = 0 }
+            etat.membres[nom] = { moteur = moteur, c0 = moteur.C0, angle = Vector3.zero }
         end
     end
 end
 
 -- Plie les articulations : pose = { LeftHip = angle, ... } (en radians, rien = position normale)
---   hanche / épaule + = vers l'avant · genou - = plié · taille - = penché en avant
+--   un nombre = rotation avant / arrière ; un Vector3 = rotation sur les 3 axes (X avant, Y tourner, Z de côté)
+--   hanche / épaule + = vers l'avant · genou - = plié · taille - = penché en avant · cou - = tête baissée
+--   épaule droite Z + = bras écarté sur le côté (épaule gauche : Z -)
 local POSE_REPOS = {}
 local function poser(etat, pose)
     if not etat.membres then
@@ -1627,9 +1629,10 @@ local function poser(etat, pose)
     pose = pose or POSE_REPOS
     for nom, info in pairs(etat.membres) do
         local angle = pose[nom] or 0
-        if math.abs(angle - info.angle) > 0.001 and info.moteur.Parent then
-            info.angle = angle
-            info.moteur.C0 = info.c0 * CFrame.Angles(angle, 0, 0)
+        local v = if typeof(angle) == "Vector3" then angle else Vector3.new(angle, 0, 0)
+        if (v - info.angle).Magnitude > 0.001 and info.moteur.Parent then
+            info.angle = v
+            info.moteur.C0 = info.c0 * CFrame.Angles(v.X, v.Y, v.Z)
         end
     end
 end
@@ -1650,23 +1653,32 @@ local function posePas(pied, k, style)
     return pose
 end
 
--- La danse du gagnant (attribut « Danse » : 0 = rien, 1/2/3 = la danse jouée)
+-- La danse du gagnant (attribut « Danse » : 0 = rien, 1/2/3 = le mouvement en cours).
+-- Plus d'animations Roblox : la danse est faite à la main, calée sur le rythme (voir danseBadass
+-- dans la boucle d'affichage). Ici on démarre / arrête juste la danse et sa mise en scène.
 local function majDanse(etat)
-    if not etat.animDanses then
-        return
-    end
     local n = etat.config:GetAttribute("Danse") or 0
-    if n == etat.danseJouee then
+    if n == (etat.danseJouee or 0) then
         return
     end
-    local avant = etat.animDanses[etat.danseJouee]
-    if avant then
-        avant:Stop(0.25)
-    end
+    local avant = etat.danseJouee or 0
     etat.danseJouee = n
-    local piste = etat.animDanses[n]
-    if piste then
-        piste:Play(0.25)
+    if n > 0 then
+        etat.danse = etat.danse or { debut = os.clock(), dernierTemps = -1, effets = {} }
+        etat.danse.mouvement = n
+        etat.danse.changement = os.clock()
+        if avant == 0 and etat.animAttente then
+            etat.animAttente:Stop(0.2)
+        end
+    elseif etat.danse then
+        for _, effet in ipairs(etat.danse.effets) do
+            effet:Destroy()
+        end
+        etat.danse = nil
+        poser(etat, nil)
+        if etat.animAttente and not etat.config:GetAttribute("Hub") then
+            etat.animAttente:Play(0.3)
+        end
     end
 end
 
@@ -1913,6 +1925,12 @@ local function ajouterGrimpeur(config)
         etat.hauteur = nil
         etat.animAttente, etat.animSaut, etat.animChute = nil, nil, nil
         etat.animDanses, etat.danseJouee, etat.trainee = nil, 0, nil
+        if etat.danse then
+            for _, effet in ipairs(etat.danse.effets) do
+                effet:Destroy()
+            end
+            etat.danse = nil
+        end
         etat.cinematique, etat.membres = nil, nil
         etat.effets = {}
         etat.niveauAffiche = 0
@@ -1981,6 +1999,10 @@ local function ajouterGrimpeur(config)
     end)
     config:GetAttributeChangedSignal("AuraFarmee"):Connect(function()
         local n = config:GetAttribute("AuraFarmee") or 0
+        if n > 0 and etat.danse then
+            etat.danse.coup = os.clock() -- chaque pas de danse = un coup d'accent dans la danse
+            etat.danse.nbCoups = n
+        end
         if n > 0 then
             popupAura(etat)
             if etat.estMoi and surAuraFarmee then
@@ -2765,7 +2787,8 @@ EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
         jouerCheck(a, b)
     elseif typeEvt == "Danse" then
         -- a = la liste des gagnants, b = l'heure (serveur) de fin de la danse
-        tween(effetAura, 0.6, { Saturation = 0.15, Contrast = 0.15 })
+        -- noir et blanc bien contrasté, comme dans les edits de la trend (le danseur, lui, brille)
+        tween(effetAura, 0.6, { Saturation = -1, Contrast = 0.45 })
         local jeDanse = false
         local noms = {}
         for _, config in ipairs(a or {}) do
@@ -2782,6 +2805,306 @@ EvenementEvent.OnClientEvent:Connect(function(typeEvt, a, b)
         end
     end
 end)
+
+-- ========================== LA TREND : MOTIVATION vs EGO vs DISCIPLINE vs OBSESSION ==========================
+-- Pendant la manche, le jeu raconte l'histoire de la trend TikTok, avec des phrases en bas de l'écran
+-- (style légende TikTok : blanc, gros contour noir, mot par mot) et des effets sur les avatars :
+--   début       : MOTIVATION brûle (grosse flamme sur le torse)  → « MOTIVATION gets you started. »
+--   38 %        : la flamme de MOTIVATION s'éteint, il fume       → « But MOTIVATION fades... »
+--   EGO combo 15: une couronne en or apparaît sur sa tête         → « EGO wants everyone to watch. »
+--   EGO qui rate: la couronne tombe                               → « EGO broke <pseudo>'s combo. »
+--   50 %        : DISCIPLINE (calme, régulier)                    → « DISCIPLINE keeps you going. »
+--   72 %        : OBSESSION se réveille (aura rouge sang)         → « OBSESSION makes you unstoppable. »
+--   à la fin    : une phrase selon l'état d'esprit du gagnant
+-- (seulement pour les états d'esprit qui sont dans la manche)
+do
+local legende = texte({
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.fromScale(0.5, 0.84),
+    Size = UDim2.new(0.86, 0, 0, 40),
+    Font = Enum.Font.GothamBlack,
+    TextColor3 = BLANC,
+    TextStrokeColor3 = NOIR,
+    TextStrokeTransparency = 0,
+    TextTransparency = 1,
+    ZIndex = 30,
+    Parent = gui,
+})
+nouveau("UISizeConstraint", { MaxSize = Vector2.new(900, 40), Parent = legende })
+local trait = nouveau("Frame", {
+    AnchorPoint = Vector2.new(0.5, 0),
+    Position = UDim2.new(0.5, 0, 1, 4),
+    Size = UDim2.fromOffset(0, 4),
+    BorderSizePixel = 0,
+    BackgroundColor3 = BLANC,
+    ZIndex = 30,
+    Parent = legende,
+})
+local echelleLegende = nouveau("UIScale", { Parent = legende })
+local enCours = false
+local attente = {}
+
+-- affiche une phrase mot par mot (en dessous : un trait de la couleur de l'état d'esprit)
+local function montrer(message, couleur)
+    enCours = true
+    legende.Text = message
+    legende.TextTransparency = 0
+    legende.TextStrokeTransparency = 0
+    legende.MaxVisibleGraphemes = 0
+    trait.BackgroundColor3 = couleur or BLANC
+    trait.Size = UDim2.fromOffset(0, 4)
+    tween(trait, 0.6, { Size = UDim2.fromOffset(220, 4) }, Enum.EasingStyle.Quint)
+    echelleLegende.Scale = 1.15
+    tween(echelleLegende, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+    task.spawn(function()
+        task.wait() -- (le temps que le texte soit traduit)
+        local debut = os.clock()
+        local total = utf8.len(legende.Text) or #legende.Text
+        while os.clock() - debut < 0.55 do
+            legende.MaxVisibleGraphemes = math.floor(total * (os.clock() - debut) / 0.55)
+            task.wait()
+        end
+        legende.MaxVisibleGraphemes = -1
+        task.wait(2.4)
+        tween(legende, 0.35, { TextTransparency = 1, TextStrokeTransparency = 1 })
+        tween(trait, 0.35, { Size = UDim2.fromOffset(0, 4) })
+        task.wait(0.4)
+        enCours = false
+        local suivante = table.remove(attente, 1)
+        if suivante then
+            montrer(suivante[1], suivante[2])
+        end
+    end)
+end
+
+local function dire(message, couleur)
+    if enCours then
+        if #attente < 2 then
+            table.insert(attente, { message, couleur })
+        end
+        return
+    end
+    montrer(message, couleur)
+end
+
+-- les effets posés sur les avatars pendant la manche (tout est détruit à la manche suivante)
+local effets = {}
+local function garder(objet)
+    table.insert(effets, objet)
+    return objet
+end
+local function nettoyer()
+    for _, objet in ipairs(effets) do
+        objet:Destroy()
+    end
+    effets = {}
+    attente = {}
+end
+
+local function joueursDe(perso)
+    local liste = {}
+    for _, etat in pairs(avatars) do
+        if etat.modele and etat.config:GetAttribute("EnJeu") and etat.config:GetAttribute("Perso") == perso then
+            table.insert(liste, etat)
+        end
+    end
+    return liste
+end
+
+local function torse(etat)
+    return etat.modele:FindFirstChild("UpperTorso") or etat.modele:FindFirstChild("Torso") or etat.modele:FindFirstChild("HumanoidRootPart")
+end
+
+-- la couronne de l'EGO (5 pointes en or autour de la tête)
+local function couronne(etat)
+    local tete = etat.modele:FindFirstChild("Head")
+    if not tete or etat.couronne then
+        return
+    end
+    local modele = nouveau("Model", { Name = "MindsetCouronne", Parent = etat.modele })
+    for i = 0, 4 do
+        local a = i / 5 * math.pi * 2
+        local pointe = nouveau("Part", {
+            Size = Vector3.new(0.22, 0.55, 0.22),
+            CFrame = tete.CFrame * CFrame.new(math.cos(a) * 0.5, 0.85, math.sin(a) * 0.5),
+            Material = Enum.Material.Neon,
+            Color = OR,
+            CanCollide = false,
+            CanQuery = false,
+            CanTouch = false,
+            Massless = true,
+            CastShadow = false,
+            Parent = modele,
+        })
+        nouveau("WeldConstraint", { Part0 = tete, Part1 = pointe, Parent = pointe })
+    end
+    etat.couronne = garder(modele)
+end
+
+local function enleverCouronne(etat)
+    local modele = etat.couronne
+    etat.couronne = nil
+    if modele and modele.Parent then
+        local pointes = modele:GetChildren()
+        for _, pointe in ipairs(pointes) do
+            local soudure = pointe:FindFirstChildOfClass("WeldConstraint")
+            if soudure then
+                soudure:Destroy()
+            end
+            pointe.Anchored = true
+            pointe.Parent = workspace -- (sinon elle suivrait encore l'avatar)
+            tween(pointe, 0.7, { CFrame = pointe.CFrame * CFrame.new(0, -6, 0) * CFrame.Angles(2, 0, 1), Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end
+        task.delay(0.8, function()
+            for _, pointe in ipairs(pointes) do
+                pointe:Destroy()
+            end
+            modele:Destroy()
+        end)
+    end
+end
+
+-- les étapes de l'histoire, selon l'avancée de la musique (0 = début, 1 = fin)
+local ETAPES = {
+    { a = 0.02, perso = "Motivation", action = function(liste)
+        for _, etat in ipairs(liste) do
+            local t = torse(etat)
+            if t then
+                etat.flammeMotivation = garder(nouveau("Fire", { Size = 7, Heat = 12, Color = COULEURS.Motivation, SecondaryColor = OR, Parent = t }))
+            end
+        end
+        dire("MOTIVATION gets you started.", COULEURS.Motivation)
+    end },
+    { a = 0.38, perso = "Motivation", action = function(liste)
+        for _, etat in ipairs(liste) do
+            local t = torse(etat)
+            if etat.flammeMotivation then
+                tween(etat.flammeMotivation, 6, { Size = 0.5, Heat = 0 }, Enum.EasingStyle.Linear)
+                local flamme = etat.flammeMotivation
+                task.delay(6, function()
+                    flamme.Enabled = false
+                end)
+            end
+            if t then
+                garder(nouveau("Smoke", { Color = Color3.fromRGB(120, 120, 120), Opacity = 0.15, RiseVelocity = 3, Size = 1.5, Parent = t }))
+            end
+        end
+        dire("But MOTIVATION fades...", COULEURS.Motivation)
+    end },
+    { a = 0.5, perso = "Discipline", action = function(liste)
+        for _, etat in ipairs(liste) do
+            local racine = etat.modele:FindFirstChild("HumanoidRootPart")
+            if racine then
+                garder(nouveau("PointLight", { Color = COULEURS.Discipline, Brightness = 1.5, Range = 10, Parent = racine }))
+            end
+        end
+        dire("DISCIPLINE keeps you going.", COULEURS.Discipline)
+    end },
+    { a = 0.72, perso = "Obsession", action = function(liste)
+        for _, etat in ipairs(liste) do
+            local t = torse(etat)
+            garder(nouveau("Highlight", {
+                FillColor = COULEURS.Obsession,
+                FillTransparency = 0.75,
+                OutlineColor = COULEURS.Obsession,
+                OutlineTransparency = 0,
+                DepthMode = Enum.HighlightDepthMode.Occluded,
+                Parent = etat.modele,
+            }))
+            if t then
+                garder(nouveau("ParticleEmitter", {
+                    Rate = 30,
+                    Lifetime = NumberRange.new(0.5, 1),
+                    Speed = NumberRange.new(2, 5),
+                    SpreadAngle = Vector2.new(30, 30),
+                    EmissionDirection = Enum.NormalId.Top,
+                    Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 0) }),
+                    LightEmission = 1,
+                    Color = ColorSequence.new(COULEURS.Obsession, NOIR),
+                    Parent = t,
+                }))
+            end
+        end
+        if REGLAGES.flashs then
+            flasher(COULEURS.Obsession, 0.35)
+        end
+        dire("OBSESSION makes you unstoppable.", COULEURS.Obsession)
+    end },
+}
+
+local LIGNES_GAGNANT = {
+    Motivation = "MOTIVATION started it... and finished it.",
+    Ego = "EGO won. Everyone will hear about it.",
+    Discipline = "DISCIPLINE wins. As always.",
+    Obsession = "OBSESSION took everything.",
+}
+
+local suivi = { partition = nil }
+RunService.Heartbeat:Connect(function()
+    if not partition or ReplicatedStorage:GetAttribute("Phase") ~= "Manche" then
+        return
+    end
+    if suivi.partition ~= partition then
+        -- nouvelle manche
+        nettoyer()
+        for _, etat in pairs(avatars) do
+            etat.flammeMotivation, etat.couronne, etat.comboEgo = nil, nil, 0
+        end
+        suivi = { partition = partition, faits = {}, egoMontre = false, egoTombe = 0 }
+    end
+    local progression = (maintenantServeur() - partition.debut) / (partition.duree or 60)
+    if progression < 0 then
+        return
+    end
+    for i, etape in ipairs(ETAPES) do
+        if not suivi.faits[i] and progression >= etape.a then
+            suivi.faits[i] = true
+            local liste = joueursDe(etape.perso)
+            if #liste > 0 then
+                etape.action(liste)
+            end
+        end
+    end
+    -- l'EGO : couronne quand il frime (combo 15), elle tombe quand il rate
+    for _, etat in ipairs(joueursDe("Ego")) do
+        local combo = etat.config:GetAttribute("Combo") or 0
+        local avant = etat.comboEgo or 0
+        etat.comboEgo = combo
+        if combo >= 15 and not etat.couronne then
+            couronne(etat)
+            if not suivi.egoMontre then
+                suivi.egoMontre = true
+                dire("EGO wants everyone to watch.", COULEURS.Ego)
+            end
+        elseif combo == 0 and avant >= 10 then
+            enleverCouronne(etat)
+            if suivi.egoTombe < 2 then
+                suivi.egoTombe += 1
+                dire("EGO broke " .. tostring(etat.config:GetAttribute("Nom")) .. "'s combo.", COULEURS.Ego)
+            end
+        end
+    end
+end)
+
+-- à la fin : la phrase du gagnant ; au lobby : on enlève tout
+EvenementEvent.OnClientEvent:Connect(function(typeEvt, a)
+    if typeEvt == "Vainqueur" and a then
+        local perso = a:GetAttribute("Perso")
+        if LIGNES_GAGNANT[perso] then
+            task.delay(1.3, function()
+                attente = {}
+                dire(LIGNES_GAGNANT[perso], COULEURS[perso])
+            end)
+        end
+    end
+end)
+ReplicatedStorage:GetAttributeChangedSignal("Phase"):Connect(function()
+    if ReplicatedStorage:GetAttribute("Phase") == "Lobby" then
+        nettoyer()
+        suivi = { partition = nil }
+    end
+end)
+end -- fin du bloc de la trend
 
 -- ========================== CLASSEMENTS ==========================
 local boutonClassement, fermerPanneau, ouvrirPanneau
@@ -3221,6 +3544,316 @@ end)
 fondPanneau.Activated:Connect(fermerPanneau)
 end -- fin du bloc des classements
 
+-- ========================== LANGUE (anglais / français) ==========================
+-- Tout le jeu est écrit en anglais. Ce bloc traduit À LA VOLÉE chaque texte affiché (ce script,
+-- le hub, les tableaux 3D, les étiquettes, les messages du serveur, les boutons « E ») :
+--   FR_EXACT  = les phrases fixes
+--   FR_MOTIFS = les phrases avec des nombres ou des noms dedans (motifs Lua, %1 = ce qui est entre parenthèses)
+-- Pour ajouter une traduction : ajoute une ligne ici, rien d'autre à toucher.
+-- La langue se choisit dans PARAMÈTRES (AUTO = la langue de Roblox du joueur).
+local Langue = {}
+do
+local LocalizationService = game:GetService("LocalizationService")
+
+local FR_EXACT = {
+    -- lobby du jeu
+    ["CHOOSE YOUR MINDSET"] = "CHOISIS TON ÉTAT D'ESPRIT",
+    ["VOTE FOR THE MUSIC"] = "VOTE POUR LA MUSIQUE",
+    ["PICKED"] = "CHOISI",
+    ["Choose your mindset"] = "Choisis ton état d'esprit",
+    ["Vote for a song"] = "Vote pour une musique",
+    ["Locked · upgrade it at the AURA SHOP"] = "Verrouillé · améliore-le à l'AURA SHOP",
+    ["RECORD: —"] = "RECORD : —",
+    ["YOUR VOTE"] = "TON VOTE",
+    ["EASY"] = "FACILE",
+    ["MEDIUM"] = "MOYEN",
+    ["HARD"] = "DIFFICILE",
+    ["EXTREME"] = "EXTRÊME",
+    ["The fire of the start"] = "Le feu du départ",
+    ["The king of combos"] = "Le roi des combos",
+    ["The unbreakable wall"] = "Le mur incassable",
+    ["The late-game monster"] = "Le monstre de fin de partie",
+    ["🧠 Choose your mindset and vote for the music!"] = "🧠 Choisis ton état d'esprit et vote pour la musique !",
+    ["🧠 Choose your mindset!"] = "🧠 Choisis ton état d'esprit !",
+    -- pendant la manche
+    ["✨ AURA LEVEL 1"] = "✨ AURA NIVEAU 1",
+    ["🔥 AURA LEVEL 2"] = "🔥 AURA NIVEAU 2",
+    ["👑 MAX AURA"] = "👑 AURA MAX",
+    ["🔥 AURA MODE 🔥"] = "🔥 MODE AURA 🔥",
+    ["💀 AURA LOST"] = "💀 AURA PERDUE",
+    ["CLICK TO THE BEAT!"] = "CLIQUE EN RYTHME !",
+    ["SPECTATING"] = "SPECTATEUR",
+    ["PERFECT HIGH FIVE!"] = "CHECK PARFAIT !",
+    ["TIE!"] = "ÉGALITÉ !",
+    ["A round is in progress: you'll play the next one!"] = "Une manche est en cours : tu joueras la prochaine !",
+    -- la trend
+    ["MOTIVATION gets you started."] = "La MOTIVATION te fait commencer.",
+    ["But MOTIVATION fades..."] = "Mais la MOTIVATION s'éteint...",
+    ["DISCIPLINE keeps you going."] = "La DISCIPLINE te fait continuer.",
+    ["EGO wants everyone to watch."] = "L'EGO veut que tout le monde regarde.",
+    ["OBSESSION makes you unstoppable."] = "L'OBSESSION te rend inarrêtable.",
+    ["MOTIVATION started it... and finished it."] = "La MOTIVATION a commencé... et a fini.",
+    ["EGO won. Everyone will hear about it."] = "L'EGO a gagné. Tout le monde va le savoir.",
+    ["DISCIPLINE wins. As always."] = "La DISCIPLINE gagne. Comme toujours.",
+    ["OBSESSION took everything."] = "L'OBSESSION a tout pris.",
+    -- danse
+    ["DANCE!"] = "DANSE !",
+    ["Tap DANCE to farm aura!"] = "Appuie sur DANSE pour farmer l'aura !",
+    ["Click DANCE or press SPACE to farm aura!"] = "Clique sur DANSE ou appuie sur ESPACE pour farmer l'aura !",
+    ["FARM YOUR AURA!"] = "FARME TON AURA !",
+    -- classements
+    ["LEADERBOARDS"] = "CLASSEMENTS",
+    ["Most steps climbed in one game"] = "Le plus de marches montées en une partie",
+    ["CLOSE"] = "FERMER",
+    ["WORLDWIDE"] = "MONDE ENTIER",
+    ["MINDSETS"] = "ÉTATS D'ESPRIT",
+    ["SONGS"] = "MUSIQUES",
+    ["Loading..."] = "Chargement...",
+    ["Leaderboard unavailable right now"] = "Classement indisponible pour l'instant",
+    ["Leaderboard unavailable for now"] = "Classement indisponible pour l'instant",
+    ["Nobody yet. Be the first!"] = "Personne pour l'instant. Sois le premier !",
+    ["No record yet: be the first!"] = "Pas encore de record : sois le premier !",
+    ["YOUR RECORD: none yet"] = "TON RECORD : aucun",
+    ["WORLDWIDE  ·  the best of all players, every song and mindset"] = "MONDE ENTIER  ·  les meilleurs, toutes musiques et tous états d'esprit",
+    -- AFK
+    ["AFK MODE  ·  watching the others play"] = "MODE AFK  ·  tu regardes les autres jouer",
+    ["AFK MODE  ·  you won't be put in the next game"] = "MODE AFK  ·  tu ne seras pas dans la prochaine partie",
+    ["JOIN"] = "REJOINDRE",
+    ["Are you away? AFK MODE on"] = "Tu es là ? MODE AFK activé",
+    ["No clicks the whole round: AFK MODE on"] = "Aucun clic de toute la manche : MODE AFK activé",
+    -- paramètres
+    ["SETTINGS"] = "PARAMÈTRES",
+    ["MUSIC"] = "MUSIQUE",
+    ["SOUND EFFECTS (clicks, menu sounds, effects)"] = "BRUITAGES (clics, sons du menu, effets)",
+    ["SCREEN SHAKE"] = "SECOUSSES DE L'ÉCRAN",
+    ["FLASHING LIGHTS"] = "FLASHS LUMINEUX",
+    ["LANGUAGE"] = "LANGUE",
+    ["Your settings are saved for next time."] = "Tes paramètres sont sauvegardés pour la prochaine fois.",
+    -- écran de fin
+    ["STEPS"] = "MARCHES",
+    ["ACCURACY"] = "PRÉCISION",
+    ["PERFECTS"] = "PARFAITS",
+    ["MAX COMBO"] = "COMBO MAX",
+    ["YOUR RECORD"] = "TON RECORD",
+    ["AURA EARNED"] = "AURA GAGNÉE",
+    ["NEW!"] = "NOUVEAU !",
+    ["GAME OVER"] = "FIN DE PARTIE",
+    ["WINNER"] = "GAGNANT",
+    ["Never looked down."] = "N'a jamais regardé en bas.",
+    ["Fiery start... and then?"] = "Départ en feu... et après ?",
+    ["Steps lost: 0. Obviously."] = "Marches perdues : 0. Évidemment.",
+    ["nobody"] = "personne",
+    ["1st"] = "1er",
+    -- hub
+    ["PLAY"] = "JOUER",
+    ["AFK · WATCH"] = "AFK · REGARDER",
+    ["NO MINDSET YET"] = "PAS ENCORE D'ÉTAT D'ESPRIT",
+    ["NEW CLIMBER"] = "NOUVEAU GRIMPEUR",
+    ["TOP 100  ·  BEST GAME"] = "TOP 100  ·  MEILLEURE PARTIE",
+    ["TOP 100  ·  TOTAL STEPS"] = "TOP 100  ·  TOTAL DE MARCHES",
+    ["the most steps climbed in ONE game"] = "le plus de marches montées en UNE partie",
+    ["all the steps ever climbed, every game added up"] = "toutes les marches montées, toutes les parties additionnées",
+    ["Spend the aura you farm in game to upgrade your mindset."] = "Dépense l'aura que tu farmes en jeu pour améliorer ton état d'esprit.",
+    ['Walk into the <font color="#FFDC50">PORTAL</font> to play  ·  Talk to the <font color="#AA5AFF">AURA MERCHANT</font> to upgrade  ·  Check the <font color="#6EE6A0">TOP 100s</font>']
+        = 'Entre dans le <font color="#FFDC50">PORTAIL</font> pour jouer  ·  Parle au <font color="#AA5AFF">MARCHAND D\'AURA</font> pour t\'améliorer  ·  Regarde les <font color="#6EE6A0">TOP 100</font>',
+    ["UPGRADE"] = "AMÉLIORER",
+    ["MAX LEVEL"] = "NIVEAU MAX",
+    ["Already at max level."] = "Déjà au niveau max.",
+    ["Already at max level"] = "Déjà au niveau max",
+    ["Not enough aura"] = "Pas assez d'aura",
+    ["Still loading your data..."] = "Chargement de tes données...",
+    ["Wait a second..."] = "Attends une seconde...",
+    ["Try again in a second..."] = "Réessaie dans une seconde...",
+    ["Unknown skill"] = "Compétence inconnue",
+    ["Upgrade"] = "Améliorer",
+    ["Aura Merchant"] = "Marchand d'aura",
+    ["View"] = "Voir",
+    ["Top 100 · Total steps"] = "Top 100 · Total de marches",
+    ["Top 100 · Best game"] = "Top 100 · Meilleure partie",
+    -- le marchand
+    ["Welcome, climber. Your aura is my currency."] = "Bienvenue, grimpeur. Ton aura, c'est ma monnaie.",
+    ["A stronger mindset climbs higher stairs."] = "Un mental plus fort monte plus haut.",
+    ["Spend aura, earn steps. Simple."] = "Tu dépenses de l'aura, tu gagnes des marches. Simple.",
+    ["Every level counts at the top..."] = "Tout en haut, chaque niveau compte...",
+    ["Pleasure doing business!"] = "Un plaisir de faire affaire !",
+    ["Feel that? That's power."] = "Tu sens ça ? C'est la puissance.",
+    ["Your mindset just got stronger."] = "Ton mental vient de devenir plus fort.",
+    ["Now go climb!"] = "Maintenant, va grimper !",
+    ["Not enough aura... go farm some!"] = "Pas assez d'aura... va en farmer !",
+    ["Come back richer, climber."] = "Reviens plus riche, grimpeur.",
+    ["Aura first, upgrades after."] = "L'aura d'abord, les améliorations après.",
+    ["That one is already maxed out!"] = "Celle-là est déjà au max !",
+    ["Can't go higher than that, champ."] = "Impossible d'aller plus haut, champion.",
+}
+
+local traduire -- (défini plus bas : les motifs s'en servent pour traduire un morceau de phrase)
+local FR_MOTIFS = {
+    { "^x(%d+) COMBO$", "COMBO x%1" },
+    { "^💀 %-(%d+) STEP$", "💀 -%1 MARCHE" },
+    { "^💀 %-(%d+) STEPS$", "💀 -%1 MARCHES" },
+    { "^🪜 (%d+) STEPS!$", "🪜 %1 MARCHES !" },
+    { "^🪜 (%d+) steps$", "🪜 %1 marches" },
+    { "^(%-?%d+) steps$", "%1 marches" },
+    { "^You are: (.+)$", "Tu es : %1" },
+    { "^%+(%d+) AURA FARMED$", "+%1 AURA FARMÉE" },
+    { "^(.+) FARMING AURA$", "%1 FARME L'AURA" },
+    { "^EGO broke (.+)'s combo%.$", "L'EGO a cassé le combo de %1." },
+    { "^TIE! (.+) — (%d+) steps$", "ÉGALITÉ ! %1 — %2 marches" },
+    { "^👑 (.+) WINS with (.+) — (%d+) steps!$", "👑 %1 GAGNE avec %2 — %3 marches !" },
+    { "^YOUR RECORD: (%d+) steps$", "TON RECORD : %1 marches" },
+    { "^RECORD: (.+)$", function(reste)
+        return "RECORD : " .. traduire(reste)
+    end },
+    { "^AFK MODE  ·  watching: (.+)$", function(nom)
+        return "MODE AFK  ·  tu regardes : " .. string.gsub(nom, " %(leading%)$", " (en tête)")
+    end },
+    { "^Combo max x(%d+)%. He'll tell everyone%.$", "Combo max x%1. Il va le dire à tout le monde." },
+    { "^(%d+)[snrt][tdh]$", "%1e" }, -- 2nd, 3rd, 4th... → 2e, 3e, 4e
+    { "^TIED  •  OUT OF (%d+)$", "ÉGALITÉ  •  SUR %1" },
+    { "^OUT OF (%d+)$", "SUR %1" },
+    { "^(.+)  ·  all songs %(also pick a song%)$", "%1  ·  toutes les musiques (choisis aussi une musique)" },
+    { "^(.+)  ·  all mindsets %(also pick a mindset%)$", "%1  ·  tous les états d'esprit (choisis aussi un état d'esprit)" },
+    -- hub
+    { "^YOUR BEST: —  %(go climb!%)$", "TON RECORD : —  (va grimper !)" },
+    { "^YOUR TOTAL: —  %(go climb!%)$", "TON TOTAL : —  (va grimper !)" },
+    { "^YOUR BEST: (%d+) steps  ·  RANK #(%d+)$", "TON RECORD : %1 marches  ·  RANG #%2" },
+    { "^YOUR TOTAL: (%d+) steps  ·  RANK #(%d+)$", "TON TOTAL : %1 marches  ·  RANG #%2" },
+    { "^YOUR BEST: (%d+) steps  ·  not in the top 100 yet$", "TON RECORD : %1 marches  ·  pas encore dans le top 100" },
+    { "^YOUR TOTAL: (%d+) steps  ·  not in the top 100 yet$", "TON TOTAL : %1 marches  ·  pas encore dans le top 100" },
+    { "^BEST: (%d+) STEPS$", "RECORD : %1 MARCHES" },
+    { "^(.-)  ·  LV (.+)$", function(debut, niveau)
+        return traduire(debut) .. "  ·  NIV " .. niveau
+    end },
+    { "^NOW: locked$", "ACTUEL : verrouillé" },
+    { "^NOW: (.+)$", function(effet)
+        return "ACTUEL : " .. traduire(effet)
+    end },
+    { "^NEXT: (.+)$", function(effet)
+        return "SUIVANT : " .. traduire(effet)
+    end },
+    { "^LEVEL UP!  (.+) is now level (%d+)$", "NIVEAU SUPÉRIEUR !  %1 passe niveau %2" },
+    { "^Not enough aura: you need (%d+) more%. Play to farm some!$", "Pas assez d'aura : il t'en manque %1. Joue pour en farmer !" },
+    -- les compétences (textes du serveur)
+    { "^Start every round (%d+) steps up$", "Commence chaque manche %1 marches plus haut" },
+    { "^%+1 step per hit in the first (%d+)%% of the song$", "+1 marche par note dans les premiers %1 %% de la musique" },
+    { "^(%d+)%% chance a miss costs nothing %(1st half%)$", "%1 %% de chance qu'une note ratée ne coûte rien (1re moitié)" },
+    { "^PERFECT = %+2 steps from combo (%d+)$", "PARFAIT = +2 marches dès le combo %1" },
+    { "^%+(%d+) bonus steps every 10 combo$", "+%1 marches bonus tous les 10 de combo" },
+    { "^Your first (%d+) misses don't break your combo$", "Tes %1 premières notes ratées ne cassent pas ton combo" },
+    { "^(%d+)%% chance a miss costs nothing$", "%1 %% de chance qu'une note ratée ne coûte rien" },
+    { "^%+1 bonus step every (%d+) hits$", "+1 marche bonus toutes les %1 notes" },
+    { "^%+(%d+)%% aura earned$", "+%1 %% d'aura gagnée" },
+    { "^%+1 step per hit after (%d+)%% of the song$", "+1 marche par note après %1 %% de la musique" },
+    { "^(%d+)%% chance a PERFECT gives %+1 more$", "%1 %% de chance qu'un PARFAIT donne +1 de plus" },
+    { "^%+1 step per hit in the last (%d+) seconds$", "+1 marche par note dans les %1 dernières secondes" },
+}
+
+local actuelle = "en"
+traduire = function(s)
+    if actuelle ~= "fr" or type(s) ~= "string" or s == "" then
+        return s
+    end
+    local exact = FR_EXACT[s]
+    if exact then
+        return exact
+    end
+    for _, motif in ipairs(FR_MOTIFS) do
+        if string.find(s, motif[1]) then
+            return (string.gsub(s, motif[1], motif[2], 1))
+        end
+    end
+    return s
+end
+
+-- on suit chaque texte : quand un script le change, on le retraduit
+local suivis = setmetatable({}, { __mode = "k" })   -- [objet] = { [propriété] = { orig = anglais, mis = affiché } }
+local connectes = setmetatable({}, { __mode = "k" })
+local PROPS_TEXTE = { "Text" }
+local PROPS_BOUTON_E = { "ActionText", "ObjectText" }
+
+local function appliquer(objet, prop)
+    local infos = suivis[objet]
+    if not infos then
+        infos = {}
+        suivis[objet] = infos
+    end
+    local actuel = objet[prop]
+    local deja = infos[prop]
+    if deja and deja.mis == actuel then
+        return -- c'est nous qui venons de le mettre
+    end
+    local t = traduire(actuel)
+    infos[prop] = { orig = actuel, mis = t }
+    if t ~= actuel then
+        objet[prop] = t
+    end
+end
+
+local function suivre(objet)
+    if connectes[objet] then
+        return
+    end
+    local props
+    if objet:IsA("TextLabel") or objet:IsA("TextButton") then
+        props = PROPS_TEXTE
+    elseif objet:IsA("ProximityPrompt") then
+        props = PROPS_BOUTON_E
+    else
+        return
+    end
+    connectes[objet] = true
+    for _, prop in ipairs(props) do
+        appliquer(objet, prop)
+        objet:GetPropertyChangedSignal(prop):Connect(function()
+            appliquer(objet, prop)
+        end)
+    end
+end
+
+-- "auto" = la langue de Roblox du joueur (français si elle commence par « fr », sinon anglais)
+local function langueVoulue(code)
+    if code == "en" or code == "fr" then
+        return code
+    end
+    local locale = ""
+    pcall(function()
+        locale = LocalizationService.RobloxLocaleId
+    end)
+    if locale == "" then
+        locale = joueur.LocaleId or ""
+    end
+    return if string.sub(string.lower(locale), 1, 2) == "fr" then "fr" else "en"
+end
+
+Langue.traduire = traduire
+Langue.changer = function(code)
+    local voulue = langueVoulue(code)
+    if voulue == actuelle then
+        return
+    end
+    actuelle = voulue
+    for objet, infos in pairs(suivis) do
+        if objet.Parent then
+            for prop, e in pairs(infos) do
+                local t = traduire(e.orig)
+                e.mis = t
+                objet[prop] = t
+            end
+        end
+    end
+end
+
+actuelle = langueVoulue(REGLAGES.langue)
+for _, dossier in ipairs({ joueur:WaitForChild("PlayerGui"), workspace }) do
+    dossier.DescendantAdded:Connect(suivre)
+    task.defer(function()
+        for _, objet in ipairs(dossier:GetDescendants()) do
+            suivre(objet)
+        end
+    end)
+end
+end -- fin du bloc de la langue
+
 -- ========================== PHASES ==========================
 local menuPrincipalOuvert = true -- au lancement : le menu principal (PLAY / CLASSEMENTS / PARAMÈTRES)
 local modeAfk = false -- AFK : on regarde les autres jouer, on n'est pas lancé dans la partie
@@ -3238,9 +3871,14 @@ local function majPhase()
     chrono.afficher((phase ~= "Lobby" or modeAfk) and not enMenu)
     barre.Visible = (phase == "Manche" or phase == "Fin") and not enMenu
     marcheTexte.Visible = phase == "Manche" and not enMenu and not modeAfk
-    boutonClassement.Visible = phase ~= "Manche" and not enMenu -- pas pendant qu'on clique les cercles
+    -- les classements ne sont QUE dans le hub (les tableaux TOP 100) : pas de bouton dans le jeu,
+    -- et la liste des joueurs de Roblox (en haut à droite) est cachée pendant le jeu
+    boutonClassement.Visible = false
+    pcall(function()
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, enMenu)
+    end)
     for _, bouton in ipairs(boutonsCoin) do
-        bouton.Visible = boutonClassement.Visible
+        bouton.Visible = phase ~= "Manche" and not enMenu -- pas pendant qu'on clique les cercles
     end
     if majBandeauAfk then
         majBandeauAfk()
@@ -3294,6 +3932,10 @@ local ReglagesEvent = remotes:WaitForChild("Reglages")
 local liens = nouveau("Folder", { Name = "MindsetLiens" })
 local versJeu = nouveau("BindableEvent", { Name = "VersJeu", Parent = liens })
 local versHub = nouveau("BindableEvent", { Name = "VersHub", Parent = liens })
+-- le hub s'en sert pour traduire une phrase avant de l'écrire lettre par lettre (le marchand)
+nouveau("BindableFunction", { Name = "Traduire", Parent = liens }).OnInvoke = function(phrase)
+    return Langue.traduire(phrase)
+end
 liens.Parent = joueur
 local COULEUR_AFK = Color3.fromRGB(140, 200, 255)
 
@@ -3441,7 +4083,7 @@ local fondReglages = nouveau("TextButton", {
 local cadre = nouveau("TextButton", {
     AnchorPoint = Vector2.new(0.5, 0.5),
     Position = UDim2.fromScale(0.5, 0.5),
-    Size = UDim2.fromOffset(480, 390),
+    Size = UDim2.fromOffset(480, 440),
     BackgroundColor3 = Color3.fromRGB(12, 12, 18),
     AutoButtonColor = false,
     Text = "",
@@ -3471,6 +4113,7 @@ nouveau("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 
 local function appliquerReglages()
     groupeMusique.Volume = REGLAGES.musique
     groupeBruitages.Volume = REGLAGES.bruitages
+    Langue.changer(REGLAGES.langue)
 end
 
 -- envoi au serveur (pas à chaque pixel du curseur : une fois qu'on a fini de régler)
@@ -3621,6 +4264,58 @@ curseur(76, "MUSIC", "musique")
 curseur(146, "SOUND EFFECTS (clicks, menu sounds, effects)", "bruitages")
 interrupteur(222, "SCREEN SHAKE", "secousses")
 interrupteur(272, "FLASHING LIGHTS", "flashs")
+
+-- LANGUE : AUTO (celle de Roblox) / EN / FR — tout le jeu change tout de suite
+do
+    texte({
+        Position = UDim2.new(0, 24, 0, 328),
+        Size = UDim2.new(0.4, 0, 0, 20),
+        Text = "LANGUAGE",
+        Font = Enum.Font.GothamBold,
+        TextColor3 = Color3.fromRGB(200, 200, 215),
+        TextStrokeTransparency = 1,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 47,
+        Parent = cadre,
+    })
+    local CHOIX = { { "auto", "AUTO" }, { "en", "EN" }, { "fr", "FR" } }
+    local boutonsLangue = {}
+    local function afficher()
+        for code, bouton in pairs(boutonsLangue) do
+            local actif = REGLAGES.langue == code
+            bouton.BackgroundColor3 = if actif then OR else Color3.fromRGB(45, 45, 60)
+            bouton.TextColor3 = if actif then NOIR else Color3.fromRGB(170, 170, 190)
+        end
+    end
+    for i, choix in ipairs(CHOIX) do
+        local bouton = nouveau("TextButton", {
+            AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.new(1, -24 - (#CHOIX - i) * 76, 0, 322),
+            Size = UDim2.fromOffset(68, 32),
+            AutoButtonColor = false,
+            Font = Enum.Font.GothamBlack,
+            Text = choix[2],
+            TextScaled = true,
+            ZIndex = 47,
+            Parent = cadre,
+        })
+        nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = bouton })
+        nouveau("UIPadding", { PaddingTop = UDim.new(0, 7), PaddingBottom = UDim.new(0, 7), Parent = bouton })
+        boutonsLangue[choix[1]] = bouton
+        bouton.MouseEnter:Connect(function()
+            sonSurvol(4)
+        end)
+        bouton.Activated:Connect(function()
+            REGLAGES.langue = choix[1]
+            Langue.changer(choix[1])
+            afficher()
+            sonClic(4 + i)
+            sauverReglages()
+        end)
+    end
+    table.insert(majAffichage, afficher)
+    afficher()
+end
 texte({
     AnchorPoint = Vector2.new(0.5, 1),
     Position = UDim2.new(0.5, 0, 1, -18),
@@ -3685,11 +4380,11 @@ local function boutonCoin(y, texteBouton, couleur, action)
     table.insert(boutonsCoin, bouton)
     return bouton
 end
-boutonCoin(122, "SETTINGS", Color3.fromRGB(200, 200, 220), function()
+boutonCoin(70, "SETTINGS", Color3.fromRGB(200, 200, 220), function()
     sonClic(4)
     ouvrirReglages()
 end)
-boutonCoin(170, "AFK", COULEUR_AFK, function()
+boutonCoin(118, "AFK", COULEUR_AFK, function()
     if modeAfk then
         allerJouer(false)
     else
@@ -3697,7 +4392,7 @@ boutonCoin(170, "AFK", COULEUR_AFK, function()
         passerAfk(nil)
     end
 end)
-boutonCoin(218, "MENU", Color3.fromRGB(255, 120, 120), retourMenu)
+boutonCoin(166, "MENU", Color3.fromRGB(255, 120, 120), retourMenu)
 
 -- les paramètres sauvegardés (le serveur les met dans l'attribut « Reglages » du joueur)
 local function chargerReglages()
@@ -3959,6 +4654,196 @@ end)
 end -- fin du bloc de l'écran de fin
 
 
+-- ========================== LA DANSE DU GAGNANT (vraiment badass) ==========================
+-- Faite à la main, calée sur le rythme de la musique. 3 mouvements (attribut « Danse », change tous les 10 pas) :
+--   1 SIGMA LEAN : bras croisés, penché en arrière, la tête frappe chaque temps
+--   2 AURA FLEX  : double biceps, jambes écartées, le buste se tord sur les temps
+--   3 POINT & SPIN : il pointe la caméra du doigt, et tous les 4 temps : vrille en sautant
+-- Autour de lui : pilier de lumière, flammes, contour lumineux, éclair + onde au sol tous les 4 temps.
+-- Chaque clic sur DANCE = un coup d'accent (il frappe plus fort).
+local danseBadass
+do
+local function lisse(k)
+    return k * k * (3 - 2 * k)
+end
+
+local function piece(proprietes)
+    proprietes.Anchored = true
+    proprietes.CanCollide = false
+    proprietes.CanQuery = false
+    proprietes.CanTouch = false
+    proprietes.CastShadow = false
+    proprietes.Material = Enum.Material.Neon
+    proprietes.Parent = workspace
+    return nouveau("Part", proprietes)
+end
+
+-- la mise en scène autour du danseur (créée une fois, détruite quand la danse s'arrête)
+local function miseEnScene(etat)
+    local d = etat.danse
+    local racine = etat.modele and etat.modele:FindFirstChild("HumanoidRootPart")
+    if d.pilier or not racine then
+        return
+    end
+    local couleur = couleurDe(etat)
+    d.pilier = piece({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(60, 4, 4), Color = couleur, Transparency = 0.8 })
+    d.lumiere = nouveau("PointLight", { Color = couleur, Brightness = 4, Range = 24, Parent = racine })
+    d.contour = nouveau("Highlight", {
+        FillColor = couleur,
+        FillTransparency = 0.8,
+        OutlineColor = BLANC,
+        OutlineTransparency = 0,
+        DepthMode = Enum.HighlightDepthMode.Occluded,
+        Parent = etat.modele,
+    })
+    local flammes = nouveau("ParticleEmitter", {
+        Rate = 60,
+        Lifetime = NumberRange.new(0.6, 1.2),
+        Speed = NumberRange.new(8, 16),
+        SpreadAngle = Vector2.new(12, 12),
+        EmissionDirection = Enum.NormalId.Top,
+        Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0) }),
+        Transparency = NumberSequence.new(0.1, 1),
+        LightEmission = 1,
+        Color = ColorSequence.new(couleur, BLANC),
+        Parent = racine,
+    })
+    for _, effet in ipairs({ d.pilier, d.lumiere, d.contour, flammes }) do
+        table.insert(d.effets, effet)
+    end
+end
+
+-- un éclair (zigzag de néon) qui tombe du ciel à côté du danseur
+local function eclair(sol, couleur)
+    if not REGLAGES.flashs then
+        return
+    end
+    local haut = sol + Vector3.new((math.random() - 0.5) * 8, 45, -3)
+    local precedent = haut
+    for i = 1, 7 do
+        local suivant = haut:Lerp(sol, i / 7) + (if i < 7 then Vector3.new((math.random() - 0.5) * 5, 0, 0) else Vector3.zero)
+        local morceau = piece({
+            Color = couleur:Lerp(BLANC, 0.65),
+            Size = Vector3.new(0.4, 0.4, (suivant - precedent).Magnitude),
+            CFrame = CFrame.lookAt((precedent + suivant) / 2, suivant),
+        })
+        tween(morceau, 0.3, { Transparency = 1 })
+        task.delay(0.35, function()
+            morceau:Destroy()
+        end)
+        precedent = suivant
+    end
+end
+
+-- renvoie la pose (articulations), la rotation et la hauteur du danseur pour cette image
+danseBadass = function(etat, horloge)
+    local d = etat.danse
+    miseEnScene(etat)
+    local origine = if partition then partition.debut else 0
+    local b = (maintenantServeur() - origine) / math.max(intervalle, 0.2) -- le temps qui passe, en battements
+    local temps = math.floor(b)
+    local f = b - temps -- où on en est dans le battement (0 → 1)
+    local hit = (1 - f) ^ 3 -- 1 pile sur le temps, puis retombe vite
+    local coup = if d.coup then math.max(0, 1 - (horloge - d.coup) / 0.22) else 0
+    local entree = math.clamp((horloge - (d.changement or d.debut)) / 0.25, 0, 1)
+    local racine = etat.modele:FindFirstChild("HumanoidRootPart")
+    local couleur = couleurDe(etat)
+
+    -- chaque temps : petit zoom + contraste ; tous les 4 temps : éclair, onde au sol, secousse, flash
+    if temps ~= d.dernierTemps and racine then
+        d.dernierTemps = temps
+        local sol = racine.Position - Vector3.new(0, etat.hauteur or 3, 0)
+        if temps % 4 == 0 then
+            ondeSol(sol, couleur, 10)
+            eclats(sol + Vector3.new(0, 1, 0), couleur, 16, 1.3)
+            eclair(sol, couleur)
+            secousse(0.9)
+            fovPulse = math.min(fovPulse, -4)
+            if REGLAGES.flashs then
+                effetPulse.Brightness = 0.25
+                tween(effetPulse, 0.3, { Brightness = 0 })
+            end
+        else
+            fovPulse = math.min(fovPulse, -1.5)
+            effetPulse.Contrast = 0.35
+            tween(effetPulse, intervalle * 0.8, { Contrast = 0 })
+        end
+    end
+    if d.pilier and racine then
+        local epaisseur = 4 + 2.5 * hit + 2 * coup
+        d.pilier.Size = Vector3.new(60, epaisseur, epaisseur)
+        d.pilier.CFrame = CFrame.new(racine.Position + Vector3.new(0, 26, -3)) * CFrame.Angles(0, 0, math.pi / 2)
+        d.pilier.Transparency = 0.82 - 0.25 * hit
+        d.lumiere.Brightness = 3 + 5 * hit + 4 * coup
+        d.contour.FillTransparency = 0.85 - 0.4 * math.max(hit, coup)
+    end
+
+    local pose, rotation, arc
+    local rebond = 0.35 * hit + 0.4 * coup -- les genoux plient sur le temps
+    local mouvement = d.mouvement or 1
+    if mouvement == 1 then
+        -- SIGMA LEAN
+        local balance = math.sin(b * math.pi / 2)
+        pose = {
+            LeftShoulder = Vector3.new(1.35, 0, 0.55),
+            RightShoulder = Vector3.new(1.35, 0, -0.55),
+            LeftElbow = Vector3.new(1.75, 0, 0),
+            RightElbow = Vector3.new(1.75, 0, 0),
+            Waist = Vector3.new(0.14 - 0.1 * hit, 0.25 * balance, 0),
+            Neck = Vector3.new(0.18 - 0.45 * hit - 0.3 * coup, 0, 0.12 * balance),
+            LeftKnee = -rebond, RightKnee = -rebond, LeftHip = 0.4 * rebond, RightHip = 0.4 * rebond,
+        }
+        rotation = CFrame.Angles(0, 0.35 * balance, 0)
+        arc = -0.35 * rebond
+    elseif mouvement == 2 then
+        -- AURA FLEX
+        local cote = if temps % 2 == 0 then 1 else -1
+        local flex = 0.25 * hit + 0.3 * coup
+        pose = {
+            LeftShoulder = Vector3.new(0, 0, -(1.45 + flex)),
+            RightShoulder = Vector3.new(0, 0, 1.45 + flex),
+            LeftElbow = Vector3.new(0, 0, -(1.7 + flex)),
+            RightElbow = Vector3.new(0, 0, 1.7 + flex),
+            LeftHip = Vector3.new(0.3 * rebond, 0, -0.3),
+            RightHip = Vector3.new(0.3 * rebond, 0, 0.3),
+            LeftKnee = -0.3 - rebond, RightKnee = -0.3 - rebond,
+            Waist = Vector3.new(-0.2 * hit, 0.35 * cote * lisse(math.min(1, f * 3)), 0),
+            Neck = Vector3.new(0.25 - 0.3 * hit, 0, 0),
+        }
+        rotation = CFrame.Angles(0, 0.2 * cote, 0)
+        arc = -0.6 * (0.3 + rebond)
+    elseif temps % 4 == 3 then
+        -- POINT & SPIN : la vrille en sautant, bras écartés
+        local saut = math.sin(math.pi * f)
+        pose = {
+            LeftShoulder = Vector3.new(0, 0, -2.6 * saut), RightShoulder = Vector3.new(0, 0, 2.6 * saut),
+            LeftKnee = -1.2 * saut, RightKnee = -1.2 * saut, LeftHip = 0.8 * saut, RightHip = 0.8 * saut,
+        }
+        rotation = CFrame.Angles(0, 2 * math.pi * lisse(f), 0)
+        arc = 2.2 * saut
+    else
+        -- POINT & SPIN : il te pointe du doigt, la tête penchée
+        pose = {
+            RightShoulder = Vector3.new(1.55 + 0.15 * hit, 0, 0.1),
+            RightElbow = Vector3.new(0.1, 0, 0),
+            LeftShoulder = Vector3.new(0.2, 0, -0.25),
+            Neck = Vector3.new(-0.1 - 0.25 * hit, 0, 0.25),
+            Waist = Vector3.new(-0.1 - 0.15 * coup, -0.2, 0),
+            LeftKnee = -rebond, RightKnee = -rebond, LeftHip = 0.4 * rebond, RightHip = 0.4 * rebond,
+        }
+        rotation = CFrame.Angles(0, -0.25, 0)
+        arc = -0.35 * rebond
+    end
+    -- en douceur quand on passe d'un mouvement à l'autre
+    if entree < 1 then
+        for nom, v in pairs(pose) do
+            pose[nom] = (if typeof(v) == "Vector3" then v else Vector3.new(v, 0, 0)) * entree
+        end
+    end
+    return pose, rotation, arc
+end
+end -- fin du bloc de la danse badass
+
 -- ========================== BOUCLE D'AFFICHAGE ==========================
 local positionCamera = nil
 local pointsCarte = {} -- [config] = point sur la mini-carte
@@ -4029,6 +4914,9 @@ RunService.RenderStepped:Connect(function(dt)
                         end
                         atterrir(etat, s)
                     end
+                end
+                if etat.danse and not etat.saut then
+                    pose, rotation, arc = danseBadass(etat, horloge) -- 💃 le gagnant danse
                 end
                 poser(etat, pose)
                 etat.marcheAffichee = m

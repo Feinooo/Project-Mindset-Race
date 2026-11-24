@@ -598,6 +598,8 @@ ReglagesEvent.OnServerEvent:Connect(function(joueur, reglages)
         bruitages = nombre(reglages.bruitages),
         secousses = reglages.secousses ~= false,
         flashs = reglages.flashs ~= false,
+        -- langue : "auto" (celle de Roblox), "en" ou "fr"
+        langue = if reglages.langue == "en" or reglages.langue == "fr" then reglages.langue else "auto",
     }
 end)
 

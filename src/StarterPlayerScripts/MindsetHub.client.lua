@@ -618,7 +618,6 @@ local REPLIQUES = {
     achat = { "Pleasure doing business!", "Feel that? That's power.", "Your mindset just got stronger.", "Now go climb!" },
     pauvre = { "Not enough aura... go farm some!", "Come back richer, climber.", "Aura first, upgrades after." },
     max = { "That one is already maxed out!", "Can't go higher than that, champ." },
-    equipe = { "Good choice.", "That mindset suits you.", "Wear it with pride." },
 }
 local numeroReplique = 0
 local function direMarchand(categorie, message)
@@ -628,6 +627,16 @@ local function direMarchand(categorie, message)
     numeroReplique += 1
     local numero = numeroReplique
     local phrase = message or auHasard(REPLIQUES[categorie])
+    -- traduite d'abord (par le script du jeu), pour l'écrire lettre par lettre dans la bonne langue
+    local traduire = liens:FindFirstChild("Traduire")
+    if traduire then
+        local ok, traduite = pcall(function()
+            return traduire:Invoke(phrase)
+        end)
+        if ok and type(traduite) == "string" then
+            phrase = traduite
+        end
+    end
     marchand.bulle.Enabled = true
     marchand.echelleBulle.Scale = 0.6
     tween(marchand.echelleBulle, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
@@ -1074,7 +1083,6 @@ end
 -- l'état d'esprit affiché : nom, devise, niveau total, bouton ÉQUIPER
 boutique.nom = texte({ Position = UDim2.fromScale(0.05, 0.23), Size = UDim2.fromScale(0.55, 0.07), Font = Enum.Font.GothamBlack, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauShop })
 boutique.devise = texte({ Position = UDim2.fromScale(0.05, 0.3), Size = UDim2.fromScale(0.55, 0.035), Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauShop })
-boutique.boutonEquiper, boutique.traitEquiper = bouton({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(0.95, 0.235), Size = UDim2.fromScale(0.34, 0.075), Text = "EQUIP", Parent = panneauShop }, OR, true, 5)
 
 -- les 3 compétences
 for j = 1, 3 do
@@ -1135,11 +1143,6 @@ afficherBoutique = function()
         maximum += #couts
     end
     boutique.devise.Text = DEVISES[perso] .. "  ·  LV " .. total .. " / " .. maximum
-    local equipe = joueur:GetAttribute("Perso") == perso
-    boutique.boutonEquiper.Text = if equipe then "EQUIPPED" else "EQUIP"
-    boutique.boutonEquiper.BackgroundColor3 = if equipe then FOND_PANNEAU else couleur
-    boutique.boutonEquiper.TextColor3 = if equipe then couleur else NOIR
-    boutique.traitEquiper.Color = couleur
     for j, l in ipairs(boutique.lignes) do
         local def = defs[j]
         l.cadre.Visible = def ~= nil
@@ -1232,28 +1235,8 @@ for j, l in ipairs(boutique.lignes) do
     end)
 end
 
--- ÉQUIPER : c'est l'état d'esprit avec lequel tu joueras (tu peux aussi changer dans le lobby)
-boutique.boutonEquiper.Activated:Connect(function()
-    local perso = boutique.perso
-    if joueur:GetAttribute("Perso") == perso then
-        return
-    end
-    sonClic(6)
-    ChoisirEvent:FireServer(perso)
-    task.delay(0.8, function()
-        if joueur:GetAttribute("Perso") ~= perso then
-            messageBoutique("You can change your mindset after this round.", ROUGE)
-        end
-    end)
-end)
-joueur:GetAttributeChangedSignal("Perso"):Connect(function()
-    local perso = joueur:GetAttribute("Perso")
-    if perso and panneauShop.Visible then
-        messageBoutique(string.upper(perso) .. " equipped!", COULEURS[perso])
-        direMarchand("equipe")
-    end
-    afficherBoutique()
-end)
+-- (pas de bouton ÉQUIPER ici : on choisit son état d'esprit dans le lobby du jeu, avant chaque manche)
+joueur:GetAttributeChangedSignal("Perso"):Connect(afficherBoutique)
 joueur:GetAttributeChangedSignal("Niveaux"):Connect(afficherBoutique)
 ReplicatedStorage:GetAttributeChangedSignal("Competences"):Connect(afficherBoutique)
 
@@ -1650,7 +1633,6 @@ RunService.RenderStepped:Connect(function(dt)
             -- on est dans le portail : on passe au jeu
             fermerHub()
             versJeu:Fire("Jouer")
-            jouerSon("boum", 0.7, 0.35, nil, 0.8)
             task.delay(0.15, function()
                 tween(fondu, 0.8, { BackgroundTransparency = 1 })
             end)
