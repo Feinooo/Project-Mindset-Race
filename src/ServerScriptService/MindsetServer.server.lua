@@ -1,111 +1,118 @@
 --[[
-    🧠 MINDSET STAIRS — Script SERVEUR
-    À mettre dans : ServerScriptService  (type : Script)
+    🥊 MINDSET BATTLEGROUNDS — Script SERVEUR
+    À mettre dans : ServerScriptService  (type : Script, nom : MindsetServer)
 
-    L'ESCALIER INFINI en 3D : tout le monde court sur un immense escalier (vue à la 3e personne),
-    avec des rochers qui dévalent, des marches qui cassent et des trous. Le plus haut à la fin du chrono gagne.
-    Chaque état d'esprit se joue différemment, comme dans la trend :
-      MOTIVATION : très rapide au début, puis de plus en plus lent
-      EGO        : double saut et saute plus haut... mais quand il tombe, il tombe loin
-      DISCIPLINE : vitesse moyenne, mais un checkpoint toutes les 50 marches
-      OBSESSION  : lent au début, puis de plus en plus rapide, inarrêtable à la fin
-    Ce script construit l'escalier, gère les manches, les pièges, les rochers, les bots et la sauvegarde.
-    (l'ancien jeu de rythme est gardé dans le tag git « v2-rythme »)
+    Un jeu de combat en arène (genre « battlegrounds »), sur la trend Motivation vs Ego vs Discipline vs Obsession.
+      - Un GRAND LOBBY à explorer (zone sans danger) : les 4 sanctuaires des états d'esprit, le marchand d'aura,
+        les tableaux TOP 100, une tour de parkour, une zone AFK, des gradins et un écran géant sur l'arène.
+      - L'ARÈNE : tout le monde contre tout le monde, sans fin. Tu meurs → tu reviens au lobby.
+      - Chaque état d'esprit a son style de combat (comme dans la trend) :
+          MOTIVATION : énorme au début, puis son énergie s'éteint (les kills la rallument)
+          EGO        : gros dégâts et combos stylés, mais fragile
+          DISCIPLINE : bloque, contre, dur à tuer
+          OBSESSION  : faible au début, plus fort à chaque coup donné
+      - Les gros moments (ultime, kill) passent en EDIT NOIR ET BLANC (script client).
+    Ce script construit toute la carte, gère le combat (dégâts, étourdissements, kits), les bots, l'aura,
+    la sauvegarde et les classements. Le script client s'occupe de l'affichage, des animations et des commandes.
+    (les anciens jeux sont gardés dans les tags git « v1-course », « v2-rythme », et le commit 1c6e90f pour l'escalier 3D)
 ]]
 
 -- ===================== RÉGLAGES (tu peux les modifier) =====================
 local CONFIG = {
-    ATTENTE_LOBBY = 25,   -- secondes pour choisir son état d'esprit et voter la musique
-    PREPARATION = 4,      -- secondes de décompte avant le départ (3, 2, 1, GO)
-    DUREE_MANCHE = 75,    -- durée de la course (secondes)
-    DUREE_DANSE = 8,      -- secondes où le gagnant danse pour farm l'aura à la fin
-    AURA_PAR_PAS = 1,     -- aura gagnée à chaque pas de danse du gagnant
-    COUREURS_MIN = 4,     -- des bots complètent jusqu'à ce nombre
-    NB_PROPOSITIONS = 3,  -- musiques proposées au vote dans le lobby
+    -- ❤️ les points de vie de chaque état d'esprit
+    PV = { Motivation = 100, Ego = 85, Discipline = 125, Obsession = 100 },
+    -- 🏃 les vitesses (16 = la vitesse normale de Roblox)
+    VITESSE_LOBBY = 20,
+    REAPPARITION = 4,       -- secondes avant de revenir au lobby après une mort
+    PROTECTION = 2,         -- secondes d'invincibilité en entrant dans l'arène
+    BOTS = 4,               -- l'arène a au moins ce nombre de combattants : des bots complètent
+    BOTS_MIN = 2,           -- et toujours au moins 2 bots (pour qu'il y ait de l'action à regarder)
+    SOIN_KILL = 25,         -- PV rendus quand tu fais un kill
 
-    -- 🪜 L'ESCALIER
-    LARGEUR = 30,         -- largeur de l'escalier (studs)
-    PROFONDEUR = 2.5,     -- profondeur d'une marche
-    HAUTEUR = 1,          -- hauteur d'une marche (1 = on monte en marchant, sans sauter)
-    ZONE_TRANQUILLE = 15, -- les premières marches n'ont pas de piège
-    -- les pièges : chance qu'une marche en soit un, { en bas, à partir de la marche 400 }
-    PIEGES = {
-        trou = { 0.03, 0.06 },     -- une marche manque : il faut sauter
-        demi = { 0.05, 0.10 },     -- la moitié de la marche manque : passe de l'autre côté
-        cassante = { 0.06, 0.15 }, -- marche de lave craquelée : elle casse quand on marche dessus
-    },
+    -- 💜 L'AURA (la monnaie du marchand)
+    AURA_KILL = 15,         -- par kill
+    AURA_DEGATS = 25,       -- 1 aura toutes les 25 points de dégâts infligés
+    AURA_AFK = 1,           -- dans la zone AFK : 1 aura toutes les 30 secondes
+    AURA_PARKOUR = 50,      -- en haut de la tour de parkour (une fois par serveur)
 
-    -- 💀 LES CHUTES : combien de marches on perd quand on tombe
-    CHUTE = 15,
-    CHUTE_EGO = 30,          -- l'EGO tombe de plus haut
-    CHUTE_DISCIPLINE = 8,    -- la DISCIPLINE perd peu... et jamais sous son dernier checkpoint
-    CHECKPOINT = 50,         -- un checkpoint DISCIPLINE toutes les 50 marches
-
-    -- 🏃 LES VITESSES (studs par seconde ; 16 = la vitesse normale de Roblox), du début à la fin de la course
-    VITESSE = {
-        Motivation = { debut = 25, fin = 13 },
-        Ego = { debut = 17, fin = 17 },
-        Discipline = { debut = 17.5, fin = 17.5 },
-        Obsession = { debut = 12, fin = 28 },
-    },
-    SAUT = 7.2,           -- hauteur de saut normale (l'EGO saute plus haut avec SHOWTIME, et il a un double saut)
-
-    -- 🪨 LES ROCHERS qui dévalent l'escalier
-    ROCHERS_DEBUT = 3.2,  -- un rocher toutes les 3,2 s au début de la course...
-    ROCHERS_FIN = 1.0,    -- ... et toutes les 1 s à la fin
-    TEMPETE = 8,          -- au DROP de la musique : TEMPÊTE de rochers pendant 8 secondes
-
-    AURA_PAR_MARCHES = 10, -- fin de course : 1 aura toutes les 10 marches
-    AURA_VICTOIRE = 25,    -- bonus d'aura du gagnant
-
-    -- 🎵 MUSIQUES : à chaque lobby, 3 sont tirées au hasard et les joueurs votent.
-    --   id    = l'ID Roblox du son, ex. "rbxassetid://1234567890" (id = "" : ignorée)
-    --   nom   = le nom affiché sur la carte de vote
-    --   bpm   = le tempo (le gagnant danse dessus)
-    --   debut = à quelle seconde du son la course commence
-    --   drop  = à quelle seconde du son arrive le DROP → TEMPÊTE DE ROCHERS (pas de drop = enlève « drop = ... »)
-    --           (marque-le avec l'outil : Play dans Studio, touche B)
+    -- 🎵 MUSIQUES : jouées en fond (une au hasard, puis la suivante). id = "" : ignorée.
     MUSIQUES = {
-        { id = "rbxassetid://74842327948915", nom = "BUFÓN!", bpm = 82, debut = 0, drop = 9.57, decalage = 0 },
-        { id = "rbxassetid://134372266822247", nom = "MONTAGE SENNTANA", bpm = 95, debut = 0, drop = 20.22, decalage = 0 },
-        { id = "rbxassetid://117822777228038", nom = "ME VS ME", bpm = 120, debut = 0, drop = 19.14, decalage = 0 },
-        { id = "rbxassetid://84227603413943", nom = "NO ERA AMOR", bpm = 103, debut = 0, drop = 10.21, decalage = 0 },
-        { id = "rbxassetid://80140071567818", nom = "EMPIRE", bpm = 93, debut = 0, drop = 23.38, decalage = 0 },
-        { id = "rbxassetid://135464211325455", nom = "TIKI TIKI", bpm = 84, debut = 0, drop = 8.68, decalage = 0 },
-        { id = "rbxassetid://127965945833744", nom = "Your Next Opponent Is You", bpm = 143, debut = 0, drop = 20.11, decalage = 0 },
+        { id = "rbxassetid://74842327948915", nom = "BUFÓN!" },
+        { id = "rbxassetid://134372266822247", nom = "MONTAGE SENNTANA" },
+        { id = "rbxassetid://117822777228038", nom = "ME VS ME" },
+        { id = "rbxassetid://84227603413943", nom = "NO ERA AMOR" },
+        { id = "rbxassetid://80140071567818", nom = "EMPIRE" },
+        { id = "rbxassetid://135464211325455", nom = "TIKI TIKI" },
+        { id = "rbxassetid://127965945833744", nom = "Your Next Opponent Is You" },
     },
 
-    -- 🛒 MARCHAND D'AURA : l'aura gagnée en jouant sert à améliorer les compétences de ton état d'esprit
+    -- 🛒 MARCHAND D'AURA
     COUTS = { 100, 250, 500, 900, 1500 }, -- prix (en aura) du niveau 1, 2, 3, 4, 5 d'une compétence
-    -- En Studio seulement : on te met au moins cette aura pour pouvoir tester le marchand (0 = rien)
-    AURA_CADEAU_STUDIO = 3000,
+    AURA_CADEAU_STUDIO = 3000,            -- en Studio seulement : de l'aura pour tester le marchand
 }
 
--- 🧠 LES COMPÉTENCES : chaque état d'esprit a 3 compétences, de niveau 0 à 5, achetées chez le marchand.
---   nom     = le nom affiché
---   texte   = ce que fait la compétence (%s = la valeur du niveau, %% = le signe %)
---   valeurs = la valeur à chaque niveau (niveau 1, 2, 3, 4, 5) → c'est ici qu'on équilibre le jeu
+-- 🥊 LES KITS : ce que chaque état d'esprit sait faire (affiché sur les sanctuaires et en bas de l'écran).
+-- Les chiffres (dégâts, durées...) sont dans la partie « LES CAPACITÉS » plus bas.
+-- Commandes : clic = coups (combo de 4) · F = bloquer · Q = esquive · 1 2 3 = capacités · G = ultime · T = provoquer
+local KITS = {
+    Motivation = {
+        devise = "Fast start. Then it fades.",
+        passif = { nom = "BURNOUT", texte = "Huge damage and speed at full energy. Energy fades over time. Kills light it back up." },
+        { nom = "RUSH", texte = "Dash forward with a burning punch", recharge = 6 },
+        { nom = "FIRE FISTS", texte = "A flurry of 5 fast punches", recharge = 9 },
+        { nom = "SECOND WIND", texte = "Get 40% of your energy back", recharge = 22 },
+        ult = { nom = "LAST FLAME", texte = "8 s at full energy: +50% damage, faster" },
+    },
+    Ego = {
+        devise = "Main character. Glass jaw.",
+        passif = { nom = "MAIN CHARACTER", texte = "+25% damage but less health. Double jump. Taunt (T) charges your ultimate." },
+        { nom = "SHOWTIME", texte = "An uppercut that launches the enemy", recharge = 7 },
+        { nom = "SPOTLIGHT SLAM", texte = "Jump and slam the ground (breaks guards)", recharge = 10 },
+        { nom = "MIRROR", texte = "Counter stance: the next hit is sent back", recharge = 12 },
+        ult = { nom = "MAIN CHARACTER MOMENT", texte = "8 s: every hit is a critical hit" },
+    },
+    Discipline = {
+        devise = "Steady. Hard to kill.",
+        passif = { nom = "IRON WILL", texte = "More health. Blocking stops 90% of the damage." },
+        { nom = "COUNTER", texte = "Parry stance: punish the next attack", recharge = 8 },
+        { nom = "ROUTINE", texte = "3 heavy hits that nothing can interrupt", recharge = 9 },
+        { nom = "WALL", texte = "A shockwave that pushes everyone away", recharge = 12 },
+        ult = { nom = "UNBREAKABLE", texte = "8 s: 70% less damage, can't be stunned" },
+    },
+    Obsession = {
+        devise = "Slow start. Unstoppable end.",
+        passif = { nom = "FIXATION", texte = "Every hit you land makes you stronger and faster (20 stacks max: unstoppable)." },
+        { nom = "HUNT", texte = "Teleport behind the closest enemy and hit", recharge = 12 },
+        { nom = "RELENTLESS", texte = "Grab the enemy and hit 3 times", recharge = 9 },
+        { nom = "FRENZY", texte = "5 s of much faster punches", recharge = 18 },
+        ult = { nom = "OBSESSED", texte = "8 s: max stacks and every hit heals you" },
+    },
+}
+
+-- 🧠 LES COMPÉTENCES du marchand : 3 par état d'esprit, de niveau 0 à 5, achetées avec l'aura.
+--   texte = ce que fait la compétence (%s = la valeur du niveau, %% = le signe %)
+--   valeurs = la valeur à chaque niveau (1, 2, 3, 4, 5)
 -- ⚠️ Si tu changes un texte, change aussi sa traduction (script client, partie LANGUE).
 local COMPETENCES = {
     Motivation = {
-        { nom = "HEAD START", texte = "Start every round %s steps up", valeurs = { 3, 6, 10, 15, 20 } },
-        { nom = "FIRE START", texte = "+%s%% speed in the first 30%% of the round", valeurs = { 5, 10, 15, 20, 25 } },
-        { nom = "SECOND WIND", texte = "A %s-second speed boost at mid-round", valeurs = { 2, 3, 4, 5, 6 } },
+        { nom = "SLOW BURN", texte = "Energy fades %s%% slower", valeurs = { 10, 20, 30, 40, 50 } },
+        { nom = "HOT HANDS", texte = "RUSH and FIRE FISTS deal +%s%% damage", valeurs = { 10, 20, 30, 40, 50 } },
+        { nom = "COMEBACK", texte = "Kills give back %s%% more energy", valeurs = { 20, 40, 60, 80, 100 } },
     },
     Ego = {
-        { nom = "SHOWTIME", texte = "+%s%% jump height", valeurs = { 10, 20, 30, 40, 50 } },
-        { nom = "SPOTLIGHT", texte = "+%s%% speed while you're 1st", valeurs = { 4, 8, 12, 16, 20 } },
-        { nom = "THICK SKIN", texte = "Your first %s falls cost half", valeurs = { 1, 2, 3, 4, 5 } },
+        { nom = "THICK SKIN", texte = "+%s max health", valeurs = { 5, 10, 15, 20, 25 } },
+        { nom = "SHOWOFF", texte = "SHOWTIME and SLAM deal +%s%% damage", valeurs = { 10, 20, 30, 40, 50 } },
+        { nom = "SPOTLIGHT", texte = "Your ultimate charges %s%% faster", valeurs = { 10, 20, 30, 40, 50 } },
     },
     Discipline = {
-        { nom = "IRON WILL", texte = "A checkpoint every %s steps", valeurs = { 42, 35, 28, 22, 16 } },
-        { nom = "ROUTINE", texte = "+%s%% speed, all round long", valeurs = { 2, 4, 6, 8, 10 } },
+        { nom = "IRON GUARD", texte = "Every blocked hit heals you %s HP", valeurs = { 1, 2, 3, 4, 5 } },
+        { nom = "ROUTINE+", texte = "ROUTINE deals +%s%% damage", valeurs = { 10, 20, 30, 40, 50 } },
         { nom = "HARD WORK", texte = "+%s%% aura earned", valeurs = { 10, 20, 35, 50, 75 } },
     },
     Obsession = {
-        { nom = "LATE MONSTER", texte = "+%s top speed at the end", valeurs = { 1, 2, 3, 4, 6 } },
-        { nom = "UNSTOPPABLE", texte = "%s%% chance boulders don't knock you", valeurs = { 15, 30, 45, 60, 75 } },
-        { nom = "FINAL RUSH", texte = "+30%% speed in the last %s seconds", valeurs = { 5, 8, 11, 14, 18 } },
+        { nom = "FIXATION+", texte = "+%s max stacks", valeurs = { 2, 4, 6, 8, 10 } },
+        { nom = "PREDATOR", texte = "HUNT recharges %s%% faster", valeurs = { 10, 20, 30, 40, 50 } },
+        { nom = "BLOODLUST", texte = "Heal %s%% of the damage you deal", valeurs = { 2, 4, 6, 8, 10 } },
     },
 }
 local NIVEAU_MAX = #CONFIG.COUTS
@@ -118,11 +125,14 @@ local PERSOS = {
     Obsession = { couleur = Color3.fromRGB(230, 40, 60) },
 }
 local ORDRE_PERSOS = { "Motivation", "Ego", "Discipline", "Obsession" }
+local OR = Color3.fromRGB(255, 220, 80)
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Lighting = game:GetService("Lighting")
 local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 
 local function creer(classe, proprietes)
     local objet = Instance.new(classe)
@@ -135,91 +145,87 @@ local function creer(classe, proprietes)
     return objet
 end
 
-local TweenService = game:GetService("TweenService")
-local Debris = game:GetService("Debris")
-local RunService = game:GetService("RunService")
+local function auHasard(liste)
+    return liste[math.random(1, #liste)]
+end
 
 -- ========================== COMMUNICATION ==========================
-local dossierRemotes = Instance.new("Folder")
-dossierRemotes.Name = "MindsetRemotes"
-local function remote(nom)
-    return creer("RemoteEvent", { Name = nom, Parent = dossierRemotes })
-end
-local DebutEvent = remote("Debut")         -- serveur -> clients : la course commence (heure du départ, musique...)
-local ChoisirEvent = remote("Choisir")     -- client -> serveur : choix du perso
-local EvenementEvent = remote("Evenement") -- serveur -> clients : chute, rocher, tempête, vainqueur, danse...
-local FinEvent = remote("Fin")             -- serveur -> joueur : son écran de fin
-local VoterMusiqueEvent = remote("VoterMusique") -- client -> serveur : vote pour une des 3 musiques
-local DanserEvent = remote("Danser")       -- client -> serveur : le gagnant fait un pas de danse (farm d'aura)
-local JouerEvent = remote("Jouer")         -- client -> serveur : PLAY (true), AFK (false), retour au hub ("Hub")
-local ReglagesEvent = remote("Reglages")   -- client -> serveur : ses paramètres (volumes, langue...) à sauvegarder
-local ClassementFonction = creer("RemoteFunction", { Name = "Classement", Parent = dossierRemotes }) -- top d'un classement
-local AmeliorerFonction = creer("RemoteFunction", { Name = "Ameliorer", Parent = dossierRemotes }) -- acheter un niveau de compétence
-
--- les compétences et leurs prix, pour que les clients puissent les afficher (menu, marchand)
-ReplicatedStorage:SetAttribute("Competences", game:GetService("HttpService"):JSONEncode({
-    couts = CONFIG.COUTS,
-    persos = COMPETENCES,
-}))
-
-local dossierGrimpeurs = creer("Folder", { Name = "Grimpeurs", Parent = ReplicatedStorage })
--- Les musiques proposées au vote (StringValue "1", "2", "3" : Value = nom, attributs Votes et Cle)
-local dossierChoixMusiques = creer("Folder", { Name = "ChoixMusiques", Parent = ReplicatedStorage })
--- Les classements (un par état d'esprit, un par musique) : StringValue, attributs Type, Top1Nom, Top1Score
-local dossierClassements = creer("Folder", { Name = "Classements", Parent = ReplicatedStorage })
-dossierRemotes.Parent = ReplicatedStorage
-
--- 🎵 Marqueur de drop (touche B) : en Studio seulement, on partage la liste des musiques avec l'outil
-if RunService:IsStudio() then
-    local dossierTest = creer("Folder", { Name = "TesteurMusiques" })
-    dossierTest:SetAttribute("DureeManche", CONFIG.DUREE_MANCHE)
-    local numero = 0
-    for _, m in ipairs(CONFIG.MUSIQUES) do
-        if m.id == "" then
-            continue -- pas encore mise en ligne
-        end
-        numero += 1
-        local valeur = creer("StringValue", { Name = string.format("%02d", numero), Value = m.id, Parent = dossierTest })
-        valeur:SetAttribute("Nom", m.nom or ("Musique " .. numero))
-        valeur:SetAttribute("Bpm", m.bpm)
-        valeur:SetAttribute("Debut", m.debut)
-        valeur:SetAttribute("Drop", m.drop)
-        valeur:SetAttribute("Decalage", m.decalage)
+-- (on enlève d'abord les restes des anciennes versions du jeu)
+for _, nom in ipairs({ "MindsetRemotes", "Grimpeurs", "ChoixMusiques", "Classements", "TesteurMusiques", "MindsetMarchand" }) do
+    local vieux = ReplicatedStorage:FindFirstChild(nom)
+    if vieux then
+        vieux:Destroy()
     end
-    dossierTest.Parent = ReplicatedStorage
 end
-
-local function setPhase(phase)
-    ReplicatedStorage:SetAttribute("Phase", phase)
-end
-local function setStatut(texte)
-    ReplicatedStorage:SetAttribute("Statut", texte)
-end
-local function setTemps(secondes)
-    ReplicatedStorage:SetAttribute("Temps", secondes)
-end
-
--- on enlève les restes de l'ancien jeu (la scène 2D)
-for _, nom in ipairs({ "MindsetScene", "MindsetEscalier", "MindsetDecor", "MindsetObstacles" }) do
+for _, nom in ipairs({ "MindsetScene", "MindsetEscalier", "MindsetDecor", "MindsetObstacles", "MindsetHubSol", "Bots", "MindsetMap", "MindsetBots" }) do
     local vieux = workspace:FindFirstChild(nom)
     if vieux then
         vieux:Destroy()
     end
 end
 
--- Lumière : nuit, escalier bien éclairé, néons qui brillent
-Lighting.ClockTime = 0
-Lighting.Brightness = 0
-Lighting.Ambient = Color3.fromRGB(170, 170, 185)
-Lighting.OutdoorAmbient = Color3.fromRGB(120, 120, 140)
-local ancienBloom = Lighting:FindFirstChild("MindsetBloom")
-if ancienBloom then
-    ancienBloom:Destroy()
+local dossierRemotes = Instance.new("Folder")
+dossierRemotes.Name = "MindsetRemotes"
+local function remote(nom)
+    return creer("RemoteEvent", { Name = nom, Parent = dossierRemotes })
 end
-creer("BloomEffect", { Name = "MindsetBloom", Intensity = 1.2, Size = 30, Threshold = 0.85, Parent = Lighting })
+local ActionEvent = remote("Action")       -- client -> serveur : "M1", "Garde", "Esquive", "Capacite" (1-3), "Ultime", "Provoc"
+local AnimEvent = remote("Anim")           -- serveur -> clients : tel combattant fait telle animation
+local ImpactEvent = remote("Impact")       -- serveur -> clients : un coup a touché (étincelles, dégâts, son)
+local CoupEvent = remote("Coup")           -- serveur -> joueur touché : recul (le joueur bouge son propre avatar)
+local KillEvent = remote("Kill")           -- serveur -> clients : un kill (fil des kills + edit noir et blanc)
+local UltEvent = remote("Ult")             -- serveur -> clients : quelqu'un lance son ultime
+local FinEvent = remote("Fin")             -- serveur -> joueur : son écran de mort (stats de sa vie)
+local ZoneEvent = remote("Zone")           -- serveur -> joueur : il entre dans l'arène / revient au lobby
+local MessageEvent = remote("Message")     -- serveur -> joueur : petit message (« tu es EGO », « parkour réussi »...)
+local ReglagesEvent = remote("Reglages")   -- client -> serveur : ses paramètres (volumes, langue...) à sauvegarder
+local ClassementFonction = creer("RemoteFunction", { Name = "Classement", Parent = dossierRemotes }) -- un top 100
+local AmeliorerFonction = creer("RemoteFunction", { Name = "Ameliorer", Parent = dossierRemotes }) -- acheter une compétence
+dossierRemotes.Parent = ReplicatedStorage
+
+-- ce que les clients doivent savoir (affichage des kits, du marchand, musiques)
+do
+    -- (en JSON, une table ne peut pas mélanger [1], [2], [3] et des noms : les 3 capacités vont dans « capacites »)
+    local kitsJson = {}
+    for perso, kit in pairs(KITS) do
+        kitsJson[perso] = { devise = kit.devise, passif = kit.passif, ult = kit.ult, capacites = { kit[1], kit[2], kit[3] } }
+    end
+    ReplicatedStorage:SetAttribute("Kits", HttpService:JSONEncode(kitsJson))
+end
+ReplicatedStorage:SetAttribute("Competences", HttpService:JSONEncode({ couts = CONFIG.COUTS, persos = COMPETENCES }))
+do
+    local musiques = {}
+    for _, m in ipairs(CONFIG.MUSIQUES) do
+        if m.id ~= "" then
+            table.insert(musiques, m)
+        end
+    end
+    ReplicatedStorage:SetAttribute("Musiques", HttpService:JSONEncode(musiques))
+end
+Players.RespawnTime = CONFIG.REAPPARITION
+
+-- ========================== LUMIÈRE : le look « edit » ==========================
+-- Nuit, très contrasté, couleurs un peu éteintes : le noir et blanc des edits, avec les néons des 4 états d'esprit.
+Lighting.ClockTime = 0
+Lighting.Brightness = 1
+Lighting.Ambient = Color3.fromRGB(150, 150, 160)
+Lighting.OutdoorAmbient = Color3.fromRGB(110, 110, 120)
+Lighting.EnvironmentDiffuseScale = 0.3
+Lighting.EnvironmentSpecularScale = 0.6
+for _, nom in ipairs({ "MindsetBloom", "MindsetStyle" }) do
+    local vieux = Lighting:FindFirstChild(nom)
+    if vieux then
+        vieux:Destroy()
+    end
+end
+creer("BloomEffect", { Name = "MindsetBloom", Intensity = 1, Size = 28, Threshold = 0.9, Parent = Lighting })
+creer("ColorCorrectionEffect", { Name = "MindsetStyle", Saturation = -0.35, Contrast = 0.18, Brightness = 0.02, Parent = Lighting })
+
+
 -- ========================== SAUVEGARDE (DataStore) ==========================
 -- ⚠️ Pour tester dans Studio : publie le jeu, puis
 --    Paramètres du jeu > Sécurité > « Activer l'accès Studio aux services API ».
+-- (même sauvegarde que les anciennes versions : l'aura, les niveaux du marchand et les réglages sont gardés)
 local donneesChargees = {}
 local sauvegarde = nil
 do
@@ -247,12 +253,11 @@ local function essayer(fonction)
     return false, nil
 end
 
-local HttpService = game:GetService("HttpService")
-local reglagesJoueurs = {} -- [joueur] = { musique = 0..1, bruitages = 0..1, secousses = bool, flashs = bool }
+local reglagesJoueurs = {} -- [joueur] = { musique, bruitages, secousses, flashs, langue }
 
 -- 📊 Les stats du joueur.
---   En haut à droite (leaderstats) : TEMPS passé sur le jeu (en minutes), MARCHES gravies (au total), VICTOIRES.
---   Cachées (StatsCachees) : l'Aura (elle continue de monter et d'être sauvegardée) et les secondes déjà jouées.
+--   En haut à droite (leaderstats) : KILLS (au total) et STREAK (kills d'affilée sans mourir).
+--   Cachées (StatsCachees) : l'Aura, la meilleure série de tous les temps, les secondes de jeu.
 local arrivees = {} -- [joueur] = os.clock() de son arrivée
 
 local function chercherStat(joueur, nom)
@@ -266,22 +271,21 @@ local function chercherStat(joueur, nom)
     return nil
 end
 
--- secondes jouées au total = celles des fois d'avant (sauvegardées) + celles de maintenant
+local function ajouterStat(joueur, nom, nombre)
+    local valeur = chercherStat(joueur, nom)
+    if valeur then
+        valeur.Value += nombre
+    end
+end
+
 local function tempsTotal(joueur)
     local base = chercherStat(joueur, "Secondes")
     return (if base then base.Value else 0) + math.floor(os.clock() - (arrivees[joueur] or os.clock()))
 end
 
--- le temps en haut à droite : juste un nombre, en minutes
-local NOM_TEMPS = "Time (min)"
-local function formatTemps(secondes)
-    return secondes // 60
-end
-
--- 🧠 Les niveaux de compétences de chaque joueur : [joueur] = { Motivation = {0, 0, 0}, Ego = {...}, ... }
+-- 🧠 Les niveaux de compétences : [joueur] = { Motivation = {0, 0, 0}, Ego = {...}, ... }
 local niveauxJoueurs = {}
-local grimpeurDesJoueurs = {} -- [joueur] = config (voir GRIMPEURS plus bas)
-local chargementFini = {} -- [joueur] = true quand ses données sont chargées (ou qu'il n'y a pas de sauvegarde)
+local chargementFini = {} -- [joueur] = true quand ses données sont chargées
 
 local function niveauxVides()
     local niveaux = {}
@@ -294,7 +298,6 @@ local function niveauxVides()
     return niveaux
 end
 
--- on recopie les niveaux sauvegardés en vérifiant qu'ils sont corrects
 local function lireNiveaux(brut)
     local niveaux = niveauxVides()
     if type(brut) == "table" then
@@ -318,24 +321,24 @@ local function publierNiveaux(joueur)
     joueur:SetAttribute("Niveaux", HttpService:JSONEncode(niveauxJoueurs[joueur] or niveauxVides()))
 end
 
+local surChargement -- (défini plus bas : on applique l'état d'esprit sauvegardé à l'avatar)
+
 local function finChargement(joueur, donnees)
     niveauxJoueurs[joueur] = lireNiveaux(donnees and donnees.niveaux)
     publierNiveaux(joueur)
-    -- l'état d'esprit choisi la dernière fois
     local perso = donnees and donnees.perso
-    if type(perso) == "string" and COMPETENCES[perso] and not joueur:GetAttribute("Perso") then
+    if type(perso) == "string" and PERSOS[perso] and not joueur:GetAttribute("Perso") then
         joueur:SetAttribute("Perso", perso)
-        local g = grimpeurDesJoueurs[joueur]
-        if g and not g:GetAttribute("EnJeu") then
-            g:SetAttribute("Perso", perso)
-        end
     end
     -- 🎁 en Studio : de l'aura pour tester le marchand
     local aura = chercherStat(joueur, "Aura")
-    if game:GetService("RunService"):IsStudio() and aura and aura.Value < CONFIG.AURA_CADEAU_STUDIO then
+    if RunService:IsStudio() and aura and aura.Value < CONFIG.AURA_CADEAU_STUDIO then
         aura.Value = CONFIG.AURA_CADEAU_STUDIO
     end
     chargementFini[joueur] = true
+    if surChargement then
+        surChargement(joueur)
+    end
 end
 
 local function chargerJoueur(joueur)
@@ -351,11 +354,11 @@ local function chargerJoueur(joueur)
     end
     if ok then
         donnees = donnees or {}
-        chercherStat(joueur, "Wins").Value += donnees.victoires or 0
-        chercherStat(joueur, "Steps").Value += donnees.marches or 0
+        chercherStat(joueur, "Kills").Value += donnees.kills or 0
+        chercherStat(joueur, "MeilleureSerie").Value = math.max(chercherStat(joueur, "MeilleureSerie").Value, donnees.serie or 0)
         chercherStat(joueur, "Aura").Value += donnees.aura or 0
         chercherStat(joueur, "Secondes").Value += donnees.temps or 0
-        chercherStat(joueur, NOM_TEMPS).Value = formatTemps(tempsTotal(joueur))
+        joueur:SetAttribute("Record", chercherStat(joueur, "MeilleureSerie").Value)
         if type(donnees.reglages) == "table" then
             reglagesJoueurs[joueur] = donnees.reglages
             joueur:SetAttribute("Reglages", HttpService:JSONEncode(donnees.reglages))
@@ -369,11 +372,11 @@ local function chargerJoueur(joueur)
 end
 
 local function sauverJoueur(joueur)
-    if not donneesChargees[joueur] or not chercherStat(joueur, "Wins") then
+    if not sauvegarde or not donneesChargees[joueur] or not chercherStat(joueur, "Kills") then
         return
     end
-    local victoires = chercherStat(joueur, "Wins").Value
-    local marches = chercherStat(joueur, "Steps").Value
+    local kills = chercherStat(joueur, "Kills").Value
+    local serie = chercherStat(joueur, "MeilleureSerie").Value
     local aura = chercherStat(joueur, "Aura").Value
     local temps = tempsTotal(joueur)
     local reglages = reglagesJoueurs[joueur]
@@ -382,8 +385,8 @@ local function sauverJoueur(joueur)
     essayer(function()
         sauvegarde:UpdateAsync("joueur_" .. joueur.UserId, function(anciennes)
             local donnees = anciennes or {}
-            donnees.victoires = victoires
-            donnees.marches = marches
+            donnees.kills = kills
+            donnees.serie = math.max(serie, donnees.serie or 0)
             donnees.aura = aura
             donnees.temps = temps
             donnees.reglages = reglages or donnees.reglages
@@ -394,532 +397,6 @@ local function sauverJoueur(joueur)
     end)
 end
 
-local function ajouterStat(joueur, nom, nombre)
-    local valeur = chercherStat(joueur, nom)
-    if valeur then
-        valeur.Value += nombre
-    end
-end
-
--- le temps en haut à droite se met à jour toutes les 5 secondes
-task.spawn(function()
-    while true do
-        task.wait(5)
-        for joueur in pairs(arrivees) do
-            local temps = chercherStat(joueur, NOM_TEMPS)
-            if temps then
-                temps.Value = formatTemps(tempsTotal(joueur))
-            end
-        end
-    end
-end)
-
--- ========================== L'ESCALIER INFINI ==========================
--- La marche n va de x = ORIGINE.X + n × PROFONDEUR à ORIGINE.X + (n + 1) × PROFONDEUR,
--- son dessus est à y = ORIGINE.Y + n × HAUTEUR. L'escalier monte vers +X, il est centré sur z = ORIGINE.Z.
--- Il est construit au fur et à mesure (toujours 150 marches devant le premier), et refait à chaque manche.
-local D, H, W = CONFIG.PROFONDEUR, CONFIG.HAUTEUR, CONFIG.LARGEUR
-local ORIGINE = Vector3.new(0, 50, 0) -- le dessus de la marche 0
-for nom, valeur in pairs({ OrigineX = ORIGINE.X, OrigineY = ORIGINE.Y, OrigineZ = ORIGINE.Z, Profondeur = D, Hauteur = H, Largeur = W }) do
-    ReplicatedStorage:SetAttribute("Escalier" .. nom, valeur)
-end
-ReplicatedStorage:SetAttribute("EscalierCheckpoint", CONFIG.CHECKPOINT)
-
-local OR = Color3.fromRGB(255, 220, 80)
-local COULEURS_LISERE = { PERSOS.Motivation.couleur, PERSOS.Ego.couleur, PERSOS.Discipline.couleur, PERSOS.Obsession.couleur }
-local COULEUR_MARCHE = { Color3.fromRGB(238, 238, 246), Color3.fromRGB(222, 222, 234) }
-local COULEUR_CASSANTE = Color3.fromRGB(110, 50, 35)
-
-local function dessusMarche(n)
-    return ORIGINE.Y + n * H
-end
-local function centreMarche(n)
-    return Vector3.new(ORIGINE.X + (n + 0.5) * D, dessusMarche(n), ORIGINE.Z)
-end
-local function numeroSous(x)
-    return math.floor((x - ORIGINE.X) / D)
-end
-
-local dossierEscalier = creer("Folder", { Name = "MindsetEscalier", Parent = workspace })
-local dossierDecor = creer("Folder", { Name = "MindsetDecor", Parent = workspace })
-local dossierObstacles = creer("Folder", { Name = "MindsetObstacles", Parent = workspace })
-
-local function bloc(proprietes)
-    proprietes.Anchored = true
-    proprietes.TopSurface = Enum.SurfaceType.Smooth
-    proprietes.BottomSurface = Enum.SurfaceType.Smooth
-    proprietes.Material = proprietes.Material or Enum.Material.SmoothPlastic
-    proprietes.Parent = proprietes.Parent or dossierEscalier
-    return creer("Part", proprietes)
-end
--- décor en néon : on passe à travers, on ne peut pas marcher dessus
-local function neon(proprietes)
-    proprietes.Material = Enum.Material.Neon
-    proprietes.CanCollide = false
-    proprietes.CanQuery = false
-    proprietes.CanTouch = false
-    proprietes.CastShadow = false
-    return bloc(proprietes)
-end
-local function invisible(proprietes)
-    proprietes.Transparency = 1
-    proprietes.CastShadow = false
-    proprietes.Parent = proprietes.Parent or dossierDecor
-    return bloc(proprietes)
-end
--- un texte sur une face d'une part
-local function panneau(part, face, message, couleur, taille)
-    local surface = creer("SurfaceGui", {
-        Face = face,
-        SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
-        PixelsPerStud = taille or 30,
-        LightInfluence = 0,
-        Parent = part,
-    })
-    creer("TextLabel", {
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        Font = Enum.Font.GothamBlack,
-        TextScaled = true,
-        Text = message,
-        TextColor3 = couleur,
-        Parent = surface,
-    })
-    return surface
-end
-
-local marches = {} -- [n] = { type = "normal" / "trou" / "demi" / "cassante", cote = -1 ou 1, parts = {...} }
-local derniereConstruite = -1
-local hasard = Random.new()
-
-local function typeDe(n)
-    if n < CONFIG.ZONE_TRANQUILLE or n % CONFIG.CHECKPOINT <= 1 then
-        return "normal"
-    end
-    local avant, avant2 = marches[n - 1], marches[n - 2]
-    -- jamais deux pièges « à trou » collés : on doit toujours pouvoir passer
-    local prudence = (avant and avant.type ~= "normal") or (avant2 and avant2.type == "trou")
-    local k = math.clamp(n / 400, 0, 1)
-    local function chance(p)
-        return p[1] + (p[2] - p[1]) * k
-    end
-    local r = hasard:NextNumber()
-    if not prudence then
-        if r < chance(CONFIG.PIEGES.trou) then
-            return "trou"
-        end
-        r -= chance(CONFIG.PIEGES.trou)
-        if r < chance(CONFIG.PIEGES.demi) then
-            return "demi"
-        end
-        r -= chance(CONFIG.PIEGES.demi)
-    end
-    if r < chance(CONFIG.PIEGES.cassante) then
-        return "cassante"
-    end
-    return "normal"
-end
-
-local function construire(n)
-    local t = typeDe(n)
-    local m = { type = t, cote = if hasard:NextNumber() < 0.5 then -1 else 1, parts = {} }
-    marches[n] = m
-    local centre = centreMarche(n)
-    local couleur = COULEUR_MARCHE[n % 2 + 1]
-    if t == "demi" then
-        table.insert(m.parts, bloc({
-            Name = "Marche" .. n,
-            Size = Vector3.new(D, 4, W / 2),
-            CFrame = CFrame.new(centre + Vector3.new(0, -2, m.cote * W / 4)),
-            Color = couleur,
-        }))
-    elseif t ~= "trou" then
-        table.insert(m.parts, bloc({
-            Name = "Marche" .. n,
-            Size = Vector3.new(D, 4, W),
-            CFrame = CFrame.new(centre - Vector3.new(0, 2, 0)),
-            Color = if t == "cassante" then COULEUR_CASSANTE else couleur,
-            Material = if t == "cassante" then Enum.Material.CrackedLava else Enum.Material.SmoothPlastic,
-        }))
-    end
-    -- tous les 10 : un liseré de couleur et le numéro ; tous les 50 : en or (checkpoint de la DISCIPLINE)
-    if n > 0 and n % 10 == 0 and m.parts[1] then
-        local checkpoint = n % CONFIG.CHECKPOINT == 0
-        local couleurLisere = if checkpoint then OR else COULEURS_LISERE[(n // 10) % 4 + 1]
-        table.insert(m.parts, neon({
-            Name = "Lisere" .. n,
-            Size = Vector3.new(0.3, 0.12, m.parts[1].Size.Z),
-            CFrame = CFrame.new(Vector3.new(ORIGINE.X + n * D + 0.15, dessusMarche(n) + 0.06, m.parts[1].Position.Z)),
-            Color = couleurLisere,
-        }))
-        panneau(m.parts[1], Enum.NormalId.Left, tostring(n), if checkpoint then OR else Color3.fromRGB(90, 90, 110), 12)
-    end
-    -- les rambardes néon sur les deux bords (une tous les 10 marches)
-    if n % 10 == 0 then
-        local debut = Vector3.new(ORIGINE.X + n * D, dessusMarche(n) + 0.8, 0)
-        local fin = Vector3.new(ORIGINE.X + (n + 10) * D, dessusMarche(n + 10) + 0.8, 0)
-        local longueur = (fin - debut).Magnitude
-        for _, z in ipairs({ -W / 2, W / 2 }) do
-            local milieu = (debut + fin) / 2 + Vector3.new(0, 0, z + ORIGINE.Z)
-            table.insert(m.parts, neon({
-                Name = "Rambarde" .. n,
-                Size = Vector3.new(longueur, 0.25, 0.25),
-                CFrame = CFrame.lookAt(milieu, milieu + (fin - debut)) * CFrame.Angles(0, math.pi / 2, 0),
-                Color = COULEURS_LISERE[(n // 10) % 4 + 1],
-                Transparency = 0.2,
-            }))
-        end
-    end
-end
-
--- construit l'escalier jusqu'à la marche n
-local function etendre(n)
-    for k = derniereConstruite + 1, n do
-        construire(k)
-    end
-    derniereConstruite = math.max(derniereConstruite, n)
-end
-
--- nouvelle manche : nouvel escalier (les pièges ne sont jamais aux mêmes endroits)
-local function reconstruire()
-    dossierEscalier:ClearAllChildren()
-    dossierObstacles:ClearAllChildren()
-    marches = {}
-    derniereConstruite = -1
-    hasard = Random.new()
-    etendre(200)
-end
-
--- la marche sûre (pleine, pas cassée) la plus proche en dessous de n : pour réapparaître après une chute
-local function marcheSure(n)
-    for k = math.max(0, n), 0, -1 do
-        local m = marches[k]
-        if m and m.type == "normal" and not m.casse then
-            return k
-        end
-    end
-    return 0
-end
-
--- une marche de lave craquelée : elle rougit, casse, puis revient 3 s plus tard
-local function casser(n)
-    local m = marches[n]
-    if not m or m.type ~= "cassante" or m.craque then
-        return
-    end
-    m.craque = true
-    local part = m.parts[1]
-    TweenService:Create(part, TweenInfo.new(0.5), { Color = Color3.fromRGB(255, 70, 30) }):Play()
-    task.delay(0.55, function()
-        if marches[n] ~= m then
-            return
-        end
-        m.casse = true
-        part.CanCollide = false
-        part.Transparency = 1
-        task.delay(3, function()
-            if marches[n] == m then
-                m.casse, m.craque = false, false
-                part.Color = COULEUR_CASSANTE
-                part.Transparency = 0
-                part.CanCollide = true
-            end
-        end)
-    end)
-end
-
--- ---------- LE DÉPART : la plateforme, la barrière, l'arche ----------
-local DEPART_LONGUEUR = 40
-local barriere
-do
-    local largeurDepart = W + 10
-    bloc({
-        Name = "Depart",
-        Size = Vector3.new(DEPART_LONGUEUR, 4, largeurDepart),
-        CFrame = CFrame.new(ORIGINE.X - DEPART_LONGUEUR / 2, ORIGINE.Y - 2, ORIGINE.Z),
-        Color = Color3.fromRGB(28, 26, 42),
-        Parent = dossierDecor,
-    })
-    for _, z in ipairs({ -largeurDepart / 2, largeurDepart / 2 }) do
-        neon({ Size = Vector3.new(DEPART_LONGUEUR, 0.15, 0.4), CFrame = CFrame.new(ORIGINE.X - DEPART_LONGUEUR / 2, ORIGINE.Y + 0.05, ORIGINE.Z + z), Color = OR, Parent = dossierDecor })
-        -- murs invisibles sur les côtés
-        invisible({ Size = Vector3.new(DEPART_LONGUEUR, 30, 1), CFrame = CFrame.new(ORIGINE.X - DEPART_LONGUEUR / 2, ORIGINE.Y + 15, ORIGINE.Z + z) })
-    end
-    invisible({ Size = Vector3.new(1, 30, largeurDepart), CFrame = CFrame.new(ORIGINE.X - DEPART_LONGUEUR, ORIGINE.Y + 15, ORIGINE.Z) })
-    -- la barrière du départ (elle disparaît au GO)
-    barriere = bloc({
-        Name = "Barriere",
-        Size = Vector3.new(0.6, 14, W),
-        CFrame = CFrame.new(ORIGINE.X - 0.6, ORIGINE.Y + 7, ORIGINE.Z),
-        Material = Enum.Material.ForceField,
-        Color = OR,
-        Parent = dossierDecor,
-    })
-    -- l'arche « CLIMB »
-    for _, z in ipairs({ -W / 2 - 1, W / 2 + 1 }) do
-        neon({ Size = Vector3.new(1, 16, 1), CFrame = CFrame.new(ORIGINE.X - 1, ORIGINE.Y + 8, ORIGINE.Z + z), Color = OR, Parent = dossierDecor })
-    end
-    local fronton = bloc({
-        Name = "Fronton",
-        Size = Vector3.new(1, 3, W + 3),
-        CFrame = CFrame.new(ORIGINE.X - 1, ORIGINE.Y + 17, ORIGINE.Z),
-        Color = Color3.fromRGB(18, 16, 28),
-        CanCollide = false,
-        Parent = dossierDecor,
-    })
-    panneau(fronton, Enum.NormalId.Left, "CLIMB", OR, 30)
-end
-
--- ---------- LA TRIBUNE : ceux qui ne courent pas regardent d'ici ----------
-local TRIBUNE = Vector3.new(ORIGINE.X - 20, ORIGINE.Y + 8, ORIGINE.Z + W / 2 + 16) -- le dessus de la tribune
-do
-    bloc({ Name = "Tribune", Size = Vector3.new(24, 1, 8), CFrame = CFrame.new(TRIBUNE - Vector3.new(0, 0.5, 0)), Color = Color3.fromRGB(28, 26, 42), Parent = dossierDecor })
-    neon({ Size = Vector3.new(24, 0.3, 0.3), CFrame = CFrame.new(TRIBUNE + Vector3.new(0, 1, -4)), Color = OR, Parent = dossierDecor })
-end
-
--- ---------- LA SCÈNE DU VAINQUEUR (loin de tout, la caméra de tout le monde y va à la fin) ----------
-local SCENE = Vector3.new(ORIGINE.X - 160, ORIGINE.Y + 60, ORIGINE.Z) -- le dessus de la scène, au centre
-ReplicatedStorage:SetAttribute("SceneCamera", CFrame.lookAt(SCENE + Vector3.new(0, 4.5, 21), SCENE + Vector3.new(0, 3.2, 0)))
-do
-    bloc({
-        Name = "Scene",
-        Shape = Enum.PartType.Cylinder,
-        Size = Vector3.new(2, 22, 22),
-        CFrame = CFrame.new(SCENE - Vector3.new(0, 1, 0)) * CFrame.Angles(0, 0, math.pi / 2),
-        Color = Color3.fromRGB(14, 12, 22),
-        Parent = dossierDecor,
-    })
-    for i, rayon in ipairs({ 11, 8, 5 }) do
-        neon({
-            Shape = Enum.PartType.Cylinder,
-            Size = Vector3.new(0.1, rayon * 2, rayon * 2),
-            CFrame = CFrame.new(SCENE + Vector3.new(0, 0.01 * i, 0)) * CFrame.Angles(0, 0, math.pi / 2),
-            Color = COULEURS_LISERE[i],
-            Transparency = 0.55,
-            Parent = dossierDecor,
-        })
-    end
-    -- le mur du fond, noir, avec 4 bandes de couleur
-    bloc({ Name = "Fond", Size = Vector3.new(60, 40, 1), CFrame = CFrame.new(SCENE + Vector3.new(0, 15, -9)), Color = Color3.fromRGB(6, 6, 10), CanCollide = false, Parent = dossierDecor })
-    for i, couleur in ipairs(COULEURS_LISERE) do
-        neon({ Size = Vector3.new(0.6, 40, 0.3), CFrame = CFrame.new(SCENE + Vector3.new(-9 + (i - 1) * 6, 15, -8.4)), Color = couleur, Transparency = 0.3, Parent = dossierDecor })
-    end
-    -- deux projecteurs
-    for _, x in ipairs({ -8, 8 }) do
-        local projecteur = invisible({ Size = Vector3.new(1, 1, 1), CFrame = CFrame.lookAt(SCENE + Vector3.new(x, 14, 8), SCENE + Vector3.new(0, 2, 0)) })
-        creer("SpotLight", { Face = Enum.NormalId.Front, Angle = 35, Range = 40, Brightness = 6, Color = Color3.fromRGB(255, 240, 220), Parent = projecteur })
-    end
-end
-
--- ========================== LE HUB (la place où on se balade) ==========================
--- La déco est construite par chaque client (script MindsetHub). Le serveur pose juste un sol et
--- un mur invisibles, pour qu'on ne tombe jamais (même avant que la déco soit chargée).
--- ⚠️ Mêmes nombres que dans MindsetHub : O = (-3000, 400, 0), place de 118 de large.
-local HUB_O = Vector3.new(-3000, 400, 0)
-local HUB_SOL = HUB_O.Y + 0.5
-do
-    local dossierHub = creer("Folder", { Name = "MindsetHubSol", Parent = workspace })
-    local function invisible(proprietes)
-        proprietes.Anchored = true
-        proprietes.CanCollide = true
-        proprietes.Transparency = 1
-        proprietes.CastShadow = false
-        proprietes.Parent = dossierHub
-        return creer("Part", proprietes)
-    end
-    invisible({ Name = "Sol", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, 118, 118), CFrame = CFrame.new(HUB_O) * CFrame.Angles(0, 0, math.pi / 2) })
-    for i = 0, 47 do
-        local a = i / 48 * math.pi * 2
-        local position = Vector3.new(HUB_O.X + math.cos(a) * 58, HUB_SOL + 12, HUB_O.Z + math.sin(a) * 58)
-        invisible({ Name = "Mur", Size = Vector3.new(2, 24, 2 * math.pi * 58 / 48 * 1.1), CFrame = CFrame.lookAt(position, position + Vector3.new(-math.sin(a), 0, math.cos(a))) })
-    end
-end
-
--- Met l'avatar d'un joueur sur la place du hub : il peut marcher et sauter
-local function placerAuHub(joueur, modele)
-    local racine = modele:WaitForChild("HumanoidRootPart", 10)
-    local humanoid = modele:WaitForChild("Humanoid", 10)
-    if not racine or not humanoid then
-        return
-    end
-    humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None -- le hub affiche sa propre étiquette
-    humanoid.UseJumpPower = false
-    humanoid.WalkSpeed = 16
-    humanoid.JumpHeight = 7.2
-    humanoid.JumpPower = 50
-    local hauteur = if humanoid.RigType == Enum.HumanoidRigType.R15 then humanoid.HipHeight + racine.Size.Y / 2 else 3
-    local position = Vector3.new(HUB_O.X + math.random(-8, 8), HUB_SOL + hauteur + 0.2, HUB_O.Z + 6 + math.random(0, 4))
-    modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(0, 0, -1))) -- tourné vers le portail
-    racine.AssemblyLinearVelocity = Vector3.zero
-    racine.Anchored = false
-    pcall(function()
-        racine:SetNetworkOwner(joueur)
-    end)
-end
-
--- ========================== GRIMPEURS ==========================
--- Chaque grimpeur (joueur ou bot) = une Configuration dans ReplicatedStorage.Grimpeurs, avec ses attributs :
---   Nom, Perso, Marche (sa marche maintenant), Rang, Vitesse, Chutes, NiveauAura (série sans tomber),
---   EnJeu (il court), Pret (il a passé le portail PLAY), Hub (il se balade dans le hub), Bot, UserId,
---   DoubleSaut (l'EGO), Danse / AuraFarmee (la danse du gagnant), Scene (sa place sur la scène de fin)
-local joueurDuGrimpeur = {}   -- [config] = joueur
-local compteurOrdre = 0
-local manche = nil            -- la course en cours (voir RÈGLES et BOUCLE DU JEU)
-
-local function nouveauGrimpeur(nom, perso, modele, joueur)
-    compteurOrdre += 1
-    local g = Instance.new("Configuration")
-    g.Name = nom
-    g:SetAttribute("Nom", nom)
-    g:SetAttribute("Perso", perso)
-    g:SetAttribute("Marche", 0)
-    g:SetAttribute("Rang", 0)
-    g:SetAttribute("Vitesse", 16)
-    g:SetAttribute("Chutes", 0)
-    g:SetAttribute("NiveauAura", 0)
-    g:SetAttribute("EnJeu", false)
-    g:SetAttribute("Ordre", compteurOrdre)
-    g:SetAttribute("Bot", joueur == nil)
-    g:SetAttribute("Pret", joueur == nil) -- un joueur doit d'abord passer le portail PLAY
-    g:SetAttribute("UserId", if joueur then joueur.UserId else 0)
-    creer("ObjectValue", { Name = "Modele", Value = modele, Parent = g })
-    g.Parent = dossierGrimpeurs
-    return g
-end
-
-local function hauteurRacine(modele)
-    local humanoid = modele:FindFirstChildOfClass("Humanoid")
-    local racine = modele:FindFirstChild("HumanoidRootPart")
-    if humanoid and racine and humanoid.RigType == Enum.HumanoidRigType.R15 then
-        return humanoid.HipHeight + racine.Size.Y / 2
-    end
-    return 3
-end
-
--- pose un avatar à un endroit ; ancre = true : il ne peut plus bouger (tribune, scène de fin)
-local function placer(modele, cf, ancre, joueur)
-    local racine = modele:FindFirstChild("HumanoidRootPart")
-    if not racine then
-        return
-    end
-    modele:PivotTo(cf)
-    racine.AssemblyLinearVelocity = Vector3.zero
-    racine.Anchored = ancre
-    if not ancre then
-        pcall(function()
-            racine:SetNetworkOwner(joueur) -- (nil pour un bot : c'est le serveur qui le fait bouger)
-        end)
-    end
-end
-
-local function preparerHumanoid(modele)
-    local racine = modele:WaitForChild("HumanoidRootPart", 10)
-    local humanoid = modele:WaitForChild("Humanoid", 10)
-    if not racine or not humanoid then
-        return nil
-    end
-    humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None -- on affiche notre propre étiquette
-    humanoid.UseJumpPower = false
-    humanoid.WalkSpeed = 16
-    humanoid.JumpHeight = CONFIG.SAUT
-    return humanoid
-end
-
--- sur la plateforme de départ (derrière la barrière)
-local function placerAuDepart(modele, joueur)
-    if not preparerHumanoid(modele) then
-        return
-    end
-    local position = Vector3.new(
-        ORIGINE.X - 6 - math.random() * (DEPART_LONGUEUR - 12),
-        ORIGINE.Y + hauteurRacine(modele) + 0.3,
-        ORIGINE.Z + (math.random() - 0.5) * (W - 6)
-    )
-    placer(modele, CFrame.lookAt(position, position + Vector3.new(1, 0, 0)), false, joueur)
-end
-
--- dans la tribune (il regarde la course sans courir)
-local function placerEnTribune(modele, joueur)
-    if not preparerHumanoid(modele) then
-        return
-    end
-    local position = TRIBUNE + Vector3.new((math.random() - 0.5) * 20, hauteurRacine(modele) + 0.05, (math.random() - 0.5) * 4)
-    placer(modele, CFrame.lookAt(position, position + Vector3.new(0.6, 0, -1)), true, joueur)
-end
-
--- sur la marche n (après une chute) : on garde à peu près sa place sur la largeur
-local function placerSurMarche(modele, joueur, n)
-    local racine = modele:FindFirstChild("HumanoidRootPart")
-    if not racine then
-        return
-    end
-    local z = math.clamp(racine.Position.Z, ORIGINE.Z - W / 2 + 3, ORIGINE.Z + W / 2 - 3)
-    local centre = centreMarche(n)
-    local position = Vector3.new(centre.X, centre.Y + hauteurRacine(modele) + 0.4, z)
-    placer(modele, CFrame.lookAt(position, position + Vector3.new(1, 0, 0)), false, joueur)
-end
-
-local chute -- (définie plus bas, partie RÈGLES)
-
-local function joueurArrive(joueur)
-    arrivees[joueur] = os.clock()
-    -- en haut à droite, dans cet ordre : TEMPS, MARCHES, VICTOIRES
-    local stats = Instance.new("Folder")
-    stats.Name = "leaderstats"
-    creer("IntValue", { Name = NOM_TEMPS, Parent = stats })
-    creer("IntValue", { Name = "Steps", Parent = stats })
-    creer("IntValue", { Name = "Wins", Parent = stats })
-    stats.Parent = joueur
-    local cachees = creer("Folder", { Name = "StatsCachees", Parent = joueur })
-    creer("IntValue", { Name = "Aura", Parent = cachees })
-    creer("IntValue", { Name = "Secondes", Parent = cachees })
-
-    local g = nouveauGrimpeur(joueur.DisplayName, nil, joueur.Character, joueur)
-    g:SetAttribute("Hub", true) -- au début, on se balade dans le hub
-    grimpeurDesJoueurs[joueur] = g
-    joueurDuGrimpeur[g] = joueur
-    task.spawn(chargerJoueur, joueur) -- (après le grimpeur : on lui remet son état d'esprit sauvegardé)
-
-    local function surPersonnage(personnage)
-        g.Modele.Value = personnage
-        if g:GetAttribute("Hub") then
-            placerAuHub(joueur, personnage)
-        elseif g:GetAttribute("EnJeu") and manche and manche.stats[g] then
-            -- il est mort / a fait « Réinitialiser » en pleine course : comme une chute
-            if preparerHumanoid(personnage) then
-                chute(g, personnage, manche.stats[g])
-            end
-        elseif ReplicatedStorage:GetAttribute("Phase") == "Lobby" and g:GetAttribute("Pret") then
-            placerAuDepart(personnage, joueur)
-        else
-            placerEnTribune(personnage, joueur)
-        end
-    end
-    joueur.CharacterAdded:Connect(surPersonnage)
-    if joueur.Character then
-        task.spawn(surPersonnage, joueur.Character)
-    end
-end
-Players.PlayerAdded:Connect(joueurArrive)
-for _, joueur in ipairs(Players:GetPlayers()) do
-    task.spawn(joueurArrive, joueur)
-end
-
-Players.PlayerRemoving:Connect(function(joueur)
-    sauverJoueur(joueur)
-    donneesChargees[joueur] = nil
-    reglagesJoueurs[joueur] = nil
-    niveauxJoueurs[joueur] = nil
-    chargementFini[joueur] = nil
-    arrivees[joueur] = nil
-    local g = grimpeurDesJoueurs[joueur]
-    if g then
-        joueurDuGrimpeur[g] = nil
-        g:Destroy()
-    end
-    grimpeurDesJoueurs[joueur] = nil
-end)
-
 game:BindToClose(function()
     local restants = 0
     for _, joueur in ipairs(Players:GetPlayers()) do
@@ -929,7 +406,8 @@ game:BindToClose(function()
             restants -= 1
         end)
     end
-    while restants > 0 do
+    local limite = os.clock() + 25
+    while restants > 0 and os.clock() < limite do
         task.wait(0.1)
     end
 end)
@@ -943,40 +421,7 @@ task.spawn(function()
     end
 end)
 
--- PLAY (true)  : le joueur sort du hub et participe aux prochaines courses (il va au départ, ou en tribune
---                si une course est déjà lancée : il jouera la suivante).
--- AFK (false)  : il regarde depuis la tribune, sans courir.
--- "Hub"        : retour sur la place du hub.
-JouerEvent.OnServerEvent:Connect(function(joueur, participe)
-    local g = grimpeurDesJoueurs[joueur]
-    if not g then
-        return
-    end
-    local personnage = joueur.Character
-    if participe == "Hub" then
-        g:SetAttribute("Pret", false)
-        g:SetAttribute("EnJeu", false) -- (s'il courait, il abandonne la course)
-        if not g:GetAttribute("Hub") then
-            g:SetAttribute("Hub", true)
-            if personnage then
-                task.spawn(placerAuHub, joueur, personnage)
-            end
-        end
-        return
-    end
-    g:SetAttribute("Pret", participe ~= false)
-    g:SetAttribute("Hub", false)
-    if not personnage or g:GetAttribute("EnJeu") then
-        return -- il court déjà : on ne le déplace pas
-    end
-    if participe ~= false and ReplicatedStorage:GetAttribute("Phase") == "Lobby" then
-        task.spawn(placerAuDepart, personnage, joueur)
-    else
-        task.spawn(placerEnTribune, personnage, joueur)
-    end
-end)
-
--- PARAMÈTRES : on garde les réglages du joueur (sauvegardés avec ses victoires et son aura)
+-- PARAMÈTRES : on garde les réglages du joueur
 ReglagesEvent.OnServerEvent:Connect(function(joueur, reglages)
     if type(reglages) ~= "table" then
         return
@@ -989,26 +434,12 @@ ReglagesEvent.OnServerEvent:Connect(function(joueur, reglages)
         bruitages = nombre(reglages.bruitages),
         secousses = reglages.secousses ~= false,
         flashs = reglages.flashs ~= false,
-        -- langue : "auto" (celle de Roblox), "en" ou "fr"
         langue = if reglages.langue == "en" or reglages.langue == "fr" then reglages.langue else "auto",
     }
 end)
 
-ChoisirEvent.OnServerEvent:Connect(function(joueur, perso)
-    if not PERSOS[perso] then
-        return
-    end
-    local g = grimpeurDesJoueurs[joueur]
-    if not g or g:GetAttribute("EnJeu") then
-        return -- on ne change pas de perso en pleine manche
-    end
-    g:SetAttribute("Perso", perso)
-    joueur:SetAttribute("Perso", perso)
-end)
-
 -- 🛒 LE MARCHAND : acheter le niveau suivant d'une compétence avec son aura.
 -- Renvoie ok (true/false), puis le nouveau niveau ou la raison du refus.
--- (un achat en pleine manche ne compte qu'à partir de la manche suivante)
 local achatEnCours = {}
 AmeliorerFonction.OnServerInvoke = function(joueur, perso, numero)
     if type(perso) ~= "string" or not COMPETENCES[perso] or type(numero) ~= "number" or not COMPETENCES[perso][numero] then
@@ -1038,26 +469,1530 @@ AmeliorerFonction.OnServerInvoke = function(joueur, perso, numero)
     achatEnCours[joueur] = nil
     return resultatOk, resultat
 end
+
+
+-- ========================== CLASSEMENTS (TOP 100) ==========================
+--   K = le plus de KILLS au total · S = la meilleure SÉRIE de kills (sans mourir)
+-- Sauvegardés dans des OrderedDataStore (il faut publier le jeu) ; sinon, on garde ceux de la session.
+local TABLEAUX = {
+    K = { nom = "MSB_Kills_v1" },
+    S = { nom = "MSB_Serie_v1" },
+}
+local alerteClassement = false
+for _, t in pairs(TABLEAUX) do
+    t.session, t.charges, t.cache, t.cacheA = {}, {}, nil, -math.huge
+    local ok, store = pcall(function()
+        return DataStoreService:GetOrderedDataStore(t.nom)
+    end)
+    if ok then
+        t.store = store
+    end
+end
+
+local function alerte(erreur)
+    if not alerteClassement then
+        alerteClassement = true
+        warn("🏆 Classements : sauvegarde indisponible (publie le jeu + accès Studio aux services API). On garde les scores de la session. ", erreur)
+    end
+end
+
+local nomsCache = {}
+local function nomDe(userId)
+    if userId <= 0 then
+        return "Player"
+    end
+    local present = Players:GetPlayerByUserId(userId)
+    if present then
+        nomsCache[userId] = present.DisplayName
+    end
+    if nomsCache[userId] then
+        return nomsCache[userId]
+    end
+    local ok, nom = pcall(function()
+        return Players:GetNameFromUserIdAsync(userId)
+    end)
+    nomsCache[userId] = if ok and nom then nom else ("Player " .. userId)
+    return nomsCache[userId]
+end
+
+-- le top 100 (gardé 30 s en mémoire pour ne pas spammer la sauvegarde)
+local function lireClassement(cle)
+    local t = TABLEAUX[cle]
+    if not t then
+        return {}
+    end
+    if t.cache and os.clock() - t.cacheA < 30 then
+        return t.cache
+    end
+    local scores = {}
+    if t.store then
+        local ok, page = pcall(function()
+            return t.store:GetSortedAsync(false, 100):GetCurrentPage()
+        end)
+        if ok then
+            for _, ligne in ipairs(page) do
+                local id = tonumber(ligne.key)
+                if id then
+                    scores[id] = ligne.value
+                end
+            end
+        else
+            alerte(page)
+        end
+    end
+    for id, score in pairs(t.session) do
+        if score > (scores[id] or 0) then
+            scores[id] = score
+        end
+    end
+    local liste = {}
+    for id, score in pairs(scores) do
+        table.insert(liste, { id = id, score = score })
+    end
+    table.sort(liste, function(a, b)
+        return a.score > b.score
+    end)
+    -- les pseudos qu'on ne connaît pas encore : on les demande tous en même temps (5 s max)
+    local enAttente = 0
+    for i = 1, math.min(100, #liste) do
+        if not nomsCache[liste[i].id] then
+            enAttente += 1
+            task.spawn(function()
+                nomDe(liste[i].id)
+                enAttente -= 1
+            end)
+        end
+    end
+    local limite = os.clock() + 5
+    while enAttente > 0 and os.clock() < limite do
+        task.wait(0.05)
+    end
+    local resultat = {}
+    for i = 1, math.min(100, #liste) do
+        resultat[i] = { nom = nomsCache[liste[i].id] or ("Player " .. liste[i].id), score = liste[i].score, userId = liste[i].id }
+    end
+    t.cache, t.cacheA = resultat, os.clock()
+    return resultat
+end
+
+local function recordDe(cle, userId)
+    local t = TABLEAUX[cle]
+    if not t then
+        return 0
+    end
+    if t.store and not t.charges[userId] then
+        t.charges[userId] = true
+        local ok, valeur = pcall(function()
+            return t.store:GetAsync(tostring(userId))
+        end)
+        if ok and valeur and valeur > (t.session[userId] or 0) then
+            t.session[userId] = valeur
+        elseif not ok then
+            alerte(valeur)
+        end
+    end
+    return t.session[userId] or 0
+end
+
+-- enregistre un score s'il est meilleur que l'ancien
+local function enregistrerRecord(cle, joueur, score)
+    local t = TABLEAUX[cle]
+    if not t or score <= 0 or score <= (t.session[joueur.UserId] or 0) then
+        return
+    end
+    t.session[joueur.UserId] = score
+    t.cache = nil
+    if t.store then
+        local ok, erreur = pcall(function()
+            t.store:UpdateAsync(tostring(joueur.UserId), function(ancien)
+                if (ancien or 0) >= score then
+                    return nil
+                end
+                return score
+            end)
+        end)
+        if not ok then
+            alerte(erreur)
+        end
+    end
+end
+
+local dernierAppelClassement = {}
+ClassementFonction.OnServerInvoke = function(demandeur, cle)
+    if typeof(cle) ~= "string" or not TABLEAUX[cle] then
+        return nil
+    end
+    if os.clock() - (dernierAppelClassement[demandeur] or 0) < 0.25 then
+        task.wait(0.25) -- anti-spam
+    end
+    dernierAppelClassement[demandeur] = os.clock()
+    return { liste = lireClassement(cle), moi = recordDe(cle, demandeur.UserId) }
+end
 Players.PlayerRemoving:Connect(function(parti)
-    achatEnCours[parti] = nil
+    dernierAppelClassement[parti] = nil
 end)
 
--- ========================== BOTS ==========================
-local dossierBots = creer("Folder", { Name = "Bots", Parent = workspace })
+
+-- ========================== LA CARTE ==========================
+-- Tout est construit ici (le même pour tout le monde). Le script client trouve les endroits importants par leur nom :
+--   Sanctuaire_<Perso>, PointMarchand, TableauKills, TableauSerie, EcranGeant, ZoneAFK, SommetParkour, Porte, Sortie
+-- LOBBY : centre L, sol à y = 200, de -115 à +115 en x et en z. Au sud (z = +115) : la vitre qui donne sur l'arène.
+-- ARÈNE : centre A, ronde, rayon 95, juste derrière la vitre.
+local L = Vector3.new(0, 200, 0)
+local A = Vector3.new(0, 200, 272)
+local RAYON_ARENE = 95
+local APPARITION = L + Vector3.new(0, 3, -42) -- là où on apparaît au lobby
+
+local dossierCarte = creer("Folder", { Name = "MindsetMap", Parent = workspace })
+local dossierLobby = creer("Folder", { Name = "Lobby", Parent = dossierCarte })
+local dossierArene = creer("Folder", { Name = "Arene", Parent = dossierCarte })
+
+local function bloc(proprietes)
+    proprietes.Anchored = true
+    proprietes.TopSurface = Enum.SurfaceType.Smooth
+    proprietes.BottomSurface = Enum.SurfaceType.Smooth
+    proprietes.Material = proprietes.Material or Enum.Material.SmoothPlastic
+    proprietes.Parent = proprietes.Parent or dossierLobby
+    return creer("Part", proprietes)
+end
+local function neon(proprietes)
+    proprietes.Material = Enum.Material.Neon
+    proprietes.CanCollide = proprietes.CanCollide or false
+    proprietes.CastShadow = false
+    return bloc(proprietes)
+end
+local function invisible(proprietes)
+    proprietes.Transparency = 1
+    proprietes.CastShadow = false
+    return bloc(proprietes)
+end
+local function cylindre(centre, diametre, hauteur, proprietes)
+    proprietes.Shape = Enum.PartType.Cylinder
+    proprietes.Size = Vector3.new(hauteur, diametre, diametre)
+    proprietes.CFrame = CFrame.new(centre) * CFrame.Angles(0, 0, math.pi / 2)
+    return bloc(proprietes)
+end
+-- un texte sur la face avant d'une part (la face -Z de son CFrame)
+local function panneau(part, message, couleur, pixels, police)
+    local surface = creer("SurfaceGui", {
+        Face = Enum.NormalId.Front,
+        SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud,
+        PixelsPerStud = pixels or 30,
+        LightInfluence = 0,
+        Parent = part,
+    })
+    creer("TextLabel", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Font = police or Enum.Font.GothamBlack,
+        TextScaled = true,
+        RichText = true,
+        Text = message,
+        TextColor3 = couleur,
+        Parent = surface,
+    })
+    return surface
+end
+-- une part posée en position, tournée pour que sa face avant regarde dans la direction voulue
+local function tournee(position, regarde)
+    return CFrame.lookAt(position, position + regarde)
+end
+local function enCouleur(mot, couleur)
+    return string.format('<font color="#%02X%02X%02X">%s</font>', math.floor(couleur.R * 255), math.floor(couleur.G * 255), math.floor(couleur.B * 255), mot)
+end
+
+-- ---------- LE SOL ET LES MURS DU LOBBY ----------
+do
+    bloc({ Name = "Sol", Size = Vector3.new(232, 4, 232), CFrame = CFrame.new(L - Vector3.new(0, 2, 0)), Color = Color3.fromRGB(30, 30, 34), Material = Enum.Material.Slate })
+    cylindre(L + Vector3.new(0, 0.05, -10), 96, 0.1, { Name = "Place", Color = Color3.fromRGB(52, 52, 58), Material = Enum.Material.Marble, CanCollide = false })
+    -- l'anneau de la place, aux 4 couleurs
+    for i = 0, 63 do
+        local a = i / 64 * math.pi * 2
+        local position = L + Vector3.new(math.cos(a) * 48, 0.12, -10 + math.sin(a) * 48)
+        neon({ Size = Vector3.new(0.5, 0.1, 2 * math.pi * 48 / 64 * 1.04), CFrame = tournee(position, Vector3.new(-math.sin(a), 0, math.cos(a))), Color = PERSOS[ORDRE_PERSOS[i // 16 + 1]].couleur })
+    end
+    -- les allées lumineuses (blanches) vers chaque coin
+    for _, ligne in ipairs({
+        { Vector3.new(-48, 0, -10), Vector3.new(-90, 0, -10) },   -- vers les sanctuaires
+        { Vector3.new(48, 0, -10), Vector3.new(90, 0, -10) },     -- vers le marchand et les tableaux
+        { Vector3.new(0, 0, 38), Vector3.new(0, 0, 100) },        -- vers l'arène
+        { Vector3.new(-34, 0, -44), Vector3.new(-52, 0, -72) },   -- vers le parkour
+        { Vector3.new(34, 0, -44), Vector3.new(54, 0, -76) },     -- vers la zone AFK
+    }) do
+        local a, b = L + ligne[1] + Vector3.new(0, 0.12, 0), L + ligne[2] + Vector3.new(0, 0.12, 0)
+        neon({ Size = Vector3.new(0.6, 0.1, (b - a).Magnitude), CFrame = CFrame.lookAt((a + b) / 2, b), Color = Color3.fromRGB(235, 235, 245), Transparency = 0.3 })
+    end
+    -- murs : bas et sombres autour, avec un liseré ; des murs invisibles hauts pour ne pas sortir
+    for _, mur in ipairs({
+        { Vector3.new(-115, 0, 0), Vector3.new(2, 6, 232) },
+        { Vector3.new(115, 0, 0), Vector3.new(2, 6, 232) },
+        { Vector3.new(0, 0, -115), Vector3.new(232, 6, 2) },
+    }) do
+        bloc({ Name = "Muret", Size = mur[2], CFrame = CFrame.new(L + mur[1] + Vector3.new(0, 3, 0)), Color = Color3.fromRGB(20, 20, 24) })
+        neon({ Size = mur[2] * Vector3.new(1, 0, 1) + Vector3.new(0.2, 0.25, 0.2), CFrame = CFrame.new(L + mur[1] + Vector3.new(0, 6.1, 0)), Color = Color3.fromRGB(235, 235, 245) })
+        invisible({ Name = "MurInvisible", Size = mur[2] + Vector3.new(0, 80, 0), CFrame = CFrame.new(L + mur[1] + Vector3.new(0, 40, 0)) })
+    end
+    -- au sud : la grande VITRE qui donne sur l'arène
+    bloc({ Name = "Vitre", Size = Vector3.new(232, 44, 1), CFrame = CFrame.new(L + Vector3.new(0, 22, 115.5)), Material = Enum.Material.Glass, Color = Color3.fromRGB(200, 210, 230), Transparency = 0.8 })
+    invisible({ Name = "MurInvisible", Size = Vector3.new(232, 90, 2), CFrame = CFrame.new(L + Vector3.new(0, 45, 116)) })
+    neon({ Size = Vector3.new(232, 0.3, 0.3), CFrame = CFrame.new(L + Vector3.new(0, 44, 115)), Color = Color3.fromRGB(235, 235, 245) })
+end
+
+-- ---------- LE TITRE (au nord) + le point d'apparition ----------
+do
+    local titre = bloc({ Name = "Titre", Size = Vector3.new(96, 26, 1), CFrame = tournee(L + Vector3.new(0, 26, -113), Vector3.new(0, 0, 1)), Color = Color3.fromRGB(10, 10, 12) })
+    panneau(titre, "MINDSET\nBATTLEGROUNDS", Color3.fromRGB(245, 245, 250), 10)
+    local sousTitre = bloc({ Name = "SousTitre", Size = Vector3.new(96, 5, 1), CFrame = tournee(L + Vector3.new(0, 10, -113), Vector3.new(0, 0, 1)), Color = Color3.fromRGB(10, 10, 12) })
+    panneau(sousTitre, enCouleur("MOTIVATION", PERSOS.Motivation.couleur) .. "  vs  " .. enCouleur("EGO", PERSOS.Ego.couleur) .. "  vs  "
+        .. enCouleur("DISCIPLINE", PERSOS.Discipline.couleur) .. "  vs  " .. enCouleur("OBSESSION", PERSOS.Obsession.couleur), Color3.fromRGB(200, 200, 210), 20)
+    neon({ Size = Vector3.new(98, 0.4, 0.4), CFrame = CFrame.new(L + Vector3.new(0, 39.4, -112.4)), Color = Color3.fromRGB(245, 245, 250) })
+    cylindre(APPARITION - Vector3.new(0, 2.95, 0), 14, 0.1, { Name = "Apparition", Color = Color3.fromRGB(235, 235, 245), Material = Enum.Material.Neon, CanCollide = false, Transparency = 0.4 })
+end
+
+-- ---------- LES 4 SANCTUAIRES (ouest) : on y choisit son état d'esprit ----------
+-- Une statue de marbre dans la pose de l'état d'esprit, sa devise, et le bouton E « Become ... ».
+local sanctuaires = {} -- [perso] = la part du socle (avec son ProximityPrompt)
+local POSES_STATUES = {
+    Motivation = { RightShoulder = Vector3.new(2.9, 0, 0.1), RightElbow = Vector3.new(0.4, 0, 0), LeftShoulder = Vector3.new(0, 0, -0.35), Waist = Vector3.new(0.12, 0, 0), Neck = Vector3.new(0.25, 0, 0) },
+    Ego = { LeftShoulder = Vector3.new(1.35, 0, 0.55), RightShoulder = Vector3.new(1.35, 0, -0.55), LeftElbow = Vector3.new(1.75, 0, 0), RightElbow = Vector3.new(1.75, 0, 0), Neck = Vector3.new(0.3, 0, 0), Waist = Vector3.new(0.1, 0.25, 0) },
+    Discipline = { LeftShoulder = Vector3.new(1.4, 0, 0.3), RightShoulder = Vector3.new(1.2, 0, -0.3), LeftElbow = Vector3.new(2.1, 0, 0), RightElbow = Vector3.new(2.1, 0, 0), LeftKnee = -0.35, RightKnee = -0.35, LeftHip = Vector3.new(0.3, 0, -0.15), RightHip = Vector3.new(0.1, 0, 0.15) },
+    Obsession = { Waist = Vector3.new(-0.45, 0, 0), Neck = Vector3.new(0.4, 0, 0), LeftShoulder = Vector3.new(0.6, 0, -0.4), RightShoulder = Vector3.new(0.6, 0, 0.4), LeftElbow = Vector3.new(0.9, 0, 0), RightElbow = Vector3.new(0.9, 0, 0), LeftKnee = -0.5, RightKnee = -0.5, LeftHip = 0.35, RightHip = 0.35 },
+}
+local function poserModele(modele, pose)
+    for nom, angle in pairs(pose) do
+        local moteur = modele:FindFirstChild(nom, true)
+        if moteur and moteur:IsA("Motor6D") then
+            local v = if typeof(angle) == "Vector3" then angle else Vector3.new(angle, 0, 0)
+            moteur.C0 = moteur.C0 * CFrame.Angles(v.X, v.Y, v.Z)
+        end
+    end
+end
+for i, perso in ipairs(ORDRE_PERSOS) do
+    local couleur = PERSOS[perso].couleur
+    local base = L + Vector3.new(-90, 0, -66 + (i - 1) * 44)
+    local socle = cylindre(base + Vector3.new(0, 0.75, 0), 15, 1.5, { Name = "Sanctuaire_" .. perso, Color = Color3.fromRGB(24, 24, 28), Material = Enum.Material.Marble })
+    cylindre(base + Vector3.new(0, 1.55, 0), 15.6, 0.1, { Color = couleur, Material = Enum.Material.Neon, CanCollide = false, Transparency = 0.2 })
+    creer("PointLight", { Color = couleur, Range = 22, Brightness = 2.5, Parent = socle })
+    -- le panneau derrière : le nom, la devise, le passif
+    local fond = bloc({ Name = "Panneau_" .. perso, Size = Vector3.new(18, 20, 1), CFrame = tournee(base + Vector3.new(-12, 11, 0), Vector3.new(1, 0, 0)), Color = Color3.fromRGB(12, 12, 14) })
+    neon({ Size = Vector3.new(0.3, 20.4, 18.4), CFrame = CFrame.new(base + Vector3.new(-12.6, 11, 0)), Color = couleur })
+    local kit = KITS[perso]
+    local titreSanctuaire = bloc({ Size = Vector3.new(16, 5, 0.2), CFrame = tournee(base + Vector3.new(-11.4, 17, 0), Vector3.new(1, 0, 0)), Transparency = 1, CanCollide = false })
+    panneau(titreSanctuaire, string.upper(perso), couleur, 24)
+    local texteSanctuaire = bloc({ Size = Vector3.new(16, 11, 0.2), CFrame = tournee(base + Vector3.new(-11.4, 8, 0), Vector3.new(1, 0, 0)), Transparency = 1, CanCollide = false })
+    panneau(texteSanctuaire, string.format('%s\n\n<font color="#AAAAB4">%s · %s</font>', kit.devise, kit.passif.nom, kit.passif.texte), Color3.fromRGB(220, 220, 230), 24, Enum.Font.GothamBold)
+    fond.Name = "Panneau_" .. perso
+    -- le bouton E pour devenir cet état d'esprit
+    creer("ProximityPrompt", {
+        Name = "Choisir",
+        ActionText = "Become " .. string.upper(perso),
+        ObjectText = "Mindset",
+        KeyboardKeyCode = Enum.KeyCode.E,
+        HoldDuration = 0.25,
+        MaxActivationDistance = 12,
+        RequiresLineOfSight = false,
+        Parent = socle,
+    })
+    sanctuaires[perso] = socle
+    -- la statue de marbre (un avatar Roblox, posé et figé)
+    task.spawn(function()
+        local ok, statue = pcall(function()
+            local description = Instance.new("HumanoidDescription")
+            for _, partie in ipairs({ "HeadColor", "TorsoColor", "LeftArmColor", "RightArmColor", "LeftLegColor", "RightLegColor" }) do
+                description[partie] = Color3.fromRGB(225, 225, 230)
+            end
+            return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+        end)
+        if not ok or not statue then
+            return
+        end
+        statue.Name = "Statue_" .. perso
+        local humanoid = statue:FindFirstChildOfClass("Humanoid")
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        for _, objet in ipairs(statue:GetDescendants()) do
+            if objet:IsA("BasePart") then
+                objet.Material = Enum.Material.Marble
+                objet.Anchored = objet.Name == "HumanoidRootPart"
+            elseif objet:IsA("Script") or objet:IsA("LocalScript") then
+                objet:Destroy()
+            end
+        end
+        local racine = statue:FindFirstChild("HumanoidRootPart")
+        local hauteur = humanoid.HipHeight + racine.Size.Y / 2
+        statue:PivotTo(CFrame.lookAt(base + Vector3.new(0, 1.5 + hauteur, 0), base + Vector3.new(10, 1.5 + hauteur, 0)) * CFrame.new(0, 0, 0))
+        statue:ScaleTo(1.6)
+        statue:PivotTo(CFrame.lookAt(base + Vector3.new(0, 1.5 + hauteur * 1.6, 0), base + Vector3.new(10, 1.5 + hauteur * 1.6, 0)))
+        poserModele(statue, POSES_STATUES[perso])
+        creer("Highlight", { FillTransparency = 1, OutlineColor = couleur, OutlineTransparency = 0, DepthMode = Enum.HighlightDepthMode.Occluded, Parent = statue })
+        statue.Parent = dossierLobby
+    end)
+end
+
+-- ---------- LE MARCHAND D'AURA (est) ----------
+local POINT_MARCHAND
+do
+    local base = L + Vector3.new(92, 0, -52)
+    local F = tournee(base, Vector3.new(-1, 0, 0)) -- -Z local = vers l'ouest (la place)
+    local function ici(x, y, z)
+        return F * CFrame.new(x, y, z)
+    end
+    local BOIS = Color3.fromRGB(60, 42, 34)
+    bloc({ Name = "Comptoir", Size = Vector3.new(16, 3.4, 2.6), CFrame = ici(0, 1.7, -4), Color = BOIS, Material = Enum.Material.Wood })
+    neon({ Size = Vector3.new(16.2, 0.15, 0.15), CFrame = ici(0, 3.45, -5.3), Color = Color3.fromRGB(170, 90, 255) })
+    bloc({ Name = "FondBoutique", Size = Vector3.new(20, 16, 1), CFrame = ici(0, 8, 4), Color = Color3.fromRGB(20, 14, 30) })
+    bloc({ Name = "Toit", Size = Vector3.new(22, 1, 12), CFrame = ici(0, 16.5, -1) * CFrame.Angles(math.rad(-8), 0, 0), Color = Color3.fromRGB(50, 26, 80) })
+    for _, x in ipairs({ -9.5, 9.5 }) do
+        bloc({ Size = Vector3.new(1, 16, 1), CFrame = ici(x, 8, -5.5), Color = BOIS, Material = Enum.Material.Wood })
+    end
+    local enseigne = bloc({ Name = "Enseigne", Size = Vector3.new(14, 3, 0.4), CFrame = ici(0, 19, -5.6) * CFrame.Angles(0, math.pi, 0) * CFrame.Angles(0, math.pi, 0), Color = Color3.fromRGB(14, 10, 22) })
+    panneau(enseigne, "AURA SHOP", OR, 30)
+    creer("PointLight", { Color = Color3.fromRGB(190, 120, 255), Range = 24, Brightness = 2, Parent = enseigne })
+    -- le point du bouton E (devant le comptoir)
+    POINT_MARCHAND = invisible({ Name = "PointMarchand", Size = Vector3.new(1, 1, 1), CFrame = ici(0, 3, -8), CanCollide = false, CanQuery = false })
+    creer("ProximityPrompt", {
+        Name = "Boutique",
+        ActionText = "Upgrade",
+        ObjectText = "Aura Merchant",
+        KeyboardKeyCode = Enum.KeyCode.E,
+        HoldDuration = 0,
+        MaxActivationDistance = 12,
+        RequiresLineOfSight = false,
+        Parent = POINT_MARCHAND,
+    })
+    -- le marchand lui-même : un avatar tout en noir et violet derrière son comptoir
+    task.spawn(function()
+        local ok, marchand = pcall(function()
+            local description = Instance.new("HumanoidDescription")
+            description.HeadColor = Color3.fromRGB(40, 32, 52)
+            description.TorsoColor = Color3.fromRGB(28, 18, 44)
+            description.LeftArmColor = Color3.fromRGB(28, 18, 44)
+            description.RightArmColor = Color3.fromRGB(28, 18, 44)
+            description.LeftLegColor = Color3.fromRGB(18, 14, 26)
+            description.RightLegColor = Color3.fromRGB(18, 14, 26)
+            return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+        end)
+        if not ok or not marchand then
+            warn("🛒 Impossible de créer le marchand :", marchand)
+            return
+        end
+        marchand.Name = "Marchand"
+        local humanoid = marchand:FindFirstChildOfClass("Humanoid")
+        humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        for _, objet in ipairs(marchand:GetDescendants()) do
+            if objet:IsA("Script") or objet:IsA("LocalScript") then
+                objet:Destroy()
+            end
+        end
+        local racine = marchand:FindFirstChild("HumanoidRootPart")
+        racine.Anchored = true
+        local hauteur = humanoid.HipHeight + racine.Size.Y / 2
+        marchand:PivotTo(ici(0, hauteur, -1) * CFrame.Angles(0, 0, 0))
+        poserModele(marchand, { LeftShoulder = Vector3.new(0.5, 0, -0.2), RightShoulder = Vector3.new(0.5, 0, 0.2), LeftElbow = Vector3.new(1.2, 0, 0), RightElbow = Vector3.new(1.2, 0, 0) })
+        local tete = marchand:FindFirstChild("Head")
+        if tete then
+            local nom = creer("BillboardGui", { Size = UDim2.fromOffset(220, 30), StudsOffsetWorldSpace = Vector3.new(0, 2.2, 0), MaxDistance = 80, Parent = tete })
+            creer("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextScaled = true, Text = "AURA MERCHANT", TextColor3 = OR, TextStrokeTransparency = 0.4, Parent = nom })
+            creer("ParticleEmitter", {
+                Rate = 8, Lifetime = NumberRange.new(1, 2), Speed = NumberRange.new(0.5, 1.5), SpreadAngle = Vector2.new(40, 40),
+                Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 0) }),
+                LightEmission = 1, Color = ColorSequence.new(Color3.fromRGB(170, 90, 255)), Parent = tete,
+            })
+        end
+        marchand.Parent = dossierLobby
+    end)
+end
+
+-- ---------- LES DEUX TABLEAUX TOP 100 (est) ----------
+-- Le contenu (la liste) est dessiné par chaque client ; ici : le cadre, le podium et le bouton E.
+do
+    for _, infos in ipairs({ { "TableauKills", 2, OR }, { "TableauSerie", 50, Color3.fromRGB(255, 90, 90) } }) do
+        local base = L + Vector3.new(104, 0, infos[2])
+        local F = tournee(base, Vector3.new(-1, 0, 0))
+        local planche = bloc({ Name = infos[1], Size = Vector3.new(24, 16, 0.8), CFrame = F * CFrame.new(0, 12, 0), Color = Color3.fromRGB(10, 10, 14) })
+        for _, barre in ipairs({ { Vector3.new(24.8, 0.4, 0.4), CFrame.new(0, 20.2, -0.3) }, { Vector3.new(24.8, 0.4, 0.4), CFrame.new(0, 3.8, -0.3) },
+            { Vector3.new(0.4, 16.8, 0.4), CFrame.new(-12.2, 12, -0.3) }, { Vector3.new(0.4, 16.8, 0.4), CFrame.new(12.2, 12, -0.3) } }) do
+            neon({ Size = barre[1], CFrame = F * barre[2], Color = infos[3] })
+        end
+        for _, x in ipairs({ -9, 9 }) do
+            bloc({ Size = Vector3.new(1, 4, 1), CFrame = F * CFrame.new(x, 2, 0), Color = Color3.fromRGB(28, 28, 34) })
+        end
+        creer("PointLight", { Color = infos[3], Range = 20, Brightness = 1.2, Parent = planche })
+        local point = invisible({ Name = "Point" .. infos[1], Size = Vector3.new(1, 1, 1), CFrame = F * CFrame.new(0, 3, -7), CanCollide = false, CanQuery = false })
+        creer("ProximityPrompt", {
+            Name = "Voir",
+            ActionText = "View",
+            ObjectText = if infos[1] == "TableauKills" then "Top 100 · Kills" else "Top 100 · Best streak",
+            KeyboardKeyCode = Enum.KeyCode.E,
+            HoldDuration = 0,
+            MaxActivationDistance = 12,
+            RequiresLineOfSight = false,
+            Parent = point,
+        })
+    end
+end
+
+-- ---------- LA ZONE AFK (nord-est) : on y gagne de l'aura sans rien faire ----------
+local ZONE_AFK = L + Vector3.new(66, 0, -86)
+do
+    cylindre(ZONE_AFK + Vector3.new(0, 0.1, 0), 28, 0.2, { Name = "ZoneAFK", Color = Color3.fromRGB(40, 44, 60), Material = Enum.Material.Marble, CanCollide = false })
+    cylindre(ZONE_AFK + Vector3.new(0, 0.22, 0), 28.6, 0.05, { Color = Color3.fromRGB(140, 200, 255), Material = Enum.Material.Neon, CanCollide = false, Transparency = 0.3 })
+    for k = 0, 5 do
+        local a = k / 6 * math.pi * 2
+        local position = ZONE_AFK + Vector3.new(math.cos(a) * 10, 1, math.sin(a) * 10)
+        bloc({ Name = "Banc", Size = Vector3.new(6, 1, 2), CFrame = tournee(position, Vector3.new(-math.cos(a), 0, -math.sin(a))), Color = Color3.fromRGB(70, 60, 55), Material = Enum.Material.Wood })
+    end
+    local lumiere = invisible({ Size = Vector3.new(1, 1, 1), CFrame = CFrame.new(ZONE_AFK + Vector3.new(0, 14, 0)), CanCollide = false })
+    creer("PointLight", { Color = Color3.fromRGB(150, 200, 255), Range = 30, Brightness = 2, Parent = lumiere })
+    local enseigne = bloc({ Size = Vector3.new(16, 4, 0.4), CFrame = tournee(ZONE_AFK + Vector3.new(0, 9, -15), Vector3.new(0, 0, 1)), Color = Color3.fromRGB(12, 12, 16) })
+    panneau(enseigne, "AFK ZONE · FREE AURA", Color3.fromRGB(150, 200, 255), 30)
+end
+
+-- ---------- LA TOUR DE PARKOUR (nord-ouest) ----------
+local SOMMET_PARKOUR
+do
+    local centre = L + Vector3.new(-62, 0, -84)
+    bloc({ Name = "Pilier", Size = Vector3.new(6, 64, 6), CFrame = CFrame.new(centre + Vector3.new(0, 32, 0)), Color = Color3.fromRGB(24, 24, 28), Material = Enum.Material.Concrete })
+    local NB = 26
+    for k = 1, NB do
+        local a = k * 0.55
+        local taille = if k > 18 then 3.6 elseif k > 10 then 4.2 else 5
+        local position = centre + Vector3.new(math.cos(a) * 12, k * 2.6, math.sin(a) * 12)
+        bloc({ Name = "Marche" .. k, Size = Vector3.new(taille, 1, taille), CFrame = CFrame.new(position), Color = Color3.fromRGB(36, 36, 42) })
+        neon({ Size = Vector3.new(taille + 0.1, 0.12, taille + 0.1), CFrame = CFrame.new(position + Vector3.new(0, 0.5, 0)), Color = PERSOS[ORDRE_PERSOS[k % 4 + 1]].couleur, Transparency = 0.35 })
+    end
+    local hautTour = centre + Vector3.new(0, NB * 2.6 + 3, 0)
+    SOMMET_PARKOUR = bloc({ Name = "SommetParkour", Size = Vector3.new(12, 1, 12), CFrame = CFrame.new(hautTour), Color = Color3.fromRGB(30, 26, 14) })
+    neon({ Size = Vector3.new(12.2, 0.15, 12.2), CFrame = CFrame.new(hautTour + Vector3.new(0, 0.55, 0)), Color = OR })
+    local trophee = neon({ Shape = Enum.PartType.Ball, Size = Vector3.new(2.4, 2.4, 2.4), CFrame = CFrame.new(hautTour + Vector3.new(0, 3, 0)), Color = OR })
+    creer("PointLight", { Color = OR, Range = 30, Brightness = 3, Parent = trophee })
+    local enseigne = bloc({ Size = Vector3.new(12, 3, 0.4), CFrame = tournee(centre + Vector3.new(0, 4, 16), Vector3.new(0, 0, 1)), Color = Color3.fromRGB(12, 12, 16) })
+    panneau(enseigne, "PARKOUR · +" .. CONFIG.AURA_PARKOUR .. " AURA", OR, 30)
+end
+
+-- ---------- LES GRADINS, L'ÉCRAN GÉANT ET LA PORTE DE L'ARÈNE (sud) ----------
+local PORTE = L + Vector3.new(0, 0, 108) -- le centre de la porte
+do
+    for _, cote in ipairs({ -1, 1 }) do
+        for marche = 0, 3 do
+            bloc({
+                Name = "Gradin",
+                Size = Vector3.new(70, 1.5 + marche * 1.5, 4),
+                CFrame = CFrame.new(L + Vector3.new(cote * 55, (1.5 + marche * 1.5) / 2, 94 - marche * 4)),
+                Color = Color3.fromRGB(34 + marche * 4, 34 + marche * 4, 40 + marche * 4),
+            })
+        end
+    end
+    local ecran = bloc({ Name = "EcranGeant", Size = Vector3.new(64, 24, 1), CFrame = tournee(L + Vector3.new(0, 34, 112), Vector3.new(0, 0, -1)), Color = Color3.fromRGB(6, 6, 8) })
+    neon({ Size = Vector3.new(65, 25, 0.2), CFrame = CFrame.new(L + Vector3.new(0, 34, 112.7)), Color = Color3.fromRGB(235, 235, 245), Transparency = 0.6 })
+    creer("PointLight", { Color = Color3.fromRGB(230, 230, 240), Range = 30, Brightness = 1, Parent = ecran })
+    -- la porte : deux piliers, un fronton et une « membrane » qu'on traverse
+    for _, x in ipairs({ -12, 12 }) do
+        bloc({ Size = Vector3.new(3, 20, 3), CFrame = CFrame.new(PORTE + Vector3.new(x, 10, 0)), Color = Color3.fromRGB(16, 16, 20) })
+        neon({ Size = Vector3.new(0.4, 20, 3.2), CFrame = CFrame.new(PORTE + Vector3.new(x - 1.6 * math.sign(x), 10, 0)), Color = Color3.fromRGB(255, 70, 70) })
+    end
+    local fronton = bloc({ Name = "Fronton", Size = Vector3.new(27, 4, 3), CFrame = tournee(PORTE + Vector3.new(0, 20, 0), Vector3.new(0, 0, -1)), Color = Color3.fromRGB(16, 16, 20) })
+    panneau(fronton, "ENTER THE ARENA", Color3.fromRGB(255, 90, 90), 25)
+    bloc({ Name = "Porte", Size = Vector3.new(21, 18, 0.5), CFrame = CFrame.new(PORTE + Vector3.new(0, 9, 0)), Material = Enum.Material.ForceField, Color = Color3.fromRGB(255, 60, 60), CanCollide = false, CanQuery = false })
+end
+
+-- ---------- L'ARÈNE ----------
+local APPARITIONS_ARENE = {}
+local SORTIE = A + Vector3.new(0, 0, -(RAYON_ARENE - 10)) -- le pad de sortie (côté lobby)
+do
+    local function blocArene(proprietes)
+        proprietes.Parent = dossierArene
+        return bloc(proprietes)
+    end
+    local function neonArene(proprietes)
+        proprietes.Parent = dossierArene
+        return neon(proprietes)
+    end
+    cylindre(A - Vector3.new(0, 2, 0), RAYON_ARENE * 2, 4, { Name = "SolArene", Color = Color3.fromRGB(16, 16, 18), Material = Enum.Material.Concrete, Parent = dossierArene })
+    -- la grille blanche au sol (look noir et blanc)
+    for d = -80, 80, 20 do
+        local longueur = 2 * math.sqrt(RAYON_ARENE ^ 2 - d ^ 2) - 4
+        neonArene({ Size = Vector3.new(0.25, 0.06, longueur), CFrame = CFrame.new(A + Vector3.new(d, 0.04, 0)), Color = Color3.fromRGB(200, 200, 210), Transparency = 0.6 })
+        neonArene({ Size = Vector3.new(longueur, 0.06, 0.25), CFrame = CFrame.new(A + Vector3.new(0, 0.04, d)), Color = Color3.fromRGB(200, 200, 210), Transparency = 0.6 })
+    end
+    -- l'anneau du bord, aux 4 couleurs, et les murs invisibles
+    for i = 0, 79 do
+        local a = i / 80 * math.pi * 2
+        local position = A + Vector3.new(math.cos(a) * RAYON_ARENE, 0.5, math.sin(a) * RAYON_ARENE)
+        local tangente = Vector3.new(-math.sin(a), 0, math.cos(a))
+        neonArene({ Size = Vector3.new(0.8, 1, 2 * math.pi * RAYON_ARENE / 80 * 1.05), CFrame = tournee(position, tangente), Color = PERSOS[ORDRE_PERSOS[i // 20 + 1]].couleur })
+        if i % 2 == 0 then
+            local mur = blocArene({ Name = "MurInvisible", Size = Vector3.new(2, 100, 2 * math.pi * RAYON_ARENE / 40 * 1.1), CFrame = tournee(position + Vector3.new(0, 50, 0), tangente) })
+            mur.Transparency = 1
+            mur.CastShadow = false
+        end
+    end
+    -- 8 piliers (pour se cacher)
+    for k = 0, 7 do
+        local a = k / 8 * math.pi * 2 + math.pi / 8
+        local position = A + Vector3.new(math.cos(a) * 58, 14, math.sin(a) * 58)
+        blocArene({ Name = "Pilier", Size = Vector3.new(7, 28, 7), CFrame = CFrame.new(position), Color = Color3.fromRGB(44, 44, 50), Material = Enum.Material.Concrete })
+        neonArene({ Size = Vector3.new(7.2, 0.4, 7.2), CFrame = CFrame.new(position + Vector3.new(0, 14, 0)), Color = PERSOS[ORDRE_PERSOS[k % 4 + 1]].couleur })
+        local lumiere = neonArene({ Size = Vector3.new(0.3, 20, 0.3), CFrame = CFrame.new(position + Vector3.new(0, 0, 0) + (A - position).Unit * 3.6 * Vector3.new(1, 0, 1)), Color = Color3.fromRGB(235, 235, 245) })
+        creer("PointLight", { Color = Color3.fromRGB(230, 230, 240), Range = 26, Brightness = 1.4, Parent = lumiere })
+    end
+    -- la plateforme du centre + 4 rampes
+    cylindre(A + Vector3.new(0, 1.5, 0), 34, 3, { Name = "Centre", Color = Color3.fromRGB(28, 28, 32), Material = Enum.Material.Concrete, Parent = dossierArene })
+    cylindre(A + Vector3.new(0, 3.05, 0), 34.4, 0.1, { Color = Color3.fromRGB(235, 235, 245), Material = Enum.Material.Neon, CanCollide = false, Transparency = 0.5, Parent = dossierArene })
+    for k = 0, 3 do
+        local a = k / 4 * math.pi * 2
+        local direction = Vector3.new(math.cos(a), 0, math.sin(a))
+        local position = A + direction * 21 + Vector3.new(0, 1.5, 0)
+        creer("WedgePart", {
+            Name = "Rampe",
+            Anchored = true,
+            Size = Vector3.new(10, 3, 8),
+            CFrame = CFrame.lookAt(position, position + direction), -- le bas de la rampe vers l'extérieur
+            Color = Color3.fromRGB(28, 28, 32),
+            Material = Enum.Material.Concrete,
+            Parent = dossierArene,
+        })
+    end
+    -- quelques caisses
+    for k, infos in ipairs({ { 34, 0.4 }, { 38, 1.9 }, { 30, 3.3 }, { 40, 4.6 }, { 33, 5.6 } }) do
+        local position = A + Vector3.new(math.cos(infos[2]) * infos[1], 3, math.sin(infos[2]) * infos[1])
+        blocArene({ Name = "Caisse", Size = Vector3.new(6, 6, 6), CFrame = CFrame.new(position) * CFrame.Angles(0, k, 0), Color = Color3.fromRGB(60, 56, 50), Material = Enum.Material.WoodPlanks })
+    end
+    -- les points d'apparition (au bord)
+    for k = 0, 9 do
+        local a = k / 10 * math.pi * 2
+        table.insert(APPARITIONS_ARENE, A + Vector3.new(math.cos(a) * 80, 3, math.sin(a) * 80))
+    end
+    -- le pad de SORTIE (retour au lobby)
+    cylindre(SORTIE + Vector3.new(0, 0.1, 0), 10, 0.2, { Name = "Sortie", Color = Color3.fromRGB(110, 230, 160), Material = Enum.Material.Neon, CanCollide = false, Transparency = 0.3, Parent = dossierArene })
+    local enseigne = blocArene({ Size = Vector3.new(10, 2.5, 0.4), CFrame = tournee(SORTIE + Vector3.new(0, 6, -6), Vector3.new(0, 0, 1)), Color = Color3.fromRGB(12, 12, 16) })
+    panneau(enseigne, "EXIT", Color3.fromRGB(110, 230, 160), 30)
+end
+
+
+-- ========================== LE COMBAT ==========================
+-- Chaque combattant (joueur ou bot) a une fiche « c » : son avatar, son état d'esprit, ses recharges, sa garde,
+-- son énergie (MOTIVATION), ses crans (OBSESSION), sa jauge d'ultime, sa série de kills...
+-- Le serveur décide de tout (qui touche qui, combien de dégâts). Les clients affichent (animations, effets).
+-- Ce que les clients doivent voir est recopié en attributs sur l'avatar :
+--   Combattant, Perso, Nom, Arene, Energie (0-1), Crans, CransMax, Jauge (0-100), Garde, Etourdi (heure serveur),
+--   Ult (heure serveur de fin), Serie, AFK
+local combattants = {}      -- [modele] = c
+local listeModeles = {}     -- les avatars des combattants (pour les zones de coups)
+local joueursCombattants = {} -- [joueur] = c
+
+local function maintenant()
+    return os.clock()
+end
+local function heureServeur()
+    return workspace:GetServerTimeNow()
+end
+
+local function attribut(modele, nom, valeur)
+    if modele:GetAttribute(nom) ~= valeur then
+        modele:SetAttribute(nom, valeur)
+    end
+end
+
+local function majListeModeles()
+    listeModeles = {}
+    for modele in pairs(combattants) do
+        table.insert(listeModeles, modele)
+    end
+end
+
+-- la valeur de la compétence n° numero (ou nil si pas achetée)
+local function competence(c, numero)
+    local niveaux = if c.joueur then niveauxJoueurs[c.joueur] else c.niveaux -- (un achat compte tout de suite)
+    local niveau = niveaux and niveaux[c.perso] and niveaux[c.perso][numero] or 0
+    local def = COMPETENCES[c.perso] and COMPETENCES[c.perso][numero]
+    if not def or niveau <= 0 then
+        return nil
+    end
+    return def.valeurs[math.min(niveau, #def.valeurs)]
+end
+
+local function pvMax(c)
+    return CONFIG.PV[c.perso] + (if c.perso == "Ego" then competence(c, 1) or 0 else 0)
+end
+
+local function vivant(c)
+    return c and combattants[c.modele] == c and c.humanoid.Health > 0 and c.racine.Parent ~= nil
+end
+
+local function crankMax(c)
+    return 20 + (if c.perso == "Obsession" then competence(c, 1) or 0 else 0)
+end
+
+-- donne de l'aura (DISCIPLINE « HARD WORK » : bonus en %)
+local function donnerAura(c, montant)
+    local joueur = c.joueur
+    if not joueur or montant <= 0 then
+        return
+    end
+    local bonus = if c.perso == "Discipline" then competence(c, 3) else nil
+    if bonus then
+        local total = montant * (1 + bonus / 100)
+        montant = math.floor(total) + (if math.random() < total % 1 then 1 else 0)
+    end
+    ajouterStat(joueur, "Aura", montant)
+end
+
+local function animer(c, nom, extra)
+    AnimEvent:FireAllClients(c.modele, nom, extra)
+end
+
+local function enUlt(c)
+    return heureServeur() < c.ultFin
+end
+
+-- ne peut pas être étourdi : DISCIPLINE en ultime, OBSESSION au max de crans ou en ultime, armure de ROUTINE
+local function inarretable(c)
+    if c.perso == "Discipline" and enUlt(c) then
+        return true
+    end
+    if c.perso == "Obsession" and (enUlt(c) or c.crans >= crankMax(c)) then
+        return true
+    end
+    return maintenant() < c.armureJusqua
+end
+
+local function etourdir(c, duree)
+    if duree <= 0 or inarretable(c) then
+        return
+    end
+    local fin = maintenant() + duree
+    if fin > c.etourdiJusqua then
+        c.etourdiJusqua = fin
+        c.modele:SetAttribute("Etourdi", heureServeur() + duree)
+    end
+    c.garde = false
+    attribut(c.modele, "Garde", false)
+end
+
+-- le recul : un joueur bouge son propre avatar (on lui envoie la poussée), un bot est poussé ici
+local function reculer(c, depuis, force, haut)
+    if (force or 0) <= 0 and (haut or 0) <= 0 then
+        return
+    end
+    if inarretable(c) then
+        force, haut = (force or 0) * 0.25, 0
+    end
+    local direction = (c.racine.Position - depuis) * Vector3.new(1, 0, 1)
+    direction = if direction.Magnitude > 0.01 then direction.Unit else c.racine.CFrame.LookVector * -1
+    local vitesse = direction * (force or 0) + Vector3.new(0, haut or 0, 0)
+    if c.joueur then
+        CoupEvent:FireClient(c.joueur, vitesse)
+    else
+        c.racine.AssemblyLinearVelocity = vitesse
+    end
+end
+
+local function multiplicateurDegats(c)
+    local m = 1
+    if c.perso == "Motivation" then
+        m *= 0.8 + 0.6 * c.energie -- x1,4 à pleine énergie, x0,98 quand elle est éteinte
+    elseif c.perso == "Ego" then
+        m *= 1.25
+    elseif c.perso == "Obsession" then
+        m *= 1 + 0.03 * c.crans
+    end
+    if enUlt(c) and (c.perso == "Motivation" or c.perso == "Ego") then
+        m *= 1.5
+    end
+    return m
+end
+
+local declencherContre -- (défini plus bas)
+local surMort -- (défini plus bas)
+
+-- 💥 UN COUP : att frappe cible. opts = { degats, etourdi, recul, haut, casseGarde, imparable, lourd, couleur }
+-- Renvoie true si le coup a touché (même bloqué).
+local function blesser(att, cible, opts)
+    if not vivant(att) or not vivant(cible) or att == cible then
+        return false
+    end
+    if not att.arene or not cible.arene then
+        return false -- pas de dégâts dans le lobby
+    end
+    local t = maintenant()
+    if t < cible.protegeJusqua then
+        return false
+    end
+    -- un contre (MIRROR de l'EGO, COUNTER de la DISCIPLINE) : c'est l'attaquant qui prend
+    if t < cible.contreJusqua and not opts.imparable then
+        cible.contreJusqua = 0
+        declencherContre(cible, att)
+        return false
+    end
+    local degats = opts.degats * multiplicateurDegats(att)
+    local critique = att.perso == "Ego" and enUlt(att)
+    -- la garde : de face seulement
+    local deFace = (att.racine.Position - cible.racine.Position) * Vector3.new(1, 0, 1)
+    deFace = deFace.Magnitude < 0.01 or deFace.Unit:Dot(cible.racine.CFrame.LookVector) > -0.1
+    local bloque = false
+    if cible.garde and deFace then
+        if opts.casseGarde then
+            -- garde cassée !
+            cible.garde = false
+            attribut(cible.modele, "Garde", false)
+            etourdir(cible, 1.1)
+            animer(cible, "GardeCassee")
+            degats *= 0.5
+        else
+            bloque = true
+            degats *= if cible.perso == "Discipline" then 0.1 else 0.2
+            local soin = if cible.perso == "Discipline" then competence(cible, 1) else nil -- IRON GUARD
+            if soin then
+                cible.humanoid.Health = math.min(cible.humanoid.MaxHealth, cible.humanoid.Health + soin)
+            end
+        end
+    end
+    if cible.perso == "Discipline" and enUlt(cible) then
+        degats *= 0.3
+    end
+    degats = math.max(1, math.floor(degats + 0.5))
+    if not bloque then
+        etourdir(cible, opts.etourdi or 0.35)
+        reculer(cible, att.racine.Position, opts.recul or 4, opts.haut or 0)
+    else
+        reculer(cible, att.racine.Position, 6, 0)
+    end
+    cible.humanoid:TakeDamage(degats)
+    cible.dernierAttaquant = att
+    cible.dernierCoup = t
+    att.dernierCoupDonne = t
+    cible.degatsRecus += degats
+    att.degatsVie += degats
+    -- la jauge d'ultime se remplit en frappant (et un peu en se faisant frapper)
+    if not enUlt(att) then
+        local bonus = if att.perso == "Ego" then 1 + (competence(att, 3) or 0) / 100 else 1
+        att.jauge = math.min(100, att.jauge + degats * 0.9 * bonus)
+    end
+    if not enUlt(cible) then
+        cible.jauge = math.min(100, cible.jauge + degats * 0.45)
+    end
+    -- OBSESSION : chaque coup qui touche = un cran de plus ; BLOODLUST / ultime = vol de vie
+    if att.perso == "Obsession" and not bloque then
+        att.crans = math.min(crankMax(att), att.crans + 1)
+        local vol = (competence(att, 3) or 0) / 100 + (if enUlt(att) then 0.3 else 0)
+        if vol > 0 then
+            att.humanoid.Health = math.min(att.humanoid.MaxHealth, att.humanoid.Health + degats * vol)
+        end
+    end
+    -- l'aura gagnée en frappant
+    att.auraDegats += degats
+    while att.auraDegats >= CONFIG.AURA_DEGATS do
+        att.auraDegats -= CONFIG.AURA_DEGATS
+        donnerAura(att, 1)
+    end
+    local point = cible.racine.Position + (att.racine.Position - cible.racine.Position) * 0.25 + Vector3.new(0, 1, 0)
+    ImpactEvent:FireAllClients(cible.modele, point, degats, bloque, att.modele, opts.lourd or critique, critique)
+    return true
+end
+
+-- les combattants dans une boîte devant c (taille, à « distance » studs devant lui)
+local function ciblesDevant(c, taille, distance)
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Include
+    params.FilterDescendantsInstances = listeModeles
+    local cf = c.racine.CFrame * CFrame.new(0, 0, -distance)
+    local vus, liste = {}, {}
+    for _, part in ipairs(workspace:GetPartBoundsInBox(cf, taille, params)) do
+        local modele = part:FindFirstAncestorOfClass("Model")
+        while modele and not combattants[modele] do
+            modele = modele.Parent and modele.Parent:FindFirstAncestorOfClass("Model")
+        end
+        local cible = modele and combattants[modele]
+        if cible and cible ~= c and not vus[cible] then
+            vus[cible] = true
+            table.insert(liste, cible)
+        end
+    end
+    return liste
+end
+
+local function ciblesAutour(c, rayon)
+    local liste = {}
+    for _, cible in pairs(combattants) do
+        if cible ~= c and vivant(cible) and (cible.racine.Position - c.racine.Position).Magnitude <= rayon then
+            table.insert(liste, cible)
+        end
+    end
+    return liste
+end
+
+-- l'ennemi le plus proche (dans l'arène, vivant, pas protégé)
+local function plusProche(c, distanceMax)
+    local meilleur, meilleureDistance = nil, distanceMax or math.huge
+    for _, cible in pairs(combattants) do
+        if cible ~= c and cible.arene and vivant(cible) and maintenant() >= cible.protegeJusqua then
+            local d = (cible.racine.Position - c.racine.Position).Magnitude
+            if d < meilleureDistance then
+                meilleur, meilleureDistance = cible, d
+            end
+        end
+    end
+    return meilleur, meilleureDistance
+end
+
+-- un contre réussi : le contreur frappe l'attaquant
+declencherContre = function(contreur, att)
+    local miroir = contreur.contreType == "miroir"
+    animer(contreur, if miroir then "MiroirReussi" else "ContreReussi")
+    contreur.armureJusqua = maintenant() + 0.4
+    task.delay(0.05, function()
+        if vivant(contreur) and vivant(att) then
+            contreur.contreJusqua = 0
+            blesser(contreur, att, {
+                degats = if miroir then 11 else 14,
+                etourdi = if miroir then 1.0 else 1.3,
+                recul = 40,
+                haut = 12,
+                imparable = true,
+                casseGarde = true,
+                lourd = true,
+            })
+        end
+    end)
+end
+
+-- petit élan vers l'avant (les bots ; les joueurs le font eux-mêmes, tout de suite)
+local function elan(c, vitesse, haut)
+    if not c.joueur then
+        local v = c.racine.CFrame.LookVector * vitesse
+        c.racine.AssemblyLinearVelocity = Vector3.new(v.X, haut or c.racine.AssemblyLinearVelocity.Y, v.Z)
+    end
+end
+
+-- peut agir ? (vivant, pas étourdi, pas déjà en train d'attaquer)
+local function pret(c)
+    local t = maintenant()
+    return vivant(c) and t >= c.etourdiJusqua and t >= c.attaqueJusqua
+end
+
+local function enRecharge(c, nom)
+    return (c.recharges[nom] or 0) > maintenant()
+end
+
+local function recharger(c, nom, duree)
+    c.recharges[nom] = maintenant() + duree
+end
+
+-- 👊 LES COUPS DE BASE : un combo de 4 (le 4e envoie valser)
+local function coupDeBase(c)
+    local t = maintenant()
+    local frenesie = t < c.frenesieJusqua
+    if not pret(c) or c.garde or t - c.dernierM1 < (if frenesie then 0.2 else 0.3) then
+        return
+    end
+    if t - c.dernierM1 > 1.2 then
+        c.combo = 0
+    end
+    c.combo = c.combo % 4 + 1
+    c.dernierM1 = t
+    local fin = c.combo == 4
+    c.attaqueJusqua = t + (if fin then 0.55 elseif frenesie then 0.12 else 0.2)
+    animer(c, "M" .. c.combo)
+    elan(c, if fin then 18 else 8)
+    task.delay(0.1, function()
+        if not vivant(c) then
+            return
+        end
+        for _, cible in ipairs(ciblesDevant(c, Vector3.new(6, 6, 6.5), 3.3)) do
+            blesser(c, cible, {
+                degats = if fin then 9 else 5,
+                etourdi = if fin then 0.75 else 0.45,
+                recul = if fin then 55 else 5,
+                haut = if fin then 16 else 0,
+                lourd = fin,
+            })
+        end
+    end)
+end
+
+local function garder(c, actif)
+    if actif and (not pret(c)) then
+        return
+    end
+    c.garde = actif == true
+    attribut(c.modele, "Garde", c.garde)
+end
+
+
+-- ========================== LES CAPACITÉS (touches 1, 2, 3) ==========================
+-- Chaque capacité : une fonction qui reçoit le combattant. Les recharges sont dans KITS (en haut).
+local function frapperApres(c, delai, taille, distance, opts)
+    task.delay(delai, function()
+        if vivant(c) then
+            for _, cible in ipairs(ciblesDevant(c, taille, distance)) do
+                blesser(c, cible, opts)
+            end
+        end
+    end)
+end
+
+local function frapperAutourApres(c, delai, rayon, opts)
+    task.delay(delai, function()
+        if vivant(c) then
+            for _, cible in ipairs(ciblesAutour(c, rayon)) do
+                blesser(c, cible, opts)
+            end
+            ImpactEvent:FireAllClients(nil, c.racine.Position - Vector3.new(0, 2.5, 0), 0, false, c.modele, true, false, rayon)
+        end
+    end)
+end
+
+local CAPACITES = {
+    Motivation = {
+        -- RUSH : on fonce, poing en feu
+        function(c)
+            local bonus = 1 + (competence(c, 2) or 0) / 100
+            c.attaqueJusqua = maintenant() + 0.4
+            animer(c, "Rush")
+            elan(c, 75)
+            frapperApres(c, 0.18, Vector3.new(7, 6, 9), 4, { degats = 11 * bonus, etourdi = 0.7, recul = 45, haut = 12, lourd = true })
+        end,
+        -- FIRE FISTS : 5 coups très rapides
+        function(c)
+            local bonus = 1 + (competence(c, 2) or 0) / 100
+            c.attaqueJusqua = maintenant() + 0.8
+            animer(c, "Rafale")
+            for k = 1, 5 do
+                frapperApres(c, 0.06 + k * 0.12, Vector3.new(6, 6, 6.5), 3.3, {
+                    degats = 3.2 * bonus,
+                    etourdi = 0.35,
+                    recul = if k == 5 then 40 else 3,
+                    haut = if k == 5 then 10 else 0,
+                    lourd = k == 5,
+                })
+            end
+        end,
+        -- SECOND WIND : l'énergie revient
+        function(c)
+            c.energie = math.min(1, c.energie + 0.4)
+            animer(c, "Cri")
+        end,
+    },
+    Ego = {
+        -- SHOWTIME : l'uppercut qui envoie en l'air
+        function(c)
+            local bonus = 1 + (competence(c, 2) or 0) / 100
+            c.attaqueJusqua = maintenant() + 0.45
+            animer(c, "Uppercut")
+            frapperApres(c, 0.16, Vector3.new(6, 7, 6.5), 3.3, { degats = 10 * bonus, etourdi = 1.0, recul = 6, haut = 62, lourd = true })
+        end,
+        -- SPOTLIGHT SLAM : il saute et retombe sur tout le monde (casse les gardes)
+        function(c)
+            local bonus = 1 + (competence(c, 2) or 0) / 100
+            c.attaqueJusqua = maintenant() + 0.75
+            animer(c, "Slam")
+            elan(c, 10, 55)
+            frapperAutourApres(c, 0.6, 12, { degats = 12 * bonus, etourdi = 0.8, recul = 45, haut = 24, casseGarde = true, lourd = true })
+        end,
+        -- MIRROR : posture de contre (le prochain coup reçu est renvoyé)
+        function(c)
+            c.contreJusqua = maintenant() + 1.0
+            c.contreType = "miroir"
+            c.attaqueJusqua = maintenant() + 0.3
+            animer(c, "Miroir")
+        end,
+    },
+    Discipline = {
+        -- COUNTER : parade (punit la prochaine attaque)
+        function(c)
+            c.contreJusqua = maintenant() + 0.65
+            c.contreType = "contre"
+            c.attaqueJusqua = maintenant() + 0.3
+            animer(c, "Contre")
+        end,
+        -- ROUTINE : 3 coups lourds, rien ne l'arrête
+        function(c)
+            local bonus = 1 + (competence(c, 2) or 0) / 100
+            c.armureJusqua = maintenant() + 1.1
+            c.attaqueJusqua = maintenant() + 1.0
+            animer(c, "Routine")
+            for k, delai in ipairs({ 0.2, 0.5, 0.85 }) do
+                frapperApres(c, delai, Vector3.new(6.5, 6, 7), 3.5, {
+                    degats = 7 * bonus,
+                    etourdi = 0.55,
+                    recul = if k == 3 then 50 else 6,
+                    haut = if k == 3 then 12 else 0,
+                    casseGarde = k == 3,
+                    lourd = k == 3,
+                })
+            end
+        end,
+        -- WALL : une onde de choc qui repousse tout le monde
+        function(c)
+            c.attaqueJusqua = maintenant() + 0.45
+            animer(c, "Onde")
+            frapperAutourApres(c, 0.22, 14, { degats = 8, etourdi = 0.5, recul = 75, haut = 14, lourd = true })
+        end,
+    },
+    Obsession = {
+        -- HUNT : il apparaît derrière l'ennemi le plus proche et frappe
+        function(c)
+            local cible = plusProche(c, 45)
+            if not cible then
+                return false -- personne à chasser : pas de recharge
+            end
+            local derriere = cible.racine.CFrame * CFrame.new(0, 0, 3.2)
+            c.modele:PivotTo(CFrame.lookAt(derriere.Position, cible.racine.Position))
+            c.attaqueJusqua = maintenant() + 0.35
+            animer(c, "Traque", cible.modele)
+            frapperApres(c, 0.14, Vector3.new(6, 6, 6.5), 3, { degats = 8, etourdi = 0.7, recul = 20, haut = 6, imparable = true })
+        end,
+        -- RELENTLESS : il attrape et frappe 3 fois
+        function(c)
+            c.attaqueJusqua = maintenant() + 0.95
+            animer(c, "Saisie")
+            task.delay(0.15, function()
+                if not vivant(c) then
+                    return
+                end
+                local cible = ciblesDevant(c, Vector3.new(6, 6, 6.5), 3.3)[1]
+                if not cible or not blesser(c, cible, { degats = 4, etourdi = 1.1, recul = 0, casseGarde = true }) then
+                    return
+                end
+                for k, delai in ipairs({ 0.2, 0.4, 0.6 }) do
+                    task.delay(delai, function()
+                        if vivant(c) and vivant(cible) then
+                            blesser(c, cible, { degats = 5, etourdi = 0.5, recul = if k == 3 then 45 else 0, haut = if k == 3 then 12 else 0, imparable = true, lourd = k == 3 })
+                        end
+                    end)
+                end
+            end)
+        end,
+        -- FRENZY : 5 secondes de coups beaucoup plus rapides
+        function(c)
+            c.frenesieJusqua = maintenant() + 5
+            animer(c, "Cri")
+        end,
+    },
+}
+
+local function rechargeDe(c, numero)
+    local def = KITS[c.perso] and KITS[c.perso][numero]
+    local duree = def and def.recharge or 8
+    if c.perso == "Obsession" and numero == 1 then
+        duree *= 1 - (competence(c, 2) or 0) / 100 -- PREDATOR
+    end
+    return duree
+end
+
+local function utiliserCapacite(c, numero)
+    if type(numero) ~= "number" or not CAPACITES[c.perso] or not CAPACITES[c.perso][numero] then
+        return
+    end
+    local nom = "C" .. numero
+    if not pret(c) or c.garde or enRecharge(c, nom) then
+        return
+    end
+    local resultat = CAPACITES[c.perso][numero](c)
+    if resultat ~= false then
+        recharger(c, nom, rechargeDe(c, numero))
+        if c.joueur then
+            c.modele:SetAttribute("Recharge" .. numero, heureServeur() + rechargeDe(c, numero))
+        end
+    end
+end
+
+-- ⚡ L'ULTIME (G) : jauge pleine → 8 s de pouvoir + l'edit noir et blanc chez tout le monde autour
+local function ultime(c)
+    if not vivant(c) or c.jauge < 100 or enUlt(c) or maintenant() < c.etourdiJusqua then
+        return
+    end
+    c.jauge = 0
+    c.ultFin = heureServeur() + 8
+    c.modele:SetAttribute("Ult", c.ultFin)
+    c.protegeJusqua = maintenant() + 1.2 -- le temps de l'edit
+    c.attaqueJusqua = maintenant() + 1.0
+    if c.perso == "Motivation" then
+        c.energie = 1
+    elseif c.perso == "Obsession" then
+        c.crans = crankMax(c)
+    end
+    animer(c, "Ultime")
+    UltEvent:FireAllClients(c.modele, c.perso)
+end
+
+-- 😏 PROVOQUER (T) : l'EGO charge son ultime en frimant
+local function provoquer(c)
+    if not pret(c) or enRecharge(c, "Provoc") then
+        return
+    end
+    recharger(c, "Provoc", 6)
+    c.attaqueJusqua = maintenant() + 1.2
+    animer(c, "Provoc")
+    if c.arene and not enUlt(c) then
+        c.jauge = math.min(100, c.jauge + (if c.perso == "Ego" then 12 else 4))
+    end
+end
+
+-- ce que les joueurs envoient
+ActionEvent.OnServerEvent:Connect(function(joueur, action, valeur)
+    local c = joueursCombattants[joueur]
+    if not c or not vivant(c) then
+        return
+    end
+    if action == "M1" then
+        coupDeBase(c)
+    elseif action == "Garde" then
+        garder(c, valeur == true)
+    elseif action == "Esquive" then
+        if not enRecharge(c, "Esquive") and maintenant() >= c.etourdiJusqua then
+            recharger(c, "Esquive", 1.6)
+            c.protegeJusqua = math.max(c.protegeJusqua, maintenant() + 0.22) -- un petit instant intouchable
+            animer(c, "Esquive", valeur)
+        end
+    elseif action == "Capacite" then
+        utiliserCapacite(c, valeur)
+    elseif action == "Ultime" then
+        ultime(c)
+    elseif action == "Provoc" then
+        provoquer(c)
+    end
+end)
+
+
+-- ========================== LES COMBATTANTS : naissance, mort ==========================
+local function nouveauCombattant(modele, joueur, perso)
+    local humanoid = modele:WaitForChild("Humanoid", 10)
+    local racine = modele:WaitForChild("HumanoidRootPart", 10)
+    if not humanoid or not racine then
+        return nil
+    end
+    local t = maintenant()
+    local c = {
+        modele = modele, humanoid = humanoid, racine = racine, joueur = joueur,
+        perso = if PERSOS[perso] then perso else auHasard(ORDRE_PERSOS),
+        nom = if joueur then joueur.DisplayName else modele.Name,
+        niveaux = nil, recharges = {}, combo = 0, dernierM1 = 0, attaqueJusqua = 0,
+        garde = false, etourdiJusqua = 0, contreJusqua = 0, contreType = nil, armureJusqua = 0, frenesieJusqua = 0,
+        ultFin = 0, crans = 0, energie = 1, jauge = 0,
+        arene = false, protegeJusqua = 0, entreeArene = t, naissance = t,
+        serie = 0, killsVie = 0, degatsVie = 0, degatsRecus = 0, auraDegats = 0,
+        dernierAttaquant = nil, dernierCoup = 0, dernierCoupDonne = 0,
+        afk = false, afkDepuis = t,
+    }
+    humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None -- le client affiche sa propre étiquette
+    humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+    humanoid.UseJumpPower = false
+    humanoid.JumpHeight = 7.2
+    -- pas de régénération automatique des PV (comme dans les vrais battlegrounds)
+    local regen = modele:FindFirstChild("Health")
+    if regen and regen:IsA("Script") then
+        regen:Destroy()
+    end
+    humanoid.MaxHealth = pvMax(c)
+    humanoid.Health = humanoid.MaxHealth
+    for nom, valeur in pairs({
+        Combattant = true, Perso = c.perso, Nom = c.nom, Arene = false, Energie = 1, Crans = 0, CransMax = crankMax(c),
+        Jauge = 0, Garde = false, Etourdi = 0, Ult = 0, Serie = 0, AFK = false, Bot = joueur == nil,
+    }) do
+        modele:SetAttribute(nom, valeur)
+    end
+    combattants[modele] = c
+    majListeModeles()
+    humanoid.Died:Connect(function()
+        surMort(c)
+    end)
+    return c
+end
+
+-- changer d'état d'esprit (seulement au lobby)
+local function changerPerso(c, perso)
+    c.perso = perso
+    c.crans, c.energie, c.recharges = 0, 1, {}
+    c.humanoid.MaxHealth = pvMax(c)
+    c.humanoid.Health = c.humanoid.MaxHealth
+    attribut(c.modele, "Perso", perso)
+    attribut(c.modele, "CransMax", crankMax(c))
+    for numero = 1, 3 do
+        c.modele:SetAttribute("Recharge" .. numero, nil)
+    end
+end
+
+-- la place de départ la plus éloignée des autres combattants
+local function apparitionArene(c)
+    local meilleur, meilleurScore = APPARITIONS_ARENE[1], -1
+    for _, point in ipairs(APPARITIONS_ARENE) do
+        local plusPres = math.huge
+        for _, autre in pairs(combattants) do
+            if autre ~= c and autre.arene and vivant(autre) then
+                plusPres = math.min(plusPres, (autre.racine.Position - point).Magnitude)
+            end
+        end
+        plusPres += math.random() * 10
+        if plusPres > meilleurScore then
+            meilleur, meilleurScore = point, plusPres
+        end
+    end
+    return CFrame.lookAt(meilleur, Vector3.new(A.X, meilleur.Y, A.Z))
+end
+
+local function entrerArene(c)
+    c.modele:PivotTo(apparitionArene(c))
+    c.racine.AssemblyLinearVelocity = Vector3.zero
+    c.arene = true
+    c.protegeJusqua = maintenant() + CONFIG.PROTECTION
+    c.entreeArene = maintenant()
+    c.humanoid.Health = c.humanoid.MaxHealth
+    c.energie, c.crans = 1, 0
+    c.afk = false
+    attribut(c.modele, "AFK", false)
+    attribut(c.modele, "Arene", true)
+    if c.joueur then
+        ZoneEvent:FireClient(c.joueur, "Arene")
+    end
+end
+
+local function sortirArene(c)
+    local position = PORTE + Vector3.new((math.random() - 0.5) * 10, 3, -14)
+    c.modele:PivotTo(CFrame.lookAt(position, position - Vector3.new(0, 0, 1)))
+    c.racine.AssemblyLinearVelocity = Vector3.zero
+    c.arene = false
+    c.garde = false
+    c.ultFin = 0
+    attribut(c.modele, "Ult", 0)
+    attribut(c.modele, "Garde", false)
+    c.humanoid.Health = c.humanoid.MaxHealth
+    attribut(c.modele, "Arene", false)
+    if c.joueur then
+        ZoneEvent:FireClient(c.joueur, "Lobby")
+    end
+end
+
+-- 💀 UNE MORT : le dernier qui l'a frappé (il y a moins de 10 s) a le kill
+surMort = function(c)
+    if combattants[c.modele] ~= c then
+        return
+    end
+    local t = maintenant()
+    combattants[c.modele] = nil
+    majListeModeles()
+    if c.joueur and joueursCombattants[c.joueur] == c then
+        joueursCombattants[c.joueur] = nil
+    end
+    if not c.arene then
+        return -- (un « Réinitialiser » au lobby : rien à annoncer)
+    end
+    local tueur = c.dernierAttaquant
+    if tueur and (t - c.dernierCoup > 10 or not vivant(tueur)) then
+        tueur = nil
+    end
+    if tueur then
+        tueur.serie += 1
+        tueur.killsVie += 1
+        attribut(tueur.modele, "Serie", tueur.serie)
+        tueur.humanoid.Health = math.min(tueur.humanoid.MaxHealth, tueur.humanoid.Health + CONFIG.SOIN_KILL)
+        if tueur.perso == "Motivation" then
+            tueur.energie = math.min(1, tueur.energie + 0.3 * (1 + (competence(tueur, 3) or 0) / 100)) -- COMEBACK
+        end
+        if not enUlt(tueur) then
+            tueur.jauge = math.min(100, tueur.jauge + 15)
+        end
+        local joueurTueur = tueur.joueur
+        if joueurTueur then
+            ajouterStat(joueurTueur, "Kills", 1)
+            local streak = chercherStat(joueurTueur, "Streak")
+            if streak then
+                streak.Value = tueur.serie
+            end
+            donnerAura(tueur, CONFIG.AURA_KILL)
+            local meilleure = chercherStat(joueurTueur, "MeilleureSerie")
+            if meilleure and tueur.serie > meilleure.Value then
+                meilleure.Value = tueur.serie
+                joueurTueur:SetAttribute("Record", tueur.serie)
+                task.spawn(enregistrerRecord, "S", joueurTueur, tueur.serie)
+            end
+            local kills = chercherStat(joueurTueur, "Kills")
+            if kills then
+                task.spawn(enregistrerRecord, "K", joueurTueur, kills.Value)
+            end
+        end
+    end
+    KillEvent:FireAllClients({
+        tueur = tueur and tueur.nom,
+        tueurPerso = tueur and tueur.perso,
+        tueurModele = tueur and tueur.modele,
+        victime = c.nom,
+        victimePerso = c.perso,
+        victimeModele = c.modele,
+        serie = if tueur then tueur.serie else 0,
+    })
+    if c.joueur then
+        local streak = chercherStat(c.joueur, "Streak")
+        if streak then
+            streak.Value = 0
+        end
+        FinEvent:FireClient(c.joueur, {
+            tueur = tueur and tueur.nom,
+            tueurPerso = tueur and tueur.perso,
+            perso = c.perso,
+            kills = c.killsVie,
+            degats = math.floor(c.degatsVie),
+            survie = math.floor(t - c.naissance),
+            reapparition = CONFIG.REAPPARITION,
+        })
+    else
+        task.delay(3, function()
+            if c.modele then
+                c.modele:Destroy()
+            end
+        end)
+    end
+end
+
+-- ========================== LES JOUEURS ==========================
+local parkourFait = {} -- [joueur] = true (le parkour ne donne son aura qu'une fois par serveur)
+
+local function joueurArrive(joueur)
+    arrivees[joueur] = os.clock()
+    local stats = Instance.new("Folder")
+    stats.Name = "leaderstats"
+    creer("IntValue", { Name = "Kills", Parent = stats })
+    creer("IntValue", { Name = "Streak", Parent = stats })
+    stats.Parent = joueur
+    local cachees = creer("Folder", { Name = "StatsCachees", Parent = joueur })
+    creer("IntValue", { Name = "Aura", Parent = cachees })
+    creer("IntValue", { Name = "Secondes", Parent = cachees })
+    creer("IntValue", { Name = "MeilleureSerie", Parent = cachees })
+    task.spawn(chargerJoueur, joueur)
+
+    local function surPersonnage(personnage)
+        if not joueur:GetAttribute("Perso") then
+            joueur:SetAttribute("Perso", auHasard(ORDRE_PERSOS))
+        end
+        local c = nouveauCombattant(personnage, joueur, joueur:GetAttribute("Perso"))
+        if not c then
+            return
+        end
+        joueursCombattants[joueur] = c
+        -- on apparaît au lobby (zone sans danger)
+        local position = APPARITION + Vector3.new((math.random() - 0.5) * 10, 0, (math.random() - 0.5) * 10)
+        personnage:PivotTo(CFrame.lookAt(position, position + Vector3.new(0, 0, 1)))
+        c.humanoid.WalkSpeed = CONFIG.VITESSE_LOBBY
+        ZoneEvent:FireClient(joueur, "Lobby")
+    end
+    joueur.CharacterAdded:Connect(surPersonnage)
+    if joueur.Character then
+        task.spawn(surPersonnage, joueur.Character)
+    end
+end
+
+-- les données sont chargées : on applique l'état d'esprit sauvegardé (si on est au lobby) et on publie son total de kills
+surChargement = function(joueur)
+    local c = joueursCombattants[joueur]
+    local perso = joueur:GetAttribute("Perso")
+    if c and perso and c.perso ~= perso and not c.arene then
+        changerPerso(c, perso)
+    end
+    local kills = chercherStat(joueur, "Kills")
+    if kills and kills.Value > 0 then
+        task.spawn(enregistrerRecord, "K", joueur, kills.Value)
+    end
+end
+
+Players.PlayerRemoving:Connect(function(joueur)
+    sauverJoueur(joueur)
+    local c = joueursCombattants[joueur]
+    if c then
+        combattants[c.modele] = nil
+        majListeModeles()
+    end
+    joueursCombattants[joueur] = nil
+    donneesChargees[joueur] = nil
+    reglagesJoueurs[joueur] = nil
+    niveauxJoueurs[joueur] = nil
+    chargementFini[joueur] = nil
+    arrivees[joueur] = nil
+    achatEnCours[joueur] = nil
+    parkourFait[joueur] = nil
+end)
+
+-- les SANCTUAIRES : bouton E → on devient cet état d'esprit
+for perso, socle in pairs(sanctuaires) do
+    socle:WaitForChild("Choisir").Triggered:Connect(function(joueur)
+        local c = joueursCombattants[joueur]
+        if not c or c.arene then
+            return
+        end
+        joueur:SetAttribute("Perso", perso)
+        changerPerso(c, perso)
+        MessageEvent:FireClient(joueur, "Choisi", perso)
+    end)
+end
+
+-- 🗺️ LES ZONES (4 fois par seconde) : la porte de l'arène, la sortie, la zone AFK, le haut du parkour, les chutes
+local function surveillerZones()
+    local t = maintenant()
+    for joueur, c in pairs(joueursCombattants) do
+        if not vivant(c) then
+            continue
+        end
+        local p = c.racine.Position
+        if not c.arene then
+            local d = p - PORTE
+            if math.abs(d.X) < 10.5 and math.abs(d.Z) < 3 and d.Y < 18 then
+                entrerArene(c)
+                continue
+            end
+            -- la zone AFK : de l'aura toutes les 30 s
+            local dansAfk = ((p - ZONE_AFK) * Vector3.new(1, 0, 1)).Magnitude < 14 and math.abs(p.Y - ZONE_AFK.Y) < 8
+            if dansAfk ~= c.afk then
+                c.afk = dansAfk
+                c.afkDepuis = t
+                attribut(c.modele, "AFK", dansAfk)
+            elseif dansAfk and t - c.afkDepuis >= 30 then
+                c.afkDepuis = t
+                donnerAura(c, CONFIG.AURA_AFK)
+                MessageEvent:FireClient(joueur, "AFK", CONFIG.AURA_AFK)
+            end
+            -- le haut de la tour de parkour
+            local s = p - SOMMET_PARKOUR.Position
+            if not parkourFait[joueur] and math.abs(s.X) < 6.5 and math.abs(s.Z) < 6.5 and s.Y > 0 and s.Y < 7 then
+                parkourFait[joueur] = true
+                donnerAura(c, CONFIG.AURA_PARKOUR)
+                MessageEvent:FireClient(joueur, "Parkour", CONFIG.AURA_PARKOUR)
+            end
+            if p.Y < L.Y - 40 then
+                c.modele:PivotTo(CFrame.new(APPARITION))
+            end
+        else
+            local s = p - SORTIE
+            if (s * Vector3.new(1, 0, 1)).Magnitude < 5 and math.abs(s.Y) < 6 and t - c.entreeArene > 2 then
+                if t - c.dernierCoup > 4 and t - c.dernierCoupDonne > 4 then
+                    sortirArene(c)
+                elseif t - (c.messageSortie or 0) > 2 then
+                    c.messageSortie = t
+                    MessageEvent:FireClient(joueur, "SortieCombat")
+                end
+            end
+            if p.Y < A.Y - 40 then
+                c.modele:PivotTo(apparitionArene(c))
+            end
+        end
+    end
+end
+
+
+-- ========================== LES BOTS ==========================
+-- Il y a toujours de l'action dans l'arène : des bots complètent jusqu'à CONFIG.BOTS combattants.
+-- Ils foncent sur l'ennemi le plus proche, enchaînent les coups, bloquent parfois, utilisent leurs capacités et leur ultime.
+local dossierBots = creer("Folder", { Name = "MindsetBots", Parent = workspace })
 local PEAUX = {
     Color3.fromRGB(255, 224, 189), Color3.fromRGB(255, 205, 148), Color3.fromRGB(234, 192, 134),
     Color3.fromRGB(198, 134, 66), Color3.fromRGB(141, 85, 36), Color3.fromRGB(90, 56, 37),
 }
-local PANTALONS = {
-    Color3.fromRGB(30, 40, 70), Color3.fromRGB(40, 40, 40), Color3.fromRGB(90, 70, 50),
-    Color3.fromRGB(60, 90, 140), Color3.fromRGB(110, 110, 120),
-}
 local PRENOMS = { "Lucas", "Emma", "Noah", "Lina", "Adam", "Jade", "Nathan", "Mia", "Enzo", "Chloe", "Sacha", "Ines", "Leo", "Zoe", "Hugo", "Lea", "Max", "Sara" }
-local MOTS = { "Gamer", "Pro", "Speed", "Dark", "Shadow", "King", "Queen", "Ninja", "Flash", "Noob", "Turbo", "Dragon", "Wolf", "Blox", "Star" }
-
-local function auHasard(liste)
-    return liste[math.random(1, #liste)]
-end
+local MOTS = { "Gamer", "Pro", "Speed", "Dark", "Shadow", "King", "Queen", "Ninja", "Flash", "Sigma", "Turbo", "Dragon", "Wolf", "Blox", "Star" }
+local ANIMS_BOT = {
+    course = "rbxassetid://913376220", -- les animations R15 de base de Roblox
+    attente = "rbxassetid://507766388",
+    saut = "rbxassetid://507765000",
+    chute = "rbxassetid://507767968",
+}
 
 local function pseudoDeBot()
     local style = math.random(1, 4)
@@ -1071,194 +2006,8 @@ local function pseudoDeBot()
     return auHasard(MOTS) .. auHasard(MOTS) .. math.random(100, 999)
 end
 
-local function creerBot(perso)
-    local ok, modele = pcall(function()
-        local peau = auHasard(PEAUX)
-        local tshirt = PERSOS[perso].couleur
-        local bras = if math.random() < 0.5 then peau else tshirt
-        local jambes = auHasard(PANTALONS)
-        local description = Instance.new("HumanoidDescription")
-        description.HeadColor = peau
-        description.TorsoColor = tshirt
-        description.LeftArmColor = bras
-        description.RightArmColor = bras
-        description.LeftLegColor = jambes
-        description.RightLegColor = jambes
-        return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
-    end)
-    if not ok or not modele then
-        warn("Impossible de créer un bot :", modele)
-        return nil
-    end
-    local pseudo = pseudoDeBot()
-    modele.Name = pseudo
-    local animate = modele:FindFirstChild("Animate")
-    if animate then
-        animate:Destroy()
-    end
-    modele.Parent = dossierBots
-    return modele, pseudo
-end
-
--- 🛒 Le MARCHAND D'AURA du menu 3D : un avatar Roblox tout en noir et violet.
--- Le serveur le fabrique (seul le serveur peut créer un avatar), chaque client en pose une copie dans son menu.
-task.spawn(function()
-    local ok, modele = pcall(function()
-        local description = Instance.new("HumanoidDescription")
-        local peau = Color3.fromRGB(40, 32, 52)
-        local habit = Color3.fromRGB(28, 18, 44)
-        description.HeadColor = peau
-        description.TorsoColor = habit
-        description.LeftArmColor = habit
-        description.RightArmColor = habit
-        description.LeftLegColor = Color3.fromRGB(18, 14, 26)
-        description.RightLegColor = Color3.fromRGB(18, 14, 26)
-        return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
-    end)
-    if not ok or not modele then
-        warn("🛒 Impossible de créer le marchand :", modele)
-        return
-    end
-    modele.Name = "MindsetMarchand"
-    for _, objet in ipairs(modele:GetDescendants()) do
-        if objet:IsA("Script") or objet:IsA("LocalScript") then
-            objet:Destroy()
-        end
-    end
-    modele.Parent = ReplicatedStorage
-end)
-
-
--- ========================== RÈGLES DES ÉTATS D'ESPRIT ==========================
--- Sans compétence : MOTIVATION ralentit, OBSESSION accélère, EGO tombe de plus haut (mais double saut),
--- DISCIPLINE perd peu en tombant (checkpoints). Les compétences du marchand renforcent tout ça.
--- Les niveaux sont « figés » au début de la course (manche.niveaux).
-
--- la valeur de la compétence n° numero du grimpeur (ou nil s'il ne l'a pas encore achetée)
-local function competence(g, numero)
-    local perso = g:GetAttribute("Perso")
-    local niveaux = manche and manche.niveaux[g]
-    local niveau = niveaux and niveaux[numero] or 0
-    local def = COMPETENCES[perso] and COMPETENCES[perso][numero]
-    if not def or niveau <= 0 then
-        return nil
-    end
-    return def.valeurs[math.min(niveau, #def.valeurs)]
-end
-
--- donne de l'aura à un joueur (DISCIPLINE « HARD WORK » : un bonus en %)
-local function donnerAura(joueur, g, montant)
-    if not joueur or montant <= 0 then
-        return
-    end
-    local bonus = if g:GetAttribute("Perso") == "Discipline" then competence(g, 3) else nil
-    if bonus then
-        local total = montant * (1 + bonus / 100)
-        montant = math.floor(total) + (if math.random() < total % 1 then 1 else 0)
-    end
-    ajouterStat(joueur, "Aura", montant)
-    local stats = manche and manche.stats[g]
-    if stats then
-        stats.aura += montant
-    end
-end
-
--- la vitesse du grimpeur à ce moment de la course (progression : 0 = départ, 1 = fin)
-local function vitesseDe(g, progression, ecoule, rang)
-    local perso = g:GetAttribute("Perso")
-    local v = CONFIG.VITESSE[perso] or { debut = 16, fin = 16 }
-    local vitesse
-    if perso == "Obsession" then
-        -- lent au début, puis ça monte de plus en plus vite
-        local fin = v.fin + (competence(g, 1) or 0) -- LATE MONSTER
-        vitesse = v.debut + (fin - v.debut) * progression ^ 1.4
-        local rush = competence(g, 3) -- FINAL RUSH
-        if rush and CONFIG.DUREE_MANCHE - ecoule <= rush then
-            vitesse *= 1.3
-        end
-    else
-        vitesse = v.debut + (v.fin - v.debut) * progression
-    end
-    if perso == "Motivation" then
-        local feu = competence(g, 2) -- FIRE START
-        if feu and progression < 0.3 then
-            vitesse *= 1 + feu / 100
-        end
-        local souffle = competence(g, 3) -- SECOND WIND
-        local milieu = CONFIG.DUREE_MANCHE / 2
-        if souffle and ecoule >= milieu and ecoule < milieu + souffle then
-            vitesse *= 1.35
-        end
-    elseif perso == "Ego" then
-        local projecteur = competence(g, 2) -- SPOTLIGHT
-        if projecteur and rang == 1 then
-            vitesse *= 1 + projecteur / 100
-        end
-    elseif perso == "Discipline" then
-        local routine = competence(g, 2) -- ROUTINE
-        if routine then
-            vitesse *= 1 + routine / 100
-        end
-    end
-    return vitesse
-end
-
-local function niveauAuraDe(serie)
-    return if serie >= 300 then 3 elseif serie >= 150 then 2 elseif serie >= 60 then 1 else 0
-end
-
--- 💀 UNE CHUTE : on réapparaît plus bas (combien plus bas : ça dépend de l'état d'esprit)
-chute = function(g, modele, s)
-    local maintenant = os.clock()
-    if maintenant < (s.protege or 0) then
-        return
-    end
-    local perso = g:GetAttribute("Perso")
-    local depuis = s.sol or 0
-    local perte = CONFIG.CHUTE
-    if perso == "Ego" then
-        perte = CONFIG.CHUTE_EGO
-        local bouclier = competence(g, 3) -- THICK SKIN
-        if bouclier and s.chutes < bouclier then
-            perte = math.floor(CONFIG.CHUTE_EGO / 2)
-        end
-    end
-    local cible = math.max(0, depuis - perte)
-    local checkpoint = false
-    if perso == "Discipline" then
-        local tous = competence(g, 1) or CONFIG.CHECKPOINT -- IRON WILL
-        local dernier = math.floor(depuis / tous) * tous
-        cible = math.max(dernier, depuis - CONFIG.CHUTE_DISCIPLINE)
-        checkpoint = cible == dernier and dernier > 0
-    end
-    cible = marcheSure(cible)
-    s.chutes += 1
-    s.sol = cible
-    s.departSerie = cible
-    s.protege = maintenant + 1.5
-    g:SetAttribute("Chutes", s.chutes)
-    g:SetAttribute("Marche", cible)
-    g:SetAttribute("NiveauAura", 0)
-    placerSurMarche(modele, joueurDuGrimpeur[g], cible)
-    EvenementEvent:FireAllClients("Chute", g, depuis - cible, checkpoint)
-end
-
--- ---------- LES BOTS ----------
--- Ils courent tout droit, sautent les trous, changent de côté devant une demi-marche...
--- et ratent parfois (adresse = la chance de bien réagir à un piège).
-local ANIMS_BOT = {
-    course = "rbxassetid://913376220", -- les animations R15 de base de Roblox
-    attente = "rbxassetid://507766388",
-    saut = "rbxassetid://507765000",
-    chute = "rbxassetid://507767968",
-}
-local infosBots = {} -- [config] = { adresse, z, decisions = {[n] = true/false} }
-
 local function animerBot(modele)
     local humanoid = modele:FindFirstChildOfClass("Humanoid")
-    if not humanoid then
-        return
-    end
     local animator = humanoid:FindFirstChildOfClass("Animator") or creer("Animator", { Parent = humanoid })
     local pistes = {}
     for nom, id in pairs(ANIMS_BOT) do
@@ -1300,928 +2049,262 @@ local function animerBot(modele)
     end)
 end
 
-local function preparerBot(g, modele)
-    local humanoid = preparerHumanoid(modele)
-    if not humanoid then
+-- l'état d'esprit le moins représenté dans l'arène (pour avoir les 4 en même temps)
+local function persoPourBot()
+    local comptes = {}
+    for _, perso in ipairs(ORDRE_PERSOS) do
+        comptes[perso] = math.random() * 0.5
+    end
+    for _, c in pairs(combattants) do
+        if c.arene then
+            comptes[c.perso] += 1
+        end
+    end
+    local meilleur, minimum = ORDRE_PERSOS[1], math.huge
+    for perso, n in pairs(comptes) do
+        if n < minimum then
+            meilleur, minimum = perso, n
+        end
+    end
+    return meilleur
+end
+
+local function nouveauBot()
+    local perso = persoPourBot()
+    local ok, modele = pcall(function()
+        local description = Instance.new("HumanoidDescription")
+        local peau = auHasard(PEAUX)
+        local habit = PERSOS[perso].couleur
+        description.HeadColor = peau
+        description.TorsoColor = habit
+        description.LeftArmColor = if math.random() < 0.5 then peau else habit
+        description.RightArmColor = description.LeftArmColor
+        description.LeftLegColor = Color3.fromRGB(28, 28, 32)
+        description.RightLegColor = Color3.fromRGB(28, 28, 32)
+        return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+    end)
+    if not ok or not modele then
+        warn("🤖 Impossible de créer un bot :", modele)
         return
     end
-    infosBots[g] = {
-        adresse = 0.8 + math.random() * 0.17,
-        z = (math.random() - 0.5) * (W - 8),
-        decisions = {},
+    local pseudo = pseudoDeBot()
+    modele.Name = pseudo
+    for _, objet in ipairs(modele:GetDescendants()) do
+        if objet:IsA("Script") or objet:IsA("LocalScript") then
+            objet:Destroy()
+        end
+    end
+    modele:PivotTo(apparitionArene(nil))
+    modele.Parent = dossierBots
+    local c = nouveauCombattant(modele, nil, perso)
+    if not c then
+        modele:Destroy()
+        return
+    end
+    c.nom = pseudo
+    attribut(modele, "Nom", pseudo)
+    c.niveaux = { [perso] = { math.random(0, 3), math.random(0, 3), math.random(0, 3) } }
+    c.humanoid.MaxHealth = pvMax(c)
+    c.humanoid.Health = c.humanoid.MaxHealth
+    c.ia = {
+        garde = 0.2 + math.random() * 0.35,      -- chance de bloquer quand on l'attaque
+        finGarde = 0,
+        prochaineCapacite = maintenant() + 2 + math.random() * 3,
+        prochainePromenade = 0,
+        reflexe = 0.05 + math.random() * 0.15,   -- temps de réaction
     }
     animerBot(modele)
-    placerAuDepart(modele, nil)
-end
-
--- un bot réagit-il bien au piège de la marche n ? (décidé une seule fois par piège)
-local function botReussit(info, n)
-    if info.decisions[n] == nil then
-        info.decisions[n] = math.random() < info.adresse
-    end
-    return info.decisions[n]
-end
-
-local function piloterBot(g, modele)
-    local info = infosBots[g]
-    local humanoid = modele:FindFirstChildOfClass("Humanoid")
-    local racine = modele:FindFirstChild("HumanoidRootPart")
-    if not info or not humanoid or not racine or racine.Anchored then
-        return
-    end
-    local p = racine.Position
-    local n = math.max(0, numeroSous(p.X))
-    local zVoulu = info.z
-    for k = 1, 4 do
-        local m = marches[n + k]
-        if m then
-            if m.type == "demi" and botReussit(info, n + k) then
-                zVoulu = m.cote * W / 4 -- du côté où il reste une moitié de marche
-            elseif m.type == "trou" and k <= 2 and botReussit(info, n + k) then
-                humanoid.Jump = true
-            end
-        end
-    end
-    humanoid:MoveTo(Vector3.new(p.X + 14, p.Y, ORIGINE.Z + zVoulu))
-end
-
--- ========================== DANSE DU GAGNANT (farm d'aura) ==========================
--- À la fin, le(s) premier(s) dansent : chaque clic / Espace = un pas de danse = de l'aura.
-local danse = nil -- { gagnants = {[config] = true}, fin = heure serveur, dernier = {[config] = os.clock()} }
-
-local function pasDeDanse(g)
-    local n = (g:GetAttribute("AuraFarmee") or 0) + 1
-    g:SetAttribute("AuraFarmee", n)
-    g:SetAttribute("Danse", 1 + math.floor(n / 10) % 3) -- change de danse tous les 10 pas
-    local joueurDanseur = joueurDuGrimpeur[g]
-    if joueurDanseur then
-        ajouterStat(joueurDanseur, "Aura", CONFIG.AURA_PAR_PAS)
-    end
-end
-
-DanserEvent.OnServerEvent:Connect(function(danseur)
-    local g = grimpeurDesJoueurs[danseur]
-    if not danse or not g or not danse.gagnants[g] or workspace:GetServerTimeNow() > danse.fin then
-        return
-    end
-    local maintenant = os.clock()
-    if maintenant - (danse.dernier[g] or 0) < 0.08 then
-        return -- max ~12 pas par seconde, pas d'autoclicker
-    end
-    danse.dernier[g] = maintenant
-    pasDeDanse(g)
-end)
-
-
--- ========================== CLASSEMENTS (records de marches) ==========================
--- Un classement par état d'esprit (toutes musiques) et un par musique (tous états d'esprit).
--- Le score = le plus de marches montées en UNE partie. Sauvegardé dans des OrderedDataStore
--- (il faut publier le jeu) ; sans ça, on garde quand même les records de la session du serveur.
-local tableaux = {} -- [cle] = { store, session = {[userId] = score}, charges = {[userId] = true}, cache, cacheA, valeur }
-local alerteClassement = false
-
-local function cleMusique(m)
-    return "M_" .. (string.match(m.id, "%d+") or string.gsub(m.nom or "?", "%W", ""))
-end
-
--- typeTableau = "Perso" / "Musique" : il a son onglet dans le panneau ; nil = classement « caché »
--- (combinaison état d'esprit + musique, ou monde entier) qu'on demande avec sa clé.
-local function creerTableau(cle, nom, typeTableau)
-    local t = { session = {}, charges = {}, cache = nil, cacheA = -math.huge }
-    local ok, store = pcall(function()
-        -- (nom court pour les combinaisons : Roblox limite les noms à 50 caractères)
-        return DataStoreService:GetOrderedDataStore(if typeTableau then "MindsetStairs_Record_" .. cle else "MSR_" .. cle)
-    end)
-    if ok then
-        t.store = store
-    end
-    tableaux[cle] = t
-    if not typeTableau then
-        return
-    end
-    local valeur = Instance.new("StringValue")
-    valeur.Name = cle
-    valeur.Value = nom
-    valeur:SetAttribute("Type", typeTableau)
-    valeur:SetAttribute("Top1Nom", "")
-    valeur:SetAttribute("Top1Score", 0)
-    valeur.Parent = dossierClassements
-    t.valeur = valeur
-    tableaux[cle] = t
-end
-for ordre, perso in ipairs(ORDRE_PERSOS) do
-    creerTableau("P_" .. perso, string.upper(perso), "Perso")
-    tableaux["P_" .. perso].valeur:SetAttribute("Ordre", ordre)
-end
-for ordre, m in ipairs(CONFIG.MUSIQUES) do
-    if m.id ~= "" and not tableaux[cleMusique(m)] then
-        creerTableau(cleMusique(m), m.nom or ("Song " .. ordre), "Musique")
-        tableaux[cleMusique(m)].valeur:SetAttribute("Ordre", ordre)
-    end
-end
--- 🌍 le classement du MONDE ENTIER (toutes musiques, tous états d'esprit)
-creerTableau("G", "WORLDWIDE", nil)
--- 🪜 le classement du TOTAL de marches montées (toutes les parties additionnées = « Steps » en haut à droite)
-creerTableau("T", "TOTAL STEPS", nil)
--- un classement pour chaque combinaison état d'esprit + musique (clé « C_Ego_M_123... »)
-local function cleCombo(perso, cleM)
-    return "C_" .. perso .. "_" .. cleM
-end
-for _, perso in ipairs(ORDRE_PERSOS) do
-    for _, m in ipairs(CONFIG.MUSIQUES) do
-        if m.id ~= "" and not tableaux[cleCombo(perso, cleMusique(m))] then
-            creerTableau(cleCombo(perso, cleMusique(m)), perso .. " + " .. (m.nom or "?"), nil)
-        end
-    end
-end
-
-local function alerte(erreur)
-    if not alerteClassement then
-        alerteClassement = true
-        warn("🏆 Classements : sauvegarde indisponible (publie le jeu + accès Studio aux services API). On garde les records de la session. ", erreur)
-    end
-end
-
-local nomsCache = {}
-local function nomDe(userId)
-    local present = Players:GetPlayerByUserId(userId)
-    if present then
-        nomsCache[userId] = present.DisplayName
-    end
-    if nomsCache[userId] then
-        return nomsCache[userId]
-    end
-    local ok, nom = pcall(function()
-        return Players:GetNameFromUserIdAsync(userId)
-    end)
-    nomsCache[userId] = if ok and nom then nom else ("Player " .. userId)
-    return nomsCache[userId]
-end
-
--- 🌍 Pour le classement MONDE ENTIER, on garde aussi avec quel état d'esprit et quelle musique
--- chaque record a été fait (un DataStore à part : un classement ne peut garder qu'un nombre).
-local storeDetails = nil
-do
-    local ok, store = pcall(function()
-        return DataStoreService:GetDataStore("MindsetStairs_RecordMonde_Details")
-    end)
-    if ok then
-        storeDetails = store
-    end
-end
-local detailsCache = {} -- [userId] = { perso, musique } ou false (= rien de sauvegardé)
-
-local function detailsMonde(userId)
-    if detailsCache[userId] == nil and storeDetails then
-        local ok, details = pcall(function()
-            return storeDetails:GetAsync(tostring(userId))
-        end)
-        detailsCache[userId] = if ok and type(details) == "table" then details else false
-    end
-    return detailsCache[userId] or nil
-end
-
-local function enregistrerDetailsMonde(userId, perso, musique)
-    local details = { perso = perso, musique = musique }
-    detailsCache[userId] = details
-    if storeDetails then
-        task.spawn(function()
-            pcall(function()
-                storeDetails:SetAsync(tostring(userId), details)
-            end)
-        end)
-    end
-end
-
--- Top 10 d'un classement (top 100 pour le monde entier), gardé 30 s en mémoire pour ne pas spammer la sauvegarde
-local function lireClassement(cle)
-    local t = tableaux[cle]
-    if not t then
-        return {}
-    end
-    if t.cache and os.clock() - t.cacheA < 30 then
-        return t.cache
-    end
-    local nombre = if cle == "G" or cle == "T" then 100 else 10
-    local scores = {}
-    if t.store then
-        local ok, page = pcall(function()
-            return t.store:GetSortedAsync(false, nombre):GetCurrentPage()
-        end)
-        if ok then
-            for _, ligne in ipairs(page) do
-                local id = tonumber(ligne.key)
-                if id then
-                    scores[id] = ligne.value
-                end
-            end
-        else
-            alerte(page)
-        end
-    end
-    for id, score in pairs(t.session) do
-        if score > (scores[id] or 0) then
-            scores[id] = score
-        end
-    end
-    local liste = {}
-    for id, score in pairs(scores) do
-        table.insert(liste, { id = id, score = score })
-    end
-    table.sort(liste, function(a, b)
-        return a.score > b.score
-    end)
-    -- les pseudos qu'on ne connaît pas encore : on les demande tous en même temps (5 s max)
-    local enAttente = 0
-    for i = 1, math.min(nombre, #liste) do
-        if not nomsCache[liste[i].id] then
-            enAttente += 1
-            task.spawn(function()
-                nomDe(liste[i].id)
-                enAttente -= 1
-            end)
-        end
-    end
-    local limiteNoms = os.clock() + 5
-    while enAttente > 0 and os.clock() < limiteNoms do
-        task.wait(0.05)
-    end
-    local resultat = {}
-    for i = 1, math.min(nombre, #liste) do
-        resultat[i] = { nom = nomsCache[liste[i].id] or ("Player " .. liste[i].id), score = liste[i].score, userId = liste[i].id }
-        if cle == "G" and i <= 10 then
-            -- 🌍 monde entier : avec quel état d'esprit et quelle musique il a fait ce record
-            local details = detailsMonde(liste[i].id)
-            if details then
-                resultat[i].perso = details.perso
-                resultat[i].musique = details.musique
-            end
-        end
-    end
-    t.cache, t.cacheA = resultat, os.clock()
-    if t.valeur then
-        t.valeur:SetAttribute("Top1Nom", if resultat[1] then resultat[1].nom else "")
-        t.valeur:SetAttribute("Top1Score", if resultat[1] then resultat[1].score else 0)
-    end
-    return resultat
-end
-
--- Le record perso d'un joueur dans un classement
-local function recordDe(cle, userId)
-    local t = tableaux[cle]
-    if not t then
-        return 0
-    end
-    if t.store and not t.charges[userId] then
-        t.charges[userId] = true
-        local ok, valeur = pcall(function()
-            return t.store:GetAsync(tostring(userId))
-        end)
-        if ok and valeur and valeur > (t.session[userId] or 0) then
-            t.session[userId] = valeur
-        elseif not ok then
-            alerte(valeur)
-        end
-    end
-    return t.session[userId] or 0
-end
-
--- Enregistre un score ; renvoie true si c'est un nouveau record perso
-local function enregistrerRecord(cle, joueur, score)
-    local t = tableaux[cle]
-    if not t or score <= 0 then
-        return false
-    end
-    local nouveau = score > recordDe(cle, joueur.UserId)
-    if nouveau then
-        t.session[joueur.UserId] = score
-        t.cache = nil
-    end
-    if t.store and nouveau then
-        local ok, erreur = pcall(function()
-            t.store:UpdateAsync(tostring(joueur.UserId), function(ancien)
-                if (ancien or 0) >= score then
-                    return nil -- on garde l'ancien, il est meilleur
-                end
-                return score
-            end)
-        end)
-        if not ok then
-            alerte(erreur)
-        end
-    end
-    return nouveau
-end
-
-local dernierAppelClassement = {}
--- (tout = true : le hub veut tout le top 100 ; sinon on n'envoie que les 10 premiers)
-ClassementFonction.OnServerInvoke = function(demandeur, cle, tout)
-    if typeof(cle) ~= "string" or not tableaux[cle] then
-        return nil
-    end
-    local maintenant = os.clock()
-    if maintenant - (dernierAppelClassement[demandeur] or 0) < 0.25 then
-        task.wait(0.25) -- anti-spam
-    end
-    dernierAppelClassement[demandeur] = os.clock()
-    local liste = lireClassement(cle)
-    if tout ~= true and #liste > 10 then
-        liste = table.move(liste, 1, 10, 1, {})
-    end
-    return { liste = liste, moi = recordDe(cle, demandeur.UserId) }
-end
-Players.PlayerRemoving:Connect(function(parti)
-    dernierAppelClassement[parti] = nil
-end)
-
--- 🏆 le record de chaque joueur (le plus de marches en une partie), affiché au-dessus de sa tête dans le hub
-local function publierRecord(joueur)
-    if joueur.Parent then
-        joueur:SetAttribute("Record", recordDe("G", joueur.UserId))
-    end
-end
--- 🪜 le total de marches du joueur part dans le classement TOTAL STEPS
--- (seulement s'il a augmenté : enregistrerRecord garde le plus grand)
-local function publierTotal(joueur)
-    local steps = chercherStat(joueur, "Steps")
-    if steps and steps.Value > 0 then
-        enregistrerRecord("T", joueur, steps.Value)
-    end
-end
-
-local function joueurArriveClassements(joueur)
-    publierRecord(joueur)
-    -- on attend que ses données soient chargées, pour mettre aussi son ancien total dans le classement
-    local limite = os.clock() + 30
-    while joueur.Parent and not chargementFini[joueur] and os.clock() < limite do
-        task.wait(0.5)
-    end
-    if joueur.Parent and chargementFini[joueur] then
-        publierTotal(joueur)
-    end
-end
-Players.PlayerAdded:Connect(function(joueur)
-    task.spawn(joueurArriveClassements, joueur)
-end)
-for _, joueur in ipairs(Players:GetPlayers()) do
-    task.spawn(joueurArriveClassements, joueur)
-end
-
--- ========================== VOTE DE LA MUSIQUE ==========================
-local propositions = {}   -- les musiques proposées pendant ce lobby
-local votesMusique = {}   -- [joueur] = numéro de la musique votée
-
-local function compterVotes()
-    local comptes = {}
-    for i = 1, #propositions do
-        comptes[i] = 0
-    end
-    for votant, i in pairs(votesMusique) do
-        if votant.Parent and comptes[i] then
-            comptes[i] += 1
-        end
-    end
-    for i = 1, #propositions do
-        local valeur = dossierChoixMusiques:FindFirstChild(tostring(i))
-        if valeur then
-            valeur:SetAttribute("Votes", comptes[i])
-        end
-    end
-    return comptes
-end
-
--- Niveau de difficulté affiché sur la carte de vote : d'après le tempo (et le moment dur du drop).
--- Tu peux le forcer dans CONFIG.MUSIQUES avec difficulte = 1 (facile) à 4 (extrême).
-local function difficulteDe(m)
-    if type(m.difficulte) == "number" then
-        return math.clamp(math.floor(m.difficulte), 1, 4)
-    end
-    local bpm = m.bpm or 120
-    local niveau = if bpm < 90 then 1 elseif bpm < 105 then 2 elseif bpm < 130 then 3 else 4
-    if m.drop then -- (le drop = une tempête de rochers)
-        niveau = math.min(4, niveau + 1)
-    end
-    return niveau
-end
-
-local function proposerMusiques()
-    votesMusique = {}
-    propositions = {}
-    dossierChoixMusiques:ClearAllChildren()
-    local dispo = {}
-    for _, m in ipairs(CONFIG.MUSIQUES) do
-        if m.id ~= "" then
-            table.insert(dispo, m)
-        end
-    end
-    for _ = 1, math.min(CONFIG.NB_PROPOSITIONS, #dispo) do
-        table.insert(propositions, table.remove(dispo, math.random(1, #dispo)))
-    end
-    for i, m in ipairs(propositions) do
-        local valeur = creer("StringValue", { Name = tostring(i), Value = m.nom or ("Song " .. i) })
-        valeur:SetAttribute("Votes", 0)
-        valeur:SetAttribute("Cle", cleMusique(m)) -- pour afficher le record de la musique sur sa carte
-        valeur:SetAttribute("Difficulte", difficulteDe(m)) -- 1 facile, 2 moyen, 3 difficile, 4 extrême
-        valeur.Parent = dossierChoixMusiques
-    end
-    -- on rafraîchit les records affichés sur les cartes (persos + musiques proposées)
-    task.spawn(function()
-        for _, perso in ipairs(ORDRE_PERSOS) do
-            lireClassement("P_" .. perso)
-        end
-        for _, m in ipairs(propositions) do
-            lireClassement(cleMusique(m))
-        end
-    end)
-end
-
--- La plus votée gagne (égalité ou aucun vote : tirage au sort entre les ex æquo)
-local function musiqueGagnante()
-    if #propositions == 0 then
-        return nil
-    end
-    local comptes = compterVotes()
-    local meilleur, exAequo = -1, {}
-    for i = 1, #propositions do
-        if comptes[i] > meilleur then
-            meilleur, exAequo = comptes[i], { i }
-        elseif comptes[i] == meilleur then
-            table.insert(exAequo, i)
-        end
-    end
-    return propositions[exAequo[math.random(1, #exAequo)]]
-end
-
-VoterMusiqueEvent.OnServerEvent:Connect(function(votant, i)
-    if ReplicatedStorage:GetAttribute("Phase") ~= "Lobby" then
-        return
-    end
-    if typeof(i) ~= "number" or not propositions[i] then
-        return
-    end
-    votesMusique[votant] = i
-    compterVotes()
-end)
-
-Players.PlayerRemoving:Connect(function(parti)
-    if votesMusique[parti] then
-        votesMusique[parti] = nil
-        compterVotes()
-    end
-end)
-
-local function compteARebours(secondes)
-    for t = secondes, 1, -1 do
-        setTemps(t)
-        task.wait(1)
-    end
-    setTemps(0)
-end
-
--- ========================== ROCHERS ==========================
--- Un rocher apparaît un peu devant le premier et dévale l'escalier. Les joueurs sont renversés par leur
--- propre jeu (script client) ; ici on compte les coups et on renverse les bots.
-local function lancerRocher(nTete)
-    local n = nTete + math.random(18, 30)
-    etendre(n + 10)
-    local taille = 4.5 + math.random() * 2.5
-    local z = ORIGINE.Z + (math.random() - 0.5) * (W - taille - 2)
-    local rocher = creer("Part", {
-        Name = "Rocher",
-        Shape = Enum.PartType.Ball,
-        Size = Vector3.new(taille, taille, taille),
-        Material = Enum.Material.Basalt,
-        Color = Color3.fromRGB(48, 42, 52),
-        Position = Vector3.new(ORIGINE.X + (n + 0.5) * D, dessusMarche(n) + taille / 2 + 1.5, z),
-        CustomPhysicalProperties = PhysicalProperties.new(4, 0.3, 0.25),
-        Parent = dossierObstacles,
-    })
-    creer("PointLight", { Color = Color3.fromRGB(255, 80, 60), Range = 12, Brightness = 2, Parent = rocher })
-    rocher.AssemblyLinearVelocity = Vector3.new(-(22 + math.random() * 10), 0, (math.random() - 0.5) * 8)
     pcall(function()
-        rocher:SetNetworkOwner(nil) -- c'est le serveur qui le fait rouler (pareil pour tout le monde)
+        c.racine:SetNetworkOwner(nil)
     end)
-    Debris:AddItem(rocher, 14)
+    entrerArene(c)
 end
 
-local function heurterRochers(vivants)
-    local maintenant = os.clock()
-    for _, rocher in ipairs(dossierObstacles:GetChildren()) do
-        if rocher.Position.Y < ORIGINE.Y - 60 then
-            rocher:Destroy()
-            continue
+local function piloterBot(c)
+    if not vivant(c) then
+        return
+    end
+    local t = maintenant()
+    local ia = c.ia
+    if t < c.etourdiJusqua then
+        return
+    end
+    local cible, distance = plusProche(c, 400)
+    local p = c.racine.Position
+    if not cible then
+        if c.garde then
+            garder(c, false)
         end
-        local rayon = rocher.Size.X / 2 + 2
-        for _, v in ipairs(vivants) do
-            local s = v.s
-            if (v.racine.Position - rocher.Position).Magnitude < rayon and maintenant > (s.dernierCoup or 0) + 1.2 then
-                s.dernierCoup = maintenant
-                s.coups += 1
-                if v.g:GetAttribute("Bot") then
-                    -- l'OBSESSION « UNSTOPPABLE » ne se fait pas toujours renverser
-                    local tenace = if v.g:GetAttribute("Perso") == "Obsession" then competence(v.g, 2) else nil
-                    if not (tenace and math.random(1, 100) <= tenace) then
-                        local humanoid = v.modele:FindFirstChildOfClass("Humanoid")
-                        if humanoid then
-                            humanoid:ChangeState(Enum.HumanoidStateType.FallingDown)
-                        end
-                        v.racine.AssemblyLinearVelocity = Vector3.new(-40, 28, (math.random() - 0.5) * 20)
-                    end
-                end
-                EvenementEvent:FireAllClients("Rocher", v.g)
+        if t > ia.prochainePromenade then
+            ia.prochainePromenade = t + 3
+            c.humanoid:MoveTo(A + Vector3.new((math.random() - 0.5) * 100, 0, (math.random() - 0.5) * 100))
+        end
+        return
+    end
+    local q = cible.racine.Position
+    local face = Vector3.new(q.X, p.Y, q.Z)
+    -- en garde : on attend un peu
+    if c.garde then
+        if t > ia.finGarde then
+            garder(c, false)
+        else
+            c.humanoid:MoveTo(p)
+            if (face - p).Magnitude > 0.1 then
+                c.racine.CFrame = CFrame.lookAt(p, face)
+            end
+            return
+        end
+    end
+    -- l'ennemi attaque tout près : parfois on bloque
+    if distance < 8 and t < cible.attaqueJusqua and math.random() < ia.garde * 0.6 then
+        garder(c, true)
+        ia.finGarde = t + 0.45 + math.random() * 0.45
+        return
+    end
+    if c.jauge >= 100 and distance < 16 then
+        ultime(c)
+        return
+    end
+    if t > ia.prochaineCapacite and distance < 11 then
+        ia.prochaineCapacite = t + 2.5 + math.random() * 3.5
+        if (face - p).Magnitude > 0.1 then
+            c.racine.CFrame = CFrame.lookAt(p, face)
+        end
+        utiliserCapacite(c, math.random(1, 3))
+        return
+    end
+    if distance > 4.3 then
+        c.humanoid:MoveTo(q + (p - q).Unit * 2.5)
+        if distance > 14 and distance < 32 and math.random() < 0.03 then
+            elan(c, 60) -- un dash vers l'ennemi
+        end
+    else
+        c.humanoid:MoveTo(p)
+        if (face - p).Magnitude > 0.1 then
+            c.racine.CFrame = CFrame.lookAt(p, face)
+        end
+        if math.random() > ia.reflexe then
+            coupDeBase(c)
+        end
+    end
+end
+
+-- le bon nombre de bots : CONFIG.BOTS combattants dans l'arène (au moins CONFIG.BOTS_MIN bots)
+local function equilibrerBots()
+    local joueursDansArene, bots = 0, {}
+    for _, c in pairs(combattants) do
+        if c.arene and vivant(c) then
+            if c.joueur then
+                joueursDansArene += 1
+            else
+                table.insert(bots, c)
+            end
+        end
+    end
+    local voulu = math.max(CONFIG.BOTS_MIN, CONFIG.BOTS - joueursDansArene)
+    if #bots < voulu then
+        task.spawn(nouveauBot)
+    elseif #bots > voulu then
+        -- on enlève un bot qui n'est pas en plein combat
+        for _, c in ipairs(bots) do
+            if maintenant() - c.dernierCoup > 6 and maintenant() - c.dernierCoupDonne > 6 then
+                combattants[c.modele] = nil
+                majListeModeles()
+                c.modele:Destroy()
+                break
             end
         end
     end
 end
 
--- ============================ BOUCLE DU JEU ============================
-while true do
-    -- 1) LOBBY : tout le monde au départ, on choisit son état d'esprit et on vote la musique
-    manche = nil
-    reconstruire()
-    barriere.CanCollide = true
-    barriere.Transparency = 0.3
-    proposerMusiques()
-    setPhase("Lobby")
-    for _, g in ipairs(dossierGrimpeurs:GetChildren()) do
-        for nom, valeur in pairs({ Marche = 0, Rang = 0, Chutes = 0, NiveauAura = 0, EnJeu = false, Danse = 0, AuraFarmee = 0, DoubleSaut = false }) do
-            g:SetAttribute(nom, valeur)
-        end
-        g:SetAttribute("Scene", nil)
-    end
-    for joueur, g in pairs(grimpeurDesJoueurs) do
-        local personnage = joueur.Character
-        if personnage and not g:GetAttribute("Hub") then
-            if g:GetAttribute("Pret") then
-                task.spawn(placerAuDepart, personnage, joueur)
-            else
-                task.spawn(placerEnTribune, personnage, joueur)
-            end
-        end
-    end
-    setStatut(if #propositions > 0 then "🧠 Choose your mindset and vote for the music!" else "🧠 Choose your mindset!")
-    compteARebours(CONFIG.ATTENTE_LOBBY)
 
-    local participants = {}
-    local persosPris = {}
-    for joueur, g in pairs(grimpeurDesJoueurs) do
-        if joueur.Parent and joueur.Character and g:GetAttribute("Pret") and not g:GetAttribute("Hub") then
-            local perso = g:GetAttribute("Perso")
-            if not PERSOS[perso] then
-                perso = auHasard(ORDRE_PERSOS)
-                g:SetAttribute("Perso", perso)
-                joueur:SetAttribute("Perso", perso)
-            end
-            persosPris[perso] = true
-            table.insert(participants, g)
+-- ========================== LES BOUCLES ==========================
+-- 10 fois par seconde : vitesse de chacun (selon son état d'esprit), énergie de la MOTIVATION,
+-- et les attributs que les clients affichent (énergie, crans, jauge...).
+local function majCombattant(c, dt)
+    local t = maintenant()
+    if c.perso == "Motivation" and c.arene then
+        if enUlt(c) then
+            c.energie = 1
+        else
+            local duree = 55 * (1 + (competence(c, 1) or 0) / 100) -- SLOW BURN
+            c.energie = math.max(0.3, c.energie - dt / duree)
         end
     end
-    if #participants == 0 then
-        continue
+    local vitesse
+    if not c.arene then
+        vitesse = CONFIG.VITESSE_LOBBY
+    elseif c.perso == "Motivation" then
+        vitesse = 15 + 9 * c.energie
+        if enUlt(c) then
+            vitesse *= 1.25
+        end
+    elseif c.perso == "Ego" then
+        vitesse = 18
+    elseif c.perso == "Discipline" then
+        vitesse = 17
+    else
+        vitesse = 14 + 0.35 * c.crans
     end
+    if c.garde then
+        vitesse = math.min(vitesse, 7)
+    end
+    if t < c.attaqueJusqua then
+        vitesse *= 0.5
+    end
+    local etourdi = t < c.etourdiJusqua
+    if etourdi then
+        vitesse = 2
+    end
+    if math.abs(c.humanoid.WalkSpeed - vitesse) > 0.05 then
+        c.humanoid.WalkSpeed = vitesse
+    end
+    local saut = if etourdi or c.garde then 0 elseif c.perso == "Ego" then 8.5 else 7.2
+    if c.humanoid.JumpHeight ~= saut then
+        c.humanoid.JumpHeight = saut
+    end
+    attribut(c.modele, "Energie", math.floor(c.energie * 100 + 0.5) / 100)
+    attribut(c.modele, "Crans", c.crans)
+    attribut(c.modele, "Jauge", math.floor(c.jauge))
+    if not enUlt(c) and (c.modele:GetAttribute("Ult") or 0) > 0 then
+        attribut(c.modele, "Ult", 0)
+    end
+end
 
-    -- 2) DES BOTS COMPLÈTENT
-    local bots = {}
-    local manque = CONFIG.COUREURS_MIN - #participants
-    for _, perso in ipairs(ORDRE_PERSOS) do
-        if manque <= 0 then
-            break
-        end
-        if not persosPris[perso] then
-            local modele, pseudo = creerBot(perso)
-            if modele then
-                local g = nouveauGrimpeur(pseudo, perso, modele, nil)
-                task.spawn(preparerBot, g, modele)
-                table.insert(bots, g)
-                table.insert(participants, g)
-                manque -= 1
-            end
-        end
-    end
-
-    -- 3) LA MUSIQUE + LE DÉPART
-    local musique = musiqueGagnante()
-    if not musique then
-        warn("[Mindset] Aucune musique avec un ID dans CONFIG.MUSIQUES : course sans son.")
-        musique = { id = "", nom = "(silence)", bpm = 120, debut = 0 }
-    end
-    local debut = workspace:GetServerTimeNow() + CONFIG.PREPARATION
-    -- la TEMPÊTE DE ROCHERS arrive au drop de la musique (en secondes depuis le départ)
-    local tempete = if musique.drop then musique.drop - (musique.debut or 0) else nil
-    if tempete and (tempete < 3 or tempete > CONFIG.DUREE_MANCHE - 3) then
-        tempete = nil
-    end
-    manche = { debut = debut, stats = {}, niveaux = {} }
-    for _, g in ipairs(participants) do
-        g:SetAttribute("EnJeu", true)
-        manche.stats[g] = { sol = 0, max = 0, departSerie = 0, chutes = 0, coups = 0, aura = 0 }
-        -- les niveaux de compétences pour cette course (les bots en ont un peu, au hasard)
-        local perso = g:GetAttribute("Perso")
-        local joueurG = joueurDuGrimpeur[g]
-        local niveaux = {}
-        for i = 1, #(COMPETENCES[perso] or {}) do
-            if joueurG then
-                local siens = niveauxJoueurs[joueurG] and niveauxJoueurs[joueurG][perso]
-                niveaux[i] = siens and siens[i] or 0
-            else
-                niveaux[i] = math.random(0, 3)
-            end
-        end
-        manche.niveaux[g] = niveaux
-        g:SetAttribute("DoubleSaut", perso == "Ego")
-    end
-    setStatut(if musique.id ~= "" then "🎵 " .. musique.nom else "")
-    setPhase("Manche")
-    DebutEvent:FireAllClients({
-        musique = musique.id,
-        debutMusique = musique.debut or 0,
-        bpm = musique.bpm or 120,
-        debut = debut,
-        duree = CONFIG.DUREE_MANCHE,
-        tempete = tempete,
-    })
-    -- décompte : 3, 2, 1...
-    while workspace:GetServerTimeNow() < debut do
-        setTemps(math.ceil(CONFIG.DUREE_MANCHE))
-        task.wait(0.05)
-    end
-    -- GO ! la barrière s'ouvre (et MOTIVATION « HEAD START » commence plus haut)
-    setStatut("")
-    barriere.CanCollide = false
-    barriere.Transparency = 1
-    for _, g in ipairs(participants) do
-        local elan = if g:GetAttribute("Perso") == "Motivation" then competence(g, 1) else nil
-        local modele = g.Modele.Value
-        if elan and modele then
-            local n = marcheSure(elan)
-            manche.stats[g].sol = n
-            manche.stats[g].departSerie = n
-            placerSurMarche(modele, joueurDuGrimpeur[g], n)
-        end
-    end
-
-    -- 4) LA COURSE
-    local prochainRocher = os.clock() + 2.5
-    local tempeteAnnoncee = false
-    local dernierPilotage = 0
-    local derniereVitesse = 0
+task.spawn(function()
+    local dernier = os.clock()
+    local prochainesZones, prochainsBots, prochainEquilibre = 0, 0, 0
     while true do
         task.wait(0.1)
-        local maintenant = os.clock()
-        local ecoule = workspace:GetServerTimeNow() - debut
-        setTemps(math.max(0, math.ceil(CONFIG.DUREE_MANCHE - ecoule)))
-        if ecoule >= CONFIG.DUREE_MANCHE then
-            break
-        end
-        local progression = math.clamp(ecoule / CONFIG.DUREE_MANCHE, 0, 1)
-
-        -- où est chacun ? (marche, chute, marche qui casse, série sans tomber)
-        local vivants = {}
-        local tete = 0
-        for _, g in ipairs(participants) do
-            local modele = g.Parent and g:GetAttribute("EnJeu") and g.Modele.Value
-            local racine = modele and modele:FindFirstChild("HumanoidRootPart")
-            if racine then
-                local s = manche.stats[g]
-                local p = racine.Position
-                local pieds = p.Y - hauteurRacine(modele)
-                local n = numeroSous(p.X)
-                local nPieds = math.floor((pieds - ORIGINE.Y) / H + 0.5)
-                local marche = math.max(0, math.min(n, nPieds))
-                local m = marches[n]
-                if n >= 0 and m and not m.casse and m.type ~= "trou" and math.abs(pieds - dessusMarche(n)) < 1.5 then
-                    s.sol = n
-                    if m.type == "cassante" then
-                        casser(n)
-                    end
-                end
-                local reference = if n >= 0 then dessusMarche(n) else ORIGINE.Y
-                if pieds < reference - 12 then
-                    chute(g, modele, s)
-                    marche = g:GetAttribute("Marche") or 0
-                elseif g:GetAttribute("Marche") ~= marche then
-                    g:SetAttribute("Marche", marche)
-                end
-                s.max = math.max(s.max, marche)
-                local niveau = niveauAuraDe(marche - s.departSerie)
-                if g:GetAttribute("NiveauAura") ~= niveau then
-                    g:SetAttribute("NiveauAura", niveau)
-                end
-                tete = math.max(tete, marche)
-                table.insert(vivants, { g = g, s = s, modele = modele, racine = racine, marche = marche })
+        local t = os.clock()
+        local dt = t - dernier
+        dernier = t
+        for _, c in pairs(combattants) do
+            if vivant(c) then
+                majCombattant(c, dt)
             end
         end
-        etendre(tete + 150)
-
-        -- le classement en direct + les vitesses (4 fois par seconde)
-        if maintenant - derniereVitesse >= 0.25 then
-            derniereVitesse = maintenant
-            table.sort(vivants, function(a, b)
-                return a.marche > b.marche
-            end)
-            for rang, v in ipairs(vivants) do
-                if v.g:GetAttribute("Rang") ~= rang then
-                    v.g:SetAttribute("Rang", rang)
-                end
-                local humanoid = v.modele:FindFirstChildOfClass("Humanoid")
-                if humanoid then
-                    local vitesse = vitesseDe(v.g, progression, ecoule, rang)
-                    if v.g:GetAttribute("Bot") then
-                        vitesse *= 0.85 + 0.12 * (infosBots[v.g] and infosBots[v.g].adresse or 0.9)
-                    end
-                    humanoid.WalkSpeed = vitesse
-                    local saut = if v.g:GetAttribute("Perso") == "Ego" then CONFIG.SAUT * (1 + (competence(v.g, 1) or 0) / 100) else CONFIG.SAUT
-                    if humanoid.JumpHeight ~= saut then
-                        humanoid.JumpHeight = saut
-                    end
-                    v.g:SetAttribute("Vitesse", math.floor(vitesse + 0.5))
+        if t >= prochainesZones then
+            prochainesZones = t + 0.25
+            surveillerZones()
+        end
+        if t >= prochainsBots then
+            prochainsBots = t + 0.15
+            for _, c in pairs(combattants) do
+                if not c.joueur then
+                    piloterBot(c)
                 end
             end
         end
+        if t >= prochainEquilibre then
+            prochainEquilibre = t + 2
+            equilibrerBots()
+        end
+    end
+end)
 
-        -- les bots
-        if maintenant - dernierPilotage >= 0.15 then
-            dernierPilotage = maintenant
-            for _, v in ipairs(vivants) do
-                if v.g:GetAttribute("Bot") then
-                    piloterBot(v.g, v.modele)
-                end
-            end
-        end
-
-        -- les rochers (plus souvent vers la fin, et la TEMPÊTE au drop)
-        local enTempete = tempete and ecoule >= tempete and ecoule < tempete + CONFIG.TEMPETE
-        if enTempete and not tempeteAnnoncee then
-            tempeteAnnoncee = true
-            EvenementEvent:FireAllClients("Tempete", CONFIG.TEMPETE)
-        end
-        if maintenant >= prochainRocher then
-            lancerRocher(tete)
-            local intervalle = CONFIG.ROCHERS_DEBUT + (CONFIG.ROCHERS_FIN - CONFIG.ROCHERS_DEBUT) * progression
-            prochainRocher = maintenant + (if enTempete then 0.3 else intervalle * (0.7 + math.random() * 0.6))
-        end
-        heurterRochers(vivants)
-    end
-
-    -- 5) FIN : tout le monde s'arrête, le plus haut gagne
-    setPhase("Fin")
-    dossierObstacles:ClearAllChildren()
-    local classement = {}
-    for _, g in ipairs(participants) do
-        if g.Parent and g:GetAttribute("EnJeu") then
-            table.insert(classement, g)
-            local modele = g.Modele.Value
-            local racine = modele and modele:FindFirstChild("HumanoidRootPart")
-            if racine then
-                racine.Anchored = true
-            end
-        end
-    end
-    table.sort(classement, function(a, b)
-        local ma, mb = a:GetAttribute("Marche") or 0, b:GetAttribute("Marche") or 0
-        if ma ~= mb then
-            return ma > mb
-        end
-        return (a:GetAttribute("Ordre") or 0) < (b:GetAttribute("Ordre") or 0)
-    end)
-
-    local meilleur = if classement[1] then classement[1]:GetAttribute("Marche") or 0 else 0
-    local gagnants = {}
-    for _, g in ipairs(classement) do
-        if (g:GetAttribute("Marche") or 0) == meilleur then
-            table.insert(gagnants, g)
-        end
-    end
-    local function nomDuGrimpeur(g)
-        return tostring(g:GetAttribute("Nom"))
-    end
-
-    -- l'aura : 1 toutes les 10 marches, + le bonus du gagnant
-    for _, g in ipairs(classement) do
-        local joueurG = joueurDuGrimpeur[g]
-        if joueurG then
-            donnerAura(joueurG, g, math.floor((g:GetAttribute("Marche") or 0) / CONFIG.AURA_PAR_MARCHES))
-        end
-    end
-    for _, g in ipairs(gagnants) do
-        local joueurGagnant = joueurDuGrimpeur[g]
-        if joueurGagnant then
-            ajouterStat(joueurGagnant, "Wins", 1)
-            donnerAura(joueurGagnant, g, CONFIG.AURA_VICTOIRE)
-        end
-    end
-
-    -- les records (en tâche de fond : la sauvegarde peut prendre un peu de temps)
-    local nouveauxRecords = {}
-    for _, g in ipairs(classement) do
-        local joueurRecord = joueurDuGrimpeur[g]
-        if joueurRecord then
-            local score = g:GetAttribute("Marche") or 0
-            ajouterStat(joueurRecord, "Steps", score) -- marches gravies au total (en haut à droite)
-            local perso = g:GetAttribute("Perso")
-            task.spawn(function()
-                local recordPerso = enregistrerRecord("P_" .. tostring(perso), joueurRecord, score)
-                local recordMusique = musique.id ~= "" and enregistrerRecord(cleMusique(musique), joueurRecord, score)
-                local recordCombo = musique.id ~= "" and enregistrerRecord(cleCombo(tostring(perso), cleMusique(musique)), joueurRecord, score)
-                -- 🌍 monde entier (et on retient avec quel état d'esprit + quelle musique)
-                if enregistrerRecord("G", joueurRecord, score) then
-                    enregistrerDetailsMonde(joueurRecord.UserId, tostring(perso), if musique.id ~= "" then musique.nom else "(no music)")
-                    publierRecord(joueurRecord)
-                end
-                publierTotal(joueurRecord) -- 🪜 TOTAL STEPS
-                nouveauxRecords[g] = recordPerso or recordMusique or recordCombo
-            end)
-        end
-    end
-
-    -- le(s) gagnant(s) montent sur la scène, la caméra de tout le monde y va
-    for i, g in ipairs(gagnants) do
-        local modele = g.Modele.Value
-        if modele and modele:FindFirstChild("HumanoidRootPart") then
-            local x = (i - (#gagnants + 1) / 2) * 4.5
-            local position = SCENE + Vector3.new(x, hauteurRacine(modele) + 0.05, 0)
-            local cf = CFrame.lookAt(position, position + Vector3.new(0, 0, 1))
-            g:SetAttribute("Scene", cf)
-            placer(modele, cf, true, joueurDuGrimpeur[g])
-        end
-    end
-    if #gagnants >= 2 then
-        setStatut("TIE! " .. nomDuGrimpeur(gagnants[1]) .. " & " .. nomDuGrimpeur(gagnants[2]) .. " — " .. meilleur .. " steps")
-    elseif gagnants[1] then
-        local g = gagnants[1]
-        setStatut("👑 " .. nomDuGrimpeur(g) .. " WINS with " .. string.upper(tostring(g:GetAttribute("Perso"))) .. " — " .. meilleur .. " steps!")
-    end
-    if #gagnants > 0 then
-        EvenementEvent:FireAllClients("Vainqueur", gagnants)
-        task.wait(2.2)
-    end
-
-    -- la danse : le(s) gagnant(s) farment l'aura
-    if #gagnants > 0 then
-        danse = { gagnants = {}, fin = workspace:GetServerTimeNow() + CONFIG.DUREE_DANSE, dernier = {} }
-        for _, g in ipairs(gagnants) do
-            danse.gagnants[g] = true
-            g:SetAttribute("Danse", 1)
-        end
-        EvenementEvent:FireAllClients("Danse", gagnants, danse.fin)
-        while workspace:GetServerTimeNow() < danse.fin do
-            task.wait(0.15)
-            for _, g in ipairs(gagnants) do
-                if g.Parent and g:GetAttribute("Bot") and math.random() < 0.6 then
-                    pasDeDanse(g) -- les bots dansent tout seuls
-                end
-            end
-        end
-        for _, g in ipairs(gagnants) do
-            if g.Parent then
-                g:SetAttribute("Danse", 0)
-            end
-        end
-        danse = nil
-    end
-
-    -- l'écran de fin de chaque joueur
-    local nomsGagnants = {}
-    for _, g in ipairs(gagnants) do
-        table.insert(nomsGagnants, nomDuGrimpeur(g))
-    end
-    for _, g in ipairs(classement) do
-        local joueurFin = joueurDuGrimpeur[g]
-        if joueurFin and joueurFin.Parent then
-            local stats = manche.stats[g]
-            local marches = g:GetAttribute("Marche") or 0
-            local place = 1
-            for _, autre in ipairs(classement) do
-                if (autre:GetAttribute("Marche") or 0) > marches then
-                    place += 1
-                end
-            end
-            FinEvent:FireClient(joueurFin, {
-                perso = g:GetAttribute("Perso"),
-                place = place,
-                egalite = place == 1 and #gagnants >= 2,
-                total = #classement,
-                marches = marches,
-                plusHaut = stats.max,
-                chutes = stats.chutes,
-                coups = stats.coups,
-                record = recordDe("P_" .. tostring(g:GetAttribute("Perso")), joueurFin.UserId),
-                nouveauRecord = nouveauxRecords[g] == true,
-                auraFarmee = g:GetAttribute("AuraFarmee") or 0,
-                auraGagnee = stats.aura, -- l'aura gagnée pendant la course (pour le marchand)
-                gagnant = if #nomsGagnants > 0 then table.concat(nomsGagnants, " & ") else "nobody",
-            })
-        end
-    end
-    compteARebours(7)
-
-    -- 6) ON RANGE (les joueurs retournent au départ au début du lobby suivant)
-    for _, g in ipairs(bots) do
-        infosBots[g] = nil
-        local valeur = g:FindFirstChild("Modele")
-        if valeur and valeur.Value then
-            valeur.Value:Destroy()
-        end
-        g:Destroy()
-    end
+Players.PlayerAdded:Connect(joueurArrive)
+for _, joueur in ipairs(Players:GetPlayers()) do
+    task.spawn(joueurArrive, joueur)
 end
+
