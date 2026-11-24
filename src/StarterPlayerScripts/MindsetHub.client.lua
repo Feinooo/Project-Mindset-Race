@@ -7,7 +7,7 @@
     des jeux Roblox) et où on voit les autres joueurs, avec leur état d'esprit, leur niveau et leur record :
       à GAUCHE  : le MARCHAND D'AURA → touche E devant lui : tu améliores les compétences de ton état d'esprit
       au MILIEU : le PORTAIL → tu marches dedans : la caméra plonge (transition) et tu arrives dans le jeu
-      à DROITE  : le TOP 100 du monde entier (le plus de marches en une partie) → touche E pour le voir en grand
+      à DROITE  : 2 TOP 100 du monde entier (le plus de marches en UNE partie / en TOUT) → touche E pour les voir en grand
     Le serveur pose ton avatar sur la place (attribut « Hub » du grimpeur) ; le script du jeu ne le touche plus.
 ]]
 
@@ -662,13 +662,16 @@ end
 -- le point où apparaît le bouton « E » du marchand (devant son comptoir)
 local pointShop = bloc({ Size = Vector3.new(1, 1, 1), CFrame = F_SHOP * CFrame.new(0, 3, -6.5), Transparency = 1, CanQuery = false, Parent = modelesStations[SHOP] })
 
--- ---------- À DROITE : le grand tableau du CLASSEMENT : TOP 100 (le plus de marches en une partie) ----------
+-- ---------- À DROITE : DEUX grands tableaux TOP 100 ----------
+--   BEST GAME   : le plus de marches montées en UNE partie (clé "G" du serveur)
+--   TOTAL STEPS : le plus de marches montées EN TOUT, toutes les parties (clé "T" du serveur)
 local NB_TOP = 100
 local COULEURS_PODIUM = { OR, Color3.fromRGB(210, 215, 230), Color3.fromRGB(220, 140, 80) }
-local tableau = { lignes = {}, podium = {}, moi = nil, statut = nil, liste = {}, record = 0, defile = nil, y = 0, pause = 4 }
-local pointTableau
+local BLEU = Color3.fromRGB(90, 200, 255)
+local TABLEAU_TOTAL = 4 -- (le 2e tableau n'a pas de bouton en bas, juste son numéro)
+local tableaux3D = {} -- les 2 tableaux
 
--- une ligne du classement (sur le tableau 3D et dans le panneau en grand)
+-- une ligne du classement (sur un tableau 3D et dans le panneau en grand)
 local function couleurFondLigne(rang, estMoi)
     if estMoi then
         return Color3.fromRGB(22, 56, 40)
@@ -707,9 +710,15 @@ local function remplirLigne(ligne, entree)
     end
 end
 
-do
-    local modele = modeleStation(TABLEAU, "Classement")
-    local base = Vector3.new(O.X, SOL, O.Z) + direction(STATIONS[TABLEAU].angle) * R
+-- construit un tableau (écran qui défile + podium des 3 premiers + bouton « E » devant)
+local function construireTableau(numero, angle, infos)
+    local tableau = {
+        cle = infos.cle, titre = infos.titre, sousTitre = infos.sousTitre, couleur = infos.couleur, motMoi = infos.motMoi,
+        lignes = {}, podium = {}, liste = {}, record = 0, y = 0, pause = 4, enBas = false, dernier = -math.huge,
+    }
+    local couleur = infos.couleur
+    local modele = modeleStation(numero, "Classement_" .. infos.cle)
+    local base = Vector3.new(O.X, SOL, O.Z) + direction(angle) * R
     local F = CFrame.lookAt(base, Vector3.new(O.X, SOL, O.Z))
     local function ici(x, y, z)
         return F * CFrame.new(x, y, z)
@@ -721,12 +730,12 @@ do
         { Vector3.new(0.4, 14.8, 0.4), ici(-11.2, 10.5, -0.3) },
         { Vector3.new(0.4, 14.8, 0.4), ici(11.2, 10.5, -0.3) },
     }) do
-        neon({ Size = barre[1], CFrame = barre[2], Color = OR, Parent = modele })
+        neon({ Size = barre[1], CFrame = barre[2], Color = couleur, Parent = modele })
     end
     for _, x in ipairs({ -8, 8 }) do
         solide(bloc({ Size = Vector3.new(1, 3.2, 1), CFrame = ici(x, 1.9, 0), Color = Color3.fromRGB(30, 28, 44), Parent = modele }))
     end
-    nouveau("PointLight", { Range = 22, Brightness = 1.2, Color = OR, Parent = planche })
+    nouveau("PointLight", { Range = 22, Brightness = 1.2, Color = couleur, Parent = planche })
 
     -- l'écran du tableau : les 100 premiers défilent tout seuls
     local surface = nouveau("SurfaceGui", {
@@ -736,8 +745,8 @@ do
         LightInfluence = 0,
         Parent = planche,
     })
-    texte({ Position = UDim2.fromScale(0.04, 0.025), Size = UDim2.fromScale(0.92, 0.08), Text = "TOP 100  ·  MOST STEPS", Font = Enum.Font.GothamBlack, TextColor3 = OR, Parent = surface })
-    texte({ Position = UDim2.fromScale(0.04, 0.105), Size = UDim2.fromScale(0.92, 0.035), Text = "the most steps climbed in ONE game", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, Parent = surface })
+    texte({ Position = UDim2.fromScale(0.04, 0.025), Size = UDim2.fromScale(0.92, 0.08), Text = infos.titre, Font = Enum.Font.GothamBlack, TextColor3 = couleur, Parent = surface })
+    texte({ Position = UDim2.fromScale(0.04, 0.105), Size = UDim2.fromScale(0.92, 0.035), Text = infos.sousTitre, Font = Enum.Font.GothamMedium, TextColor3 = GRIS, Parent = surface })
     tableau.statut = texte({ Position = UDim2.fromScale(0.04, 0.45), Size = UDim2.fromScale(0.92, 0.07), Text = "Loading...", TextColor3 = GRIS, Parent = surface })
     tableau.defile = nouveau("ScrollingFrame", {
         Position = UDim2.fromScale(0.03, 0.16),
@@ -745,7 +754,7 @@ do
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
         ScrollBarThickness = 5,
-        ScrollBarImageColor3 = OR,
+        ScrollBarImageColor3 = couleur,
         ScrollingEnabled = false,
         CanvasSize = UDim2.new(),
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
@@ -758,8 +767,8 @@ do
     tableau.moi = texte({ Position = UDim2.fromScale(0.04, 0.89), Size = UDim2.fromScale(0.92, 0.07), TextColor3 = VERT, Font = Enum.Font.GothamBlack, Parent = surface })
 
     -- le podium devant, avec les 3 premiers
-    for rang, infos in ipairs({ { 0, 3.2 }, { -4.4, 2.2 }, { 4.4, 1.5 } }) do
-        local x, hauteur = infos[1], infos[2]
+    for rang, place in ipairs({ { 0, 3.2 }, { -4.4, 2.2 }, { 4.4, 1.5 } }) do
+        local x, hauteur = place[1], place[2]
         local marche = solide(bloc({ Size = Vector3.new(4.2, hauteur, 3), CFrame = ici(x, hauteur / 2, -6), Color = Color3.fromRGB(30, 28, 44), Parent = modele }))
         neon({ Size = Vector3.new(4.25, 0.15, 3.05), CFrame = ici(x, hauteur, -6), Color = COULEURS_PODIUM[rang], Parent = modele })
         local chiffre = bloc({ Size = Vector3.new(2, math.min(hauteur - 0.2, 1.6), 0.05), CFrame = ici(x, hauteur / 2, -7.53), Transparency = 1, Parent = modele })
@@ -771,34 +780,42 @@ do
         }
     end
     -- le point où apparaît le bouton « E » (devant le podium)
-    pointTableau = bloc({ Size = Vector3.new(1, 1, 1), CFrame = ici(0, 3, -10), Transparency = 1, CanQuery = false, Parent = modele })
+    tableau.point = bloc({ Size = Vector3.new(1, 1, 1), CFrame = ici(0, 3, -10), Transparency = 1, CanQuery = false, Parent = modele })
+    table.insert(tableaux3D, tableau)
+    return tableau
 end
 
--- ton record et ta place dans le top 100
-local function texteMonRang()
+construireTableau(TABLEAU, STATIONS[TABLEAU].angle, {
+    cle = "G", titre = "TOP 100  ·  BEST GAME", sousTitre = "the most steps climbed in ONE game", couleur = OR, motMoi = "YOUR BEST",
+})
+construireTableau(TABLEAU_TOTAL, math.rad(115), {
+    cle = "T", titre = "TOP 100  ·  TOTAL STEPS", sousTitre = "all the steps ever climbed, every game added up", couleur = BLEU, motMoi = "YOUR TOTAL",
+})
+
+-- ton score et ta place dans un top 100
+local function texteMonRang(tableau)
     local record = tableau.record or 0
     if record <= 0 then
-        return "YOUR BEST: —  (go climb!)"
+        return tableau.motMoi .. ": —  (go climb!)"
     end
     for rang, entree in ipairs(tableau.liste) do
         if entree.userId == joueur.UserId then
-            return "YOUR BEST: " .. record .. " steps  ·  RANK #" .. rang
+            return tableau.motMoi .. ": " .. record .. " steps  ·  RANK #" .. rang
         end
     end
-    return "YOUR BEST: " .. record .. " steps  ·  not in the top 100 yet"
+    return tableau.motMoi .. ": " .. record .. " steps  ·  not in the top 100 yet"
 end
 
--- On demande le top 100 au serveur (pas plus d'une fois toutes les 10 secondes)
-local dernierTableau = -math.huge
+-- On demande un top 100 au serveur (pas plus d'une fois toutes les 10 secondes)
 local remplirPanneauTop -- (défini plus bas : le top 100 en grand, à l'écran)
-local function majTableau(force)
-    if not force and os.clock() - dernierTableau < 10 then
+local function majTableau(tableau, force)
+    if not force and os.clock() - tableau.dernier < 10 then
         return
     end
-    dernierTableau = os.clock()
+    tableau.dernier = os.clock()
     task.spawn(function()
         local ok, resultat = pcall(function()
-            return ClassementFonction:InvokeServer("G", true)
+            return ClassementFonction:InvokeServer(tableau.cle, true)
         end)
         if not ok or type(resultat) ~= "table" then
             tableau.statut.Visible = true
@@ -818,11 +835,17 @@ local function majTableau(force)
             place.nom.Text = if entree then tostring(entree.nom) else "—"
             place.score.Text = if entree then tostring(entree.score) .. " steps" else ""
         end
-        tableau.moi.Text = texteMonRang()
+        tableau.moi.Text = texteMonRang(tableau)
         if remplirPanneauTop then
-            remplirPanneauTop()
+            remplirPanneauTop(tableau)
         end
     end)
+end
+
+local function majTableaux(force)
+    for _, tableau in ipairs(tableaux3D) do
+        majTableau(tableau, force)
+    end
 end
 
 -- ---------- LES JOUEURS : une étiquette au-dessus de chaque joueur du hub ----------
@@ -1006,7 +1029,7 @@ local aide = texte({
     Position = UDim2.new(0.5, 0, 1, if surMobile then -150 else -24),
     Size = UDim2.new(0.9, 0, 0, 22),
     RichText = true,
-    Text = 'Walk into the <font color="#FFDC50">PORTAL</font> to play  ·  Talk to the <font color="#AA5AFF">AURA MERCHANT</font> to upgrade  ·  Check the <font color="#6EE6A0">TOP 100</font>',
+    Text = 'Walk into the <font color="#FFDC50">PORTAL</font> to play  ·  Talk to the <font color="#AA5AFF">AURA MERCHANT</font> to upgrade  ·  Check the <font color="#6EE6A0">TOP 100s</font>',
     Font = Enum.Font.GothamBold,
     TextColor3 = Color3.fromRGB(220, 220, 235),
     TextStrokeTransparency = 0.4,
@@ -1275,10 +1298,10 @@ local panneauTop = nouveau("Frame", {
 })
 nouveau("UISizeConstraint", { MinSize = Vector2.new(320, 300), MaxSize = Vector2.new(540, 680), Parent = panneauTop })
 nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = panneauTop })
-nouveau("UIStroke", { Color = OR, Thickness = 2, Parent = panneauTop })
+local traitTop = nouveau("UIStroke", { Color = OR, Thickness = 2, Parent = panneauTop })
 local echelleTop = nouveau("UIScale", { Parent = panneauTop })
-texte({ Position = UDim2.new(0.05, 0, 0, 16), Size = UDim2.new(0.75, 0, 0, 30), Text = "TOP 100  ·  MOST STEPS", Font = Enum.Font.GothamBlack, TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauTop })
-texte({ Position = UDim2.new(0.05, 0, 0, 48), Size = UDim2.new(0.9, 0, 0, 16), Text = "The most steps climbed in ONE game, all mindsets and songs", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauTop })
+local titreTop = texte({ Position = UDim2.new(0.05, 0, 0, 16), Size = UDim2.new(0.75, 0, 0, 30), Font = Enum.Font.GothamBlack, TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauTop })
+local sousTitreTop = texte({ Position = UDim2.new(0.05, 0, 0, 48), Size = UDim2.new(0.9, 0, 0, 16), Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, Parent = panneauTop })
 local boutonFermerTop = bouton({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14), Size = UDim2.fromOffset(38, 38), Text = "X", Parent = panneauTop }, ROUGE, false, 2)
 local listeTop = nouveau("ScrollingFrame", {
     Position = UDim2.new(0.04, 0, 0, 76),
@@ -1299,14 +1322,23 @@ end
 local statutTop = texte({ Position = UDim2.new(0.05, 0, 0.4, 0), Size = UDim2.new(0.9, 0, 0, 24), Text = "Loading...", TextColor3 = GRIS, Parent = panneauTop })
 local moiTop = texte({ AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0.05, 0, 1, -14), Size = UDim2.new(0.9, 0, 0, 24), Font = Enum.Font.GothamBlack, TextColor3 = VERT, Parent = panneauTop })
 
-remplirPanneauTop = function()
+local tableauAffiche = tableaux3D[1] -- celui qu'on regarde en grand (BEST GAME ou TOTAL STEPS)
+remplirPanneauTop = function(tableau)
+    if tableau ~= tableauAffiche then
+        return -- c'est l'autre tableau qui vient de se mettre à jour
+    end
+    titreTop.Text = tableau.titre
+    titreTop.TextColor3 = tableau.couleur
+    sousTitreTop.Text = tableau.sousTitre
+    traitTop.Color = tableau.couleur
+    listeTop.ScrollBarImageColor3 = tableau.couleur
     local liste = tableau.liste
     statutTop.Visible = #liste == 0
     statutTop.Text = "No record yet: be the first!"
     for rang, ligne in ipairs(lignesTop) do
         remplirLigne(ligne, liste[rang])
     end
-    moiTop.Text = texteMonRang()
+    moiTop.Text = texteMonRang(tableau)
 end
 
 -- ========================== SE BALADER ==========================
@@ -1380,22 +1412,23 @@ local function ouvrirShop()
     animerMarchand("coucou")
 end
 
-local function ouvrirTop()
+local function ouvrirTop(tableau)
     if not etat.ouvert or etat.transition then
         return
     end
     panneauShop.Visible = false
-    if not panneauTop.Visible then
+    if not panneauTop.Visible or tableauAffiche ~= tableau then
         echelleTop.Scale = 0.85
         tween(echelleTop, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
     end
+    tableauAffiche = tableau
     panneauTop.Visible = true
     etat.panneau = "top"
     sonClic(7)
-    remplirPanneauTop()
-    majTableau(false)
+    remplirPanneauTop(tableau)
+    majTableau(tableau, false)
     -- on descend la liste jusqu'à toi si tu es dans le top 100
-    for rang, entree in ipairs(tableau.liste) do
+    for rang, entree in ipairs(tableauAffiche.liste) do
         if entree.userId == joueur.UserId then
             listeTop.CanvasPosition = Vector2.new(0, math.max(0, (rang - 4) * 38))
             return
@@ -1419,7 +1452,11 @@ local function boutonE(part, action, objet, quand)
     return prompt
 end
 boutonE(pointShop, "Upgrade", "Aura Merchant", ouvrirShop)
-boutonE(pointTableau, "View", "Top 100", ouvrirTop)
+for _, tableau in ipairs(tableaux3D) do
+    boutonE(tableau.point, "View", if tableau.cle == "T" then "Top 100 · Total steps" else "Top 100 · Best game", function()
+        ouvrirTop(tableau)
+    end)
+end
 
 -- PORTAIL : quand tu marches dedans, la caméra plonge, flash blanc, et on arrive dans le jeu
 local function jouer()
@@ -1495,7 +1532,7 @@ local function ouvrirHub()
     tween(racine, 0.6, { GroupTransparency = 0 })
     afficherTitre()
     afficherBoutique()
-    majTableau(true)
+    majTableaux(true)
 end
 
 -- les boutons
@@ -1572,25 +1609,27 @@ RunService.RenderStepped:Connect(function(dt)
     echelleTitre.Scale = 1 + math.sin(t * 2.2) * 0.02
 
     -- 2) le tableau du top 100 défile tout seul (pause en haut, pause en bas, puis on remonte)
-    local defile = tableau.defile
-    local maximum = math.max(0, defile.AbsoluteCanvasSize.Y - defile.AbsoluteWindowSize.Y)
-    if maximum > 0 then
-        if tableau.pause > 0 then
-            tableau.pause -= dt
-            if tableau.pause <= 0 and tableau.enBas then
-                tableau.enBas = false
-                tableau.y = 0 -- retour en haut
-                tableau.pause = 4
+    for _, tableau in ipairs(tableaux3D) do
+        local defile = tableau.defile
+        local maximum = math.max(0, defile.AbsoluteCanvasSize.Y - defile.AbsoluteWindowSize.Y)
+        if maximum > 0 then
+            if tableau.pause > 0 then
+                tableau.pause -= dt
+                if tableau.pause <= 0 and tableau.enBas then
+                    tableau.enBas = false
+                    tableau.y = 0 -- retour en haut
+                    tableau.pause = 4
+                end
+            else
+                tableau.y += dt * 45
+                if tableau.y >= maximum then
+                    tableau.y = maximum
+                    tableau.enBas = true
+                    tableau.pause = 3
+                end
             end
-        else
-            tableau.y += dt * 45
-            if tableau.y >= maximum then
-                tableau.y = maximum
-                tableau.enBas = true
-                tableau.pause = 3
-            end
+            defile.CanvasPosition = Vector2.new(0, math.min(tableau.y, maximum))
         end
-        defile.CanvasPosition = Vector2.new(0, math.min(tableau.y, maximum))
     end
 
     -- 3) la plongée dans le portail
@@ -1641,20 +1680,20 @@ RunService.RenderStepped:Connect(function(dt)
     -- 6) tu t'éloignes du marchand / du tableau : son panneau se ferme
     if etat.panneau == "shop" and (p - pointShop.Position).Magnitude > 18 then
         fermerPanneaux()
-    elseif etat.panneau == "top" and (p - pointTableau.Position).Magnitude > 22 then
+    elseif etat.panneau == "top" and (p - tableauAffiche.point.Position).Magnitude > 22 then
         fermerPanneaux()
     end
 end)
 
 -- ========================== DÉPART ==========================
 afficherBoutique()
-majTableau(true)
+majTableaux(true)
 -- le tableau se remet à jour tout seul de temps en temps
 task.spawn(function()
     while true do
         task.wait(30)
         if etat.ouvert then
-            majTableau(true)
+            majTableaux(true)
         end
     end
 end)

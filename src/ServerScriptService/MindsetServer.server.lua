@@ -1016,6 +1016,8 @@ for ordre, m in ipairs(CONFIG.MUSIQUES) do
 end
 -- 🌍 le classement du MONDE ENTIER (toutes musiques, tous états d'esprit)
 creerTableau("G", "WORLDWIDE", nil)
+-- 🪜 le classement du TOTAL de marches montées (toutes les parties additionnées = « Steps » en haut à droite)
+creerTableau("T", "TOTAL STEPS", nil)
 -- un classement pour chaque combinaison état d'esprit + musique (clé « C_Ego_M_123... »)
 local function cleCombo(perso, cleM)
     return "C_" .. perso .. "_" .. cleM
@@ -1095,7 +1097,7 @@ local function lireClassement(cle)
     if t.cache and os.clock() - t.cacheA < 30 then
         return t.cache
     end
-    local nombre = if cle == "G" then 100 else 10
+    local nombre = if cle == "G" or cle == "T" then 100 else 10
     local scores = {}
     if t.store then
         local ok, page = pcall(function()
@@ -1233,11 +1235,31 @@ local function publierRecord(joueur)
         joueur:SetAttribute("Record", recordDe("G", joueur.UserId))
     end
 end
+-- 🪜 le total de marches du joueur part dans le classement TOTAL STEPS
+-- (seulement s'il a augmenté : enregistrerRecord garde le plus grand)
+local function publierTotal(joueur)
+    local steps = chercherStat(joueur, "Steps")
+    if steps and steps.Value > 0 then
+        enregistrerRecord("T", joueur, steps.Value)
+    end
+end
+
+local function joueurArriveClassements(joueur)
+    publierRecord(joueur)
+    -- on attend que ses données soient chargées, pour mettre aussi son ancien total dans le classement
+    local limite = os.clock() + 30
+    while joueur.Parent and not chargementFini[joueur] and os.clock() < limite do
+        task.wait(0.5)
+    end
+    if joueur.Parent and chargementFini[joueur] then
+        publierTotal(joueur)
+    end
+end
 Players.PlayerAdded:Connect(function(joueur)
-    task.spawn(publierRecord, joueur)
+    task.spawn(joueurArriveClassements, joueur)
 end)
 for _, joueur in ipairs(Players:GetPlayers()) do
-    task.spawn(publierRecord, joueur)
+    task.spawn(joueurArriveClassements, joueur)
 end
 
 -- ========================== VOTE DE LA MUSIQUE ==========================
@@ -1540,6 +1562,8 @@ while true do
                     enregistrerDetailsMonde(joueurRecord.UserId, tostring(perso), if musique.id ~= "" then musique.nom else "(no music)")
                     publierRecord(joueurRecord)
                 end
+                publierTotal(joueurRecord) -- 🪜 TOTAL STEPS
+
                 nouveauxRecords[g] = recordPerso or recordMusique or recordCombo
             end)
         end
