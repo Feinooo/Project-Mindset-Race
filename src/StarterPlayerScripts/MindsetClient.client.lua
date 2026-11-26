@@ -1,15 +1,16 @@
 --[[
-    🌍 AURA SIMULATOR — Script CLIENT
+    🎵 STEAL A PHONK — Script CLIENT
     À mettre dans : StarterPlayer > StarterPlayerScripts  (type : LocalScript, nom : MindsetClient)
     ⚠️ C'est le SEUL script client du jeu.
 
     Ce script s'occupe de tout ce que TU vois et fais :
-      - SE BATTRE contre les monstres : clic (ou maintenir le clic) = combo de 4 coups · bouton AUTO · sur téléphone : bouton PUNCH
-      - les effets : étincelles, chiffres de dégâts, l'aura qui vole vers toi, l'EDIT NOIR ET BLANC des gros moments
-      - l'interface : ton aura, tes stats, la prochaine zone, la boutique (améliorations, classes, renaissance)
-      - l'ambiance de chaque zone (lumière, couleurs), les portes des zones, les phrases de la trend style TikTok
+      - le TAPIS ROULANT : chaque client dessine les Phonks qui défilent (fluide), avec leur nom, leur rareté, leur prix
+      - ACHETER (touche E devant un Phonk du tapis), REVENDRE (maintenir E devant un de tes emplacements)
+      - les Phonks de ta base qui bougent la tête en rythme
+      - l'interface : ton argent, ton revenu par seconde, les places libres dans ta base
+      - les effets : l'EDIT NOIR ET BLANC quand tu achètes un Phonk légendaire (ou mieux), les « +$ » qui volent
       - la musique, les paramètres et la langue (anglais / français)
-    (le serveur, lui, décide de tout : les dégâts, l'aura, les achats)
+    (le serveur, lui, décide de tout : l'argent, les achats, la position des Phonks sur le tapis)
 ]]
 
 local Players = game:GetService("Players")
@@ -24,14 +25,10 @@ local ProximityPromptService = game:GetService("ProximityPromptService")
 
 local joueur = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("MindsetRemotes")
-local FrapperEvent = remotes:WaitForChild("Frapper")
-local ImpactEvent = remotes:WaitForChild("Impact")
-local MortEvent = remotes:WaitForChild("Mort")
-local CoupEvent = remotes:WaitForChild("Coup")
 local EvenementEvent = remotes:WaitForChild("Evenement")
 local MessageEvent = remotes:WaitForChild("Message")
 local ReglagesEvent = remotes:WaitForChild("Reglages")
-local AcheterFonction = remotes:WaitForChild("Acheter")
+local ActionFonction = remotes:WaitForChild("Action")
 
 local function lireJson(texteJson, defaut)
     local ok, valeur = pcall(function()
@@ -43,22 +40,13 @@ while not ReplicatedStorage:GetAttribute("Config") do
     task.wait(0.1)
 end
 local CONFIG = lireJson(ReplicatedStorage:GetAttribute("Config"), {})
-local function couleurDe(rgb)
-    return Color3.fromRGB(rgb[1], rgb[2], rgb[3])
+local RARETES, RARETE_PAR_CLE = CONFIG.raretes or {}, {}
+for i, r in ipairs(RARETES) do
+    r.rang = i
+    r.couleur = Color3.fromRGB(r.couleur[1], r.couleur[2], r.couleur[3])
+    RARETE_PAR_CLE[r.cle] = r
 end
-local ZONES, ZONE_PAR_NOM = CONFIG.zones or {}, {}
-for i, zone in ipairs(ZONES) do
-    zone.index = i
-    zone.couleur = couleurDe(zone.couleur)
-    ZONE_PAR_NOM[zone.nom] = zone
-end
-local PERSOS = CONFIG.persos or {}
-for _, p in pairs(PERSOS) do
-    p.couleur = couleurDe(p.couleur)
-end
-local ORDRE_PERSOS = CONFIG.ordrePersos or { "Spark", "Flow", "Star", "Fury" }
-local AMELIOS = CONFIG.ameliorations or {}
-local RENAISSANCE = CONFIG.renaissance or { prixBase = 250000, croissance = 4, bonusAura = 0.5, bonusDegats = 0.25 }
+local PHONKS = CONFIG.phonks or {}
 
 local BLANC = Color3.new(1, 1, 1)
 local NOIR = Color3.new(0, 0, 0)
@@ -66,11 +54,12 @@ local OR = Color3.fromRGB(255, 220, 80)
 local ROUGE = Color3.fromRGB(255, 70, 70)
 local GRIS = Color3.fromRGB(165, 165, 180)
 local VERT = Color3.fromRGB(110, 230, 160)
+local ROSE = Color3.fromRGB(255, 60, 120)
 local FOND = Color3.fromRGB(12, 12, 16)
 local GRIS_FONCE = Color3.fromRGB(45, 45, 60)
 
 local surMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-local Actions = {} -- les fonctions que les blocs se partagent (ouvrirBoutique, basculerAuto...)
+local Actions = {} -- les fonctions que les blocs se partagent
 
 -- ========================== OUTILS ==========================
 local function nouveau(classe, proprietes)
@@ -140,9 +129,9 @@ local function attributJson(nom)
     local brut = joueur:GetAttribute(nom)
     return if type(brut) == "string" then lireJson(brut, {}) else {}
 end
-local function monAura()
+local function monArgent()
     local stats = joueur:FindFirstChild("leaderstats")
-    local aura = stats and stats:FindFirstChild("Aura")
+    local aura = stats and stats:FindFirstChild("Cash")
     return if aura then aura.Value else 0
 end
 
@@ -555,90 +544,22 @@ end
 -- ========================== L'INTERFACE ==========================
 local majHUD
 do
--- ---------- en haut à gauche : ton aura et tes stats ----------
-local carte = nouveau("Frame", { Position = UDim2.fromOffset(16, 62), Size = UDim2.fromOffset(270, 104), BackgroundColor3 = FOND, BackgroundTransparency = 0.2, ZIndex = 10, Parent = gui })
+-- ---------- en haut à gauche : ton argent ----------
+local carte = nouveau("Frame", { Position = UDim2.fromOffset(16, 62), Size = UDim2.fromOffset(260, 100), BackgroundColor3 = FOND, BackgroundTransparency = 0.2, ZIndex = 10, Parent = gui })
 nouveau("UICorner", { CornerRadius = UDim.new(0, 14), Parent = carte })
-nouveau("UIStroke", { Color = OR, Thickness = 2, Transparency = 0.2, Parent = carte })
-texte({ Position = UDim2.fromOffset(16, 8), Size = UDim2.fromOffset(120, 16), Text = "AURA", Font = Enum.Font.GothamBold, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
-local texteAura = texte({ Position = UDim2.fromOffset(14, 24), Size = UDim2.fromOffset(240, 42), Text = "0", TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
-local echelleAura = nouveau("UIScale", { Parent = texteAura })
-local texteStats = texte({ Position = UDim2.fromOffset(16, 70), Size = UDim2.fromOffset(240, 15), Font = Enum.Font.GothamBold, TextColor3 = Color3.fromRGB(220, 220, 232), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
-local texteStats2 = texte({ Position = UDim2.fromOffset(16, 86), Size = UDim2.fromOffset(240, 13), Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
+nouveau("UIStroke", { Color = VERT, Thickness = 2, Transparency = 0.2, Parent = carte })
+texte({ Position = UDim2.fromOffset(16, 8), Size = UDim2.fromOffset(120, 16), Text = "CASH", Font = Enum.Font.GothamBold, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
+local texteArgent = texte({ Position = UDim2.fromOffset(14, 24), Size = UDim2.fromOffset(230, 42), Text = "$0", TextColor3 = VERT, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
+local echelleArgent = nouveau("UIScale", { Parent = texteArgent })
+local texteRevenu = texte({ Position = UDim2.fromOffset(16, 68), Size = UDim2.fromOffset(230, 15), Font = Enum.Font.GothamBold, TextColor3 = Color3.fromRGB(220, 220, 232), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
+local textePlaces = texte({ Position = UDim2.fromOffset(16, 84), Size = UDim2.fromOffset(230, 12), Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = carte })
 
--- ---------- la prochaine zone à débloquer ----------
-local cadreSuivante = nouveau("Frame", { Position = UDim2.fromOffset(16, 174), Size = UDim2.fromOffset(270, 44), BackgroundColor3 = FOND, BackgroundTransparency = 0.25, ZIndex = 10, Parent = gui })
-nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = cadreSuivante })
-local contourSuivante = nouveau("UIStroke", { Color = BLANC, Thickness = 1.5, Transparency = 0.3, Parent = cadreSuivante })
-local texteSuivante = texte({ Position = UDim2.fromOffset(12, 5), Size = UDim2.new(1, -24, 0, 16), Font = Enum.Font.GothamBold, RichText = true, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = cadreSuivante })
-local railSuivante = nouveau("Frame", { Position = UDim2.fromOffset(12, 27), Size = UDim2.new(1, -24, 0, 8), BackgroundColor3 = GRIS_FONCE, BorderSizePixel = 0, ZIndex = 11, Parent = cadreSuivante })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = railSuivante })
-local rempliSuivante = nouveau("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = BLANC, BorderSizePixel = 0, ZIndex = 12, Parent = railSuivante })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempliSuivante })
-
--- ---------- la série de DISCIPLINE ----------
-local cadreSerie = nouveau("Frame", { Position = UDim2.fromOffset(16, 226), Size = UDim2.fromOffset(270, 34), BackgroundColor3 = FOND, BackgroundTransparency = 0.25, Visible = false, ZIndex = 10, Parent = gui })
-nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = cadreSerie })
-nouveau("UIStroke", { Color = PERSOS.Flow and PERSOS.Flow.couleur or BLANC, Thickness = 1.5, Parent = cadreSerie })
-local texteSerie = texte({ Position = UDim2.fromOffset(12, 4), Size = UDim2.new(1, -24, 0, 16), Font = Enum.Font.GothamBlack, TextColor3 = PERSOS.Flow and PERSOS.Flow.couleur or BLANC, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = cadreSerie })
-local railSerie = nouveau("Frame", { Position = UDim2.fromOffset(12, 23), Size = UDim2.new(1, -24, 0, 5), BackgroundColor3 = GRIS_FONCE, BorderSizePixel = 0, ZIndex = 11, Parent = cadreSerie })
-local rempliSerie = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = PERSOS.Flow and PERSOS.Flow.couleur or BLANC, BorderSizePixel = 0, ZIndex = 12, Parent = railSerie })
-local derniereSerie, heureSerie = 0, 0
-joueur:GetAttributeChangedSignal("Serie"):Connect(function()
-    local s = joueur:GetAttribute("Serie") or 0
-    if s > derniereSerie then
-        heureSerie = os.clock()
-        if s > 0 and s % 10 == 0 and joueur:GetAttribute("Perso") == "Flow" then
-            dire("Unstoppable flow.", PERSOS.Flow.couleur)
-        end
-    end
-    derniereSerie = s
-end)
-
--- ---------- la bannière de la zone (en haut au milieu) ----------
-local banniere = texte({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 62), Size = UDim2.fromOffset(600, 46), TextTransparency = 1, TextStrokeTransparency = 1, TextStrokeColor3 = NOIR, RichText = true, ZIndex = 20, Parent = gui })
-local sousBanniere = texte({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 108), Size = UDim2.fromOffset(500, 22), Font = Enum.Font.GothamBold, TextColor3 = Color3.fromRGB(230, 230, 240), TextTransparency = 1, TextStrokeTransparency = 1, ZIndex = 20, Parent = gui })
-local echelleBanniere = nouveau("UIScale", { Parent = banniere })
-local numeroBanniere = 0
-Actions.banniere = function(titre, sousTitre, couleur)
-    numeroBanniere += 1
-    local numero = numeroBanniere
-    banniere.Text = enCouleur(titre, couleur)
-    sousBanniere.Text = sousTitre
-    banniere.TextTransparency, banniere.TextStrokeTransparency = 0, 0
-    sousBanniere.TextTransparency, sousBanniere.TextStrokeTransparency = 0, 0.3
-    echelleBanniere.Scale = 0.6
-    tween(echelleBanniere, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
-    task.delay(3.2, function()
-        if numero == numeroBanniere then
-            tween(banniere, 0.5, { TextTransparency = 1, TextStrokeTransparency = 1 })
-            tween(sousBanniere, 0.5, { TextTransparency = 1, TextStrokeTransparency = 1 })
-        end
-    end)
-end
-
--- ---------- en bas au milieu : tes PV et ton niveau ----------
-local cadreVie = nouveau("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -40), Size = UDim2.fromOffset(380, 24), BackgroundColor3 = FOND, BackgroundTransparency = 0.15, ZIndex = 10, Parent = gui })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cadreVie })
-nouveau("UIStroke", { Color = BLANC, Thickness = 1.5, Transparency = 0.4, Parent = cadreVie })
-local traineeVie = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 230, 230), BorderSizePixel = 0, ZIndex = 11, Parent = cadreVie })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = traineeVie })
-local rempliVie = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(235, 60, 70), BorderSizePixel = 0, ZIndex = 12, Parent = cadreVie })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempliVie })
-local texteVie = texte({ Size = UDim2.fromScale(1, 1), TextStrokeTransparency = 0.3, ZIndex = 13, Parent = cadreVie })
-nouveau("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4), Parent = texteVie })
-local cadreXp = nouveau("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(380, 10), BackgroundColor3 = FOND, BackgroundTransparency = 0.15, ZIndex = 10, Parent = gui })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cadreXp })
-local rempliXp = nouveau("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(110, 190, 255), BorderSizePixel = 0, ZIndex = 11, Parent = cadreXp })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempliXp })
-local texteNiveau = texte({ AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(0, -10, 1, 2), Size = UDim2.fromOffset(90, 30), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromRGB(140, 200, 255), TextStrokeTransparency = 0.3, ZIndex = 11, Parent = cadreVie })
-local partVieAffichee = 1
-
--- ---------- l'aide (jusqu'au premier monstre battu) ----------
+-- ---------- l'aide en bas (au début) ----------
 local aide = texte({
     AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -76),
-    Size = UDim2.fromOffset(520, 22),
-    Text = if surMobile then "Walk to a monster and hold PUNCH to fight" else "Walk to a monster and CLICK (or hold) to fight",
+    Position = UDim2.new(0.5, 0, 1, -24),
+    Size = UDim2.fromOffset(620, 22),
+    Text = "Buy Phonks on the belt (E): they make cash in your base!",
     Font = Enum.Font.GothamBold,
     TextStrokeTransparency = 0.3,
     ZIndex = 10,
@@ -654,1071 +575,307 @@ Actions.cacherAide = function()
 end
 
 -- ---------- les boutons à droite ----------
-local colonne = nouveau("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, -20), Size = UDim2.fromOffset(150, 250), BackgroundTransparency = 1, ZIndex = 10, Parent = gui })
+local colonne = nouveau("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, -20), Size = UDim2.fromOffset(150, 100), BackgroundTransparency = 1, ZIndex = 10, Parent = gui })
 nouveau("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Right, Parent = colonne })
-local function boutonColonne(message, couleur, ordre, action)
-    local b = bouton({ Size = UDim2.fromOffset(150, 40), Text = message, LayoutOrder = ordre, ZIndex = 11, Parent = colonne }, couleur, false)
-    b.Activated:Connect(function()
-        sonClic(3 + ordre % 4)
-        action(b)
-    end)
-    return b
-end
-boutonColonne("SHOP", OR, 1, function()
-    Actions.ouvrirBoutique("Ameliorations")
+local boutonBase = bouton({ Size = UDim2.fromOffset(150, 40), Text = "MY BASE", LayoutOrder = 1, ZIndex = 11, Parent = colonne }, ROSE, false)
+boutonBase.Activated:Connect(function()
+    sonClic(4)
+    Actions.allerALaBase()
 end)
-boutonColonne("CLASSES", Color3.fromRGB(200, 140, 255), 2, function()
-    Actions.ouvrirBoutique("Persos")
-end)
-boutonColonne("REBIRTH", BLANC, 3, function()
-    Actions.ouvrirBoutique("Renaissance")
-end)
-local boutonAuto, contourAuto = bouton({ Size = UDim2.fromOffset(150, 40), Text = "AUTO: OFF", LayoutOrder = 4, ZIndex = 11, Parent = colonne }, GRIS, false)
-Actions.afficherAuto = function(actif)
-    boutonAuto.Text = if actif then "AUTO: ON" else "AUTO: OFF"
-    boutonAuto.TextColor3 = if actif then NOIR else GRIS
-    boutonAuto.BackgroundColor3 = if actif then VERT else FOND
-    boutonAuto.BackgroundTransparency = if actif then 0 else 0.12
-    contourAuto.Color = if actif then VERT else GRIS
-end
-boutonAuto.Activated:Connect(function()
+local boutonReglages = bouton({ Size = UDim2.fromOffset(150, 40), Text = "SETTINGS", LayoutOrder = 2, ZIndex = 11, Parent = colonne }, Color3.fromRGB(200, 200, 220), false)
+boutonReglages.Activated:Connect(function()
     sonClic(5)
-    Actions.basculerAuto()
-end)
-boutonColonne("SETTINGS", Color3.fromRGB(200, 200, 220), 5, function()
     Actions.ouvrirReglages()
 end)
 
--- ---------- sur téléphone : le gros bouton PUNCH ----------
-if UserInputService.TouchEnabled then
-    local b = bouton({ AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -24, 1, -170), Size = UDim2.fromOffset(96, 96), Text = "PUNCH", ZIndex = 12, Parent = gui }, OR, false)
-    b:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(1, 0)
-    b.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            Actions.appuyer(true)
-        end
-    end)
-    b.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            Actions.appuyer(false)
-        end
-    end)
-end
-
--- ---------- l'aura affichée compte jusqu'à la vraie ----------
-local auraAffichee = 0
-Actions.popAura = function()
-    echelleAura.Scale = 1.25
-    tween(echelleAura, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
-end
-
-local function prochaineZone()
-    local zones = attributJson("Zones")
-    for _, zone in ipairs(ZONES) do
-        if not zones[zone.nom] then
-            return zone
-        end
-    end
-    return nil
+-- l'argent affiché compte jusqu'au vrai
+local argentAffiche = 0
+Actions.popArgent = function()
+    echelleArgent.Scale = 1.25
+    tween(echelleArgent, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
 end
 
 majHUD = function(dt)
-    local vraie = monAura()
-    if math.abs(vraie - auraAffichee) < 1 then
-        auraAffichee = vraie
+    local vrai = monArgent()
+    if math.abs(vrai - argentAffiche) < 1 then
+        argentAffiche = vrai
     else
-        auraAffichee += (vraie - auraAffichee) * math.min(1, dt * 10)
+        argentAffiche += (vrai - argentAffiche) * math.min(1, dt * 10)
     end
-    texteAura.Text = court(auraAffichee)
-    local degats = joueur:GetAttribute("Degats") or 1
-    local par = 1 / (joueur:GetAttribute("Intervalle") or 0.5)
-    local mult = joueur:GetAttribute("MultAura") or 1
-    texteStats.Text = court(degats) .. " DMG  ·  " .. string.format("%.1f", par) .. "/s  ·  x" .. string.format("%.2f", mult):gsub("%.?0+$", "") .. " AURA"
-    local perso = joueur:GetAttribute("Perso") or "Spark"
-    local rebirths = joueur:GetAttribute("Rebirths") or 0
-    texteStats2.Text = string.upper(perso) .. "  ·  REBIRTHS " .. rebirths
-    texteStats2.TextColor3 = if PERSOS[perso] then PERSOS[perso].couleur:Lerp(BLANC, 0.3) else GRIS
-
-    local suivante = prochaineZone()
-    if suivante then
-        cadreSuivante.Visible = true
-        local part = math.clamp(vraie / math.max(1, suivante.prix), 0, 1)
-        texteSuivante.Text = "NEXT ZONE: " .. enCouleur(suivante.titre, suivante.couleur) .. "  ·  " .. court(suivante.prix) .. " AURA"
-        rempliSuivante.Size = UDim2.fromScale(part, 1)
-        rempliSuivante.BackgroundColor3 = if part >= 1 then VERT else suivante.couleur
-        contourSuivante.Color = if part >= 1 then VERT else BLANC
-    else
-        cadreSuivante.Visible = false
-    end
-
-    -- PV (avec une traînée claire qui descend doucement) + niveau et XP
-    local humanoid = joueur.Character and joueur.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        local part = math.clamp(humanoid.Health / math.max(1, humanoid.MaxHealth), 0, 1)
-        rempliVie.Size = UDim2.fromScale(part, 1)
-        partVieAffichee = if part > partVieAffichee then part else partVieAffichee + (part - partVieAffichee) * math.min(1, dt * 3)
-        traineeVie.Size = UDim2.fromScale(partVieAffichee, 1)
-        texteVie.Text = court(math.ceil(humanoid.Health)) .. " / " .. court(humanoid.MaxHealth) .. " HP"
-    end
-    texteNiveau.Text = "LV " .. (joueur:GetAttribute("Niveau") or 1)
-    rempliXp.Size = UDim2.fromScale(math.clamp((joueur:GetAttribute("Xp") or 0) / math.max(1, joueur:GetAttribute("XpMax") or 1), 0, 1), 1)
-
-    local serie = joueur:GetAttribute("Serie") or 0
-    if perso == "Flow" and serie > 0 then
-        cadreSerie.Visible = true
-        local s = CONFIG.serie or { delai = 8, bonus = 0.02, max = 1 }
-        texteSerie.Text = "STREAK x" .. serie .. "  ·  +" .. math.floor(math.min(s.max, serie * s.bonus) * 100 + 0.5) .. "% AURA"
-        rempliSerie.Size = UDim2.fromScale(math.clamp(1 - (os.clock() - heureSerie) / s.delai, 0, 1), 1)
-    else
-        cadreSerie.Visible = false
-    end
+    texteArgent.Text = "$" .. court(argentAffiche)
+    texteRevenu.Text = "+$" .. court(joueur:GetAttribute("Revenu") or 0) .. " / s"
+    local libres = joueur:GetAttribute("Libres") or 10
+    textePlaces.Text = "BASE  " .. (10 - libres) .. " / 10"
+    textePlaces.TextColor3 = if libres == 0 then ROUGE else GRIS
 end
 end -- fin du bloc de l'interface
 
--- ========================== LE COMBAT : FRAPPER ==========================
--- Combo de 4 : droite, gauche, droite, puis un GROS COUP des deux bras (le serveur fait x2 et envoie voler)
-do
-local PORTEE = CONFIG.portee or 7
-local dossierMonstres = workspace:WaitForChild("MindsetMonstres")
-local appuye, auto = false, false
-local prochaine = 0
-local combo, dernierCoup = 0, 0
-local originaux = setmetatable({}, { __mode = "k" })
-
--- l'épaule (R15 ou R6) et l'axe pour lever le bras vers l'avant
-local function epaule(personnage, nom)
-    local hautBras = personnage:FindFirstChild(nom .. "UpperArm")
-    local m = hautBras and hautBras:FindFirstChild(nom .. "Shoulder")
-    if m and m:IsA("Motor6D") then
-        return m, true
-    end
-    local torse = personnage:FindFirstChild("Torso")
-    m = torse and torse:FindFirstChild(nom .. " Shoulder")
-    if m and m:IsA("Motor6D") then
-        return m, false
-    end
-    return nil
-end
-
-local function animerCoup(personnage, n)
-    local cotes = if n == 4 then { "Right", "Left" } elseif n % 2 == 1 then { "Right" } else { "Left" }
-    for _, nom in ipairs(cotes) do
-        local m, r15 = epaule(personnage, nom)
-        if m then
-            local angle = math.rad(if n == 4 then 150 else 95)
-            local rotation = if r15 then CFrame.Angles(angle, 0, 0) else CFrame.Angles(0, 0, if nom == "Right" then angle else -angle)
-            local origine = originaux[m] or m.C0
-            originaux[m] = origine
-            tween(m, 0.05, { C0 = origine * rotation })
-            task.delay(if n == 4 then 0.2 else 0.11, function()
-                if m.Parent then
-                    tween(m, 0.14, { C0 = origine })
-                end
-            end)
-        end
-    end
-end
-
-local function cibleProche(racine)
-    local meilleur, score = nil, math.huge
-    local zones = attributJson("Zones")
-    local devant = racine.CFrame.LookVector
-    for _, modele in ipairs(dossierMonstres:GetChildren()) do
-        local corps = modele.PrimaryPart
-        if corps and not modele:GetAttribute("Mort") and zones[modele:GetAttribute("Zone") or ""] then
-            local ecart = corps.Position - racine.Position
-            local d = ecart.Magnitude - (modele:GetAttribute("Taille") or 4) * 0.5
-            if d <= PORTEE then
-                -- on préfère celui qui est devant soi
-                local s = d - (if ecart.Magnitude > 0.1 and ecart.Unit:Dot(devant) > 0.3 then 3 else 0)
-                if s < score then
-                    meilleur, score = modele, s
-                end
-            end
-        end
-    end
-    return meilleur
-end
-
-local function frapper(manuel)
+-- aller à sa base (le client contrôle son avatar : il peut le déplacer)
+Actions.allerALaBase = function()
+    local numero = joueur:GetAttribute("Base") or 0
+    local base = workspace:WaitForChild("MindsetMap"):WaitForChild("Bases"):FindFirstChild("Base" .. numero)
+    local collect = base and base:FindFirstChild("Collect")
     local personnage = joueur.Character
-    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
-    local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
-    if not racine or not humanoid or humanoid.Health <= 0 or humanoid.PlatformStand then
-        return
-    end
-    local maintenant = os.clock()
-    if maintenant < prochaine then
-        return
-    end
-    local cible = cibleProche(racine)
-    if not cible and not manuel then
-        return
-    end
-    prochaine = maintenant + math.max(0.1, joueur:GetAttribute("Intervalle") or 0.45)
-    if maintenant - dernierCoup > 1.1 then
-        combo = 0
-    end
-    combo = combo % 4 + 1
-    dernierCoup = maintenant
-    animerCoup(personnage, combo)
-    jouerSon("swoosh", (if combo == 4 then 1.05 else 1.4) + math.random() * 0.3, if combo == 4 then 0.3 else 0.18, nil, 0.2)
-    if cible then
-        -- on se tourne vers le monstre (et le gros coup fait avancer)
-        local p = cible.PrimaryPart.Position
-        local regard = Vector3.new(p.X, racine.Position.Y, p.Z)
-        if (regard - racine.Position).Magnitude > 0.5 then
-            racine.CFrame = CFrame.lookAt(racine.Position, regard)
-        end
-        if combo == 4 then
-            racine.AssemblyLinearVelocity += racine.CFrame.LookVector * 22
-        end
-        FrapperEvent:FireServer(cible)
+    if collect and personnage then
+        personnage:PivotTo(collect.CFrame + Vector3.new(0, 4, 0))
     end
 end
 
-Actions.appuyer = function(etat)
-    appuye = etat
-    if etat then
-        frapper(true)
-    end
-end
-Actions.basculerAuto = function()
-    auto = not auto
-    Actions.afficherAuto(auto)
-    notifier(if auto then "AUTO PUNCH: ON (stay near monsters)" else "AUTO PUNCH: OFF", if auto then VERT else GRIS)
-end
-
-UserInputService.InputBegan:Connect(function(input, dejaPris)
-    if dejaPris then
-        return
-    end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        Actions.appuyer(true)
-    end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        appuye = false
-    end
-end)
-RunService.Heartbeat:Connect(function()
-    if appuye or auto then
-        frapper(appuye)
-    end
-end)
-end -- fin du bloc pour frapper
-
--- ========================== LES MONSTRES (ce que tu vois) ==========================
+-- ========================== LE TAPIS ROULANT ==========================
+-- Le serveur met une « fiche » par Phonk (attributs Phonk + Debut) : ici, on dessine le modèle et on le fait avancer.
 do
-local dossierMonstres = workspace:WaitForChild("MindsetMonstres")
+local dossierTapis = ReplicatedStorage:WaitForChild("MindsetTapis")
+local dossierModeles = ReplicatedStorage:WaitForChild("MindsetPhonks")
+local depart = dossierTapis:GetAttribute("Depart") or Vector3.new(-170, 101.2, 0)
+local longueur = dossierTapis:GetAttribute("Longueur") or 340
+local vitesse = CONFIG.vitesseTapis or 7
+local dossierLocal = nouveau("Folder", { Name = "MindsetTapisLocal", Parent = workspace })
+local locaux = {} -- [fiche] = { modele, debut, graine, prix, labelPrix }
 
-local function couleurZone(nom)
-    local zone = ZONE_PAR_NOM[nom or ""]
-    return if zone then zone.couleur else BLANC
-end
-
--- le monstre flashe d'une couleur (blanc quand on le tape, rouge quand il prépare une attaque)
-local function flasherMonstre(modele, couleur, depart, duree)
-    local ancien = modele:FindFirstChild("MindsetFlash")
-    if ancien then
-        ancien:Destroy()
+local function ajouter(fiche)
+    if locaux[fiche] then
+        return
     end
-    local h = nouveau("Highlight", {
-        Name = "MindsetFlash",
-        FillColor = couleur,
-        OutlineColor = couleur,
-        FillTransparency = depart,
-        OutlineTransparency = 0.1,
-        DepthMode = Enum.HighlightDepthMode.Occluded,
-        Parent = modele,
+    local cle = fiche:GetAttribute("Phonk")
+    local def = PHONKS[cle or ""]
+    local modeleBase = dossierModeles:WaitForChild(cle or "", 5)
+    if not def or not modeleBase or not fiche.Parent then
+        return
+    end
+    local rarete = RARETE_PAR_CLE[def.rarete] or RARETES[1]
+    local modele = modeleBase:Clone()
+    local racine = modele.PrimaryPart
+    local hauteur = modele:GetAttribute("Hauteur") or 5
+    -- les infos au-dessus : nom, rareté, prix, revenu
+    local billboard = nouveau("BillboardGui", { Size = UDim2.fromOffset(170, 66), StudsOffsetWorldSpace = Vector3.new(0, hauteur + 2.4, 0), MaxDistance = 60, LightInfluence = 0, Parent = racine })
+    texte({ Size = UDim2.new(1, 0, 0.36, 0), Text = def.nom, TextStrokeTransparency = 0.2, TextColor3 = BLANC, Parent = billboard })
+    texte({ Position = UDim2.fromScale(0, 0.36), Size = UDim2.new(1, 0, 0.28, 0), Text = rarete.nom, TextStrokeTransparency = 0.2, TextColor3 = rarete.couleur, Parent = billboard })
+    local labelPrix = texte({ Position = UDim2.fromScale(0, 0.64), Size = UDim2.new(1, 0, 0.36, 0), Text = "$" .. court(def.prix) .. "  ·  +$" .. court(def.revenu) .. "/s", Font = Enum.Font.GothamBold, TextStrokeTransparency = 0.2, TextColor3 = VERT, Parent = billboard })
+    -- le bouton E pour l'acheter
+    local prompt = nouveau("ProximityPrompt", {
+        ActionText = "Buy",
+        ObjectText = def.nom .. " · $" .. court(def.prix),
+        KeyboardKeyCode = Enum.KeyCode.E,
+        HoldDuration = 0,
+        MaxActivationDistance = 11,
+        RequiresLineOfSight = false,
+        Parent = racine,
     })
-    tween(h, duree, { FillTransparency = 1, OutlineTransparency = 1 })
-    task.delay(duree + 0.05, function()
-        if h.Parent then
-            h:Destroy()
-        end
-    end)
-    return h
+    prompt:SetAttribute("Action", "Acheter")
+    prompt:SetAttribute("Id", tonumber(fiche.Name))
+    modele.Parent = dossierLocal
+    locaux[fiche] = { modele = modele, debut = fiche:GetAttribute("Debut") or workspace:GetServerTimeNow(), graine = math.random() * 6, prix = def.prix, labelPrix = labelPrix, rang = rarete.rang }
 end
 
--- les bras du golem
-local originauxBras = setmetatable({}, { __mode = "k" })
-local function bras(modele, rotation, duree)
-    for _, nom in ipairs({ "BrasGauche", "BrasDroit" }) do
-        local b = modele:FindFirstChild(nom)
-        local m = b and b:FindFirstChild("Epaule")
-        if m then
-            local origine = originauxBras[m] or m.C0
-            originauxBras[m] = origine
-            tween(m, duree, { C0 = origine * rotation }, Enum.EasingStyle.Quad)
+local function enlever(fiche)
+    local l = locaux[fiche]
+    if l then
+        locaux[fiche] = nil
+        local racine = l.modele.PrimaryPart
+        if racine then
+            eclats(racine.Position + Vector3.new(0, 2, 0), BLANC, 12, 1)
         end
+        l.modele:Destroy()
     end
 end
 
--- ⚠️ chaque monstre : on regarde quand il prépare une attaque, et quand il frappe
-local function suivreMonstre(modele)
-    local cercle = nil
-    modele:GetAttributeChangedSignal("Attaque"):Connect(function()
-        local corps = modele.PrimaryPart
-        if not corps or modele:GetAttribute("Mort") then
-            return
-        end
-        local camera = workspace.CurrentCamera
-        if camera and (camera.CFrame.Position - corps.Position).Magnitude > 140 then
-            return
-        end
-        local preparation = modele:GetAttribute("Preparation") or 0.6
-        local taille = modele:GetAttribute("Taille") or 4
-        -- rouge qui monte + « ! » au-dessus de la tête + les bras qui se lèvent
-        local h = flasherMonstre(modele, ROUGE, 0.9, preparation + 0.1)
-        h.FillTransparency = 0.9
-        tween(h, preparation, { FillTransparency = 0.35 })
-        texteFlottant(corps.Position + Vector3.new(0, taille * 1.1 + 2, 0), "!", ROUGE, 1.1, preparation)
-        bras(modele, CFrame.Angles(math.rad(160), 0, 0), preparation * 0.85)
-        local rayon = modele:GetAttribute("Rayon")
-        if rayon then
-            -- le BOSS : un cercle rouge au sol = la zone qu'il va frapper
-            if cercle then
-                cercle:Destroy()
-            end
-            cercle = nouveau("Part", {
-                Name = "ZoneBoss",
-                Anchored = true,
-                CanCollide = false,
-                CanQuery = false,
-                CanTouch = false,
-                CastShadow = false,
-                Shape = Enum.PartType.Cylinder,
-                Material = Enum.Material.Neon,
-                Color = ROUGE,
-                Transparency = 0.55,
-                Size = Vector3.new(0.2, 2, 2),
-                CFrame = CFrame.new(corps.Position - Vector3.new(0, taille * 0.5 - 0.15, 0)) * CFrame.Angles(0, 0, math.pi / 2),
-                Parent = dossierEffets,
-            })
-            tween(cercle, preparation, { Size = Vector3.new(0.2, rayon * 2, rayon * 2) })
-            jouerSon("tic", 0.5, 0.5)
-        end
-    end)
-    modele:GetAttributeChangedSignal("Frappe"):Connect(function()
-        local corps = modele.PrimaryPart
-        if not corps then
-            return
-        end
-        local taille = modele:GetAttribute("Taille") or 4
-        local sol = corps.Position - Vector3.new(0, taille * 0.5 - 0.2, 0)
-        local couleur = couleurZone(modele:GetAttribute("Zone"))
-        bras(modele, CFrame.Angles(math.rad(-25), 0, 0), 0.07)
-        task.delay(0.12, function()
-            bras(modele, CFrame.new(), 0.3)
-        end)
-        local camera = workspace.CurrentCamera
-        local distance = if camera then (camera.CFrame.Position - corps.Position).Magnitude else 0
-        if distance < 120 then
-            onde(sol, couleur:Lerp(ROUGE, 0.4), (modele:GetAttribute("Rayon") or taille) * 2.2, 0.35)
-            eclats(sol, couleur, 12, 1.2)
-            jouerSon("pose", 0.7, 0.35)
-        end
-        if cercle then
-            cercle:Destroy()
-            cercle = nil
-            secousse(if distance < 60 then 1 else 0.3)
-            jouerSon("boum", 0.75, 0.5)
-            flasher(ROUGE, 0.12)
-        end
-    end)
-    modele.AncestryChanged:Connect(function()
-        if not modele.Parent and cercle then
-            cercle:Destroy()
-            cercle = nil
-        end
-    end)
+for _, fiche in ipairs(dossierTapis:GetChildren()) do
+    task.spawn(ajouter, fiche)
 end
-for _, modele in ipairs(dossierMonstres:GetChildren()) do
-    suivreMonstre(modele)
-end
-dossierMonstres.ChildAdded:Connect(suivreMonstre)
+dossierTapis.ChildAdded:Connect(ajouter)
+dossierTapis.ChildRemoved:Connect(enlever)
 
--- 👊 un monstre prend un coup : flash blanc, éclats, chiffre, et (si c'est toi) le petit arrêt sur image
-ImpactEvent.OnClientEvent:Connect(function(modele, degats, attaquant, critique, lourd)
-    local corps = modele and modele.PrimaryPart
+-- ils avancent et bougent la tête en rythme (~ 130 BPM)
+local BATTEMENT = 60 / 130
+local derniereMaj = 0
+RunService.RenderStepped:Connect(function()
+    local maintenant = workspace:GetServerTimeNow()
+    local t = os.clock()
+    local argent = monArgent()
+    local majPrix = t - derniereMaj > 0.4
+    if majPrix then
+        derniereMaj = t
+    end
+    for _, l in pairs(locaux) do
+        local avance = math.clamp((maintenant - l.debut) * vitesse, 0, longueur)
+        local position = depart + Vector3.new(avance, 0, 0)
+        local phase = ((t + l.graine) % BATTEMENT) / BATTEMENT
+        local saut = math.abs(math.sin(phase * math.pi)) * 0.35
+        local balance = math.sin((t + l.graine) * math.pi / BATTEMENT) * 0.12
+        l.modele:PivotTo(CFrame.lookAt(position, position + Vector3.new(1, 0, 0)) * CFrame.new(0, saut, 0) * CFrame.Angles(0, 0, balance))
+        if majPrix then
+            l.labelPrix.TextColor3 = if argent >= l.prix then VERT else ROUGE
+        end
+    end
+end)
+end -- fin du bloc du tapis
+
+-- ========================== LES BASES (ce que tu vois) ==========================
+do
+local dossierBases = workspace:WaitForChild("MindsetMap"):WaitForChild("Bases")
+local dansants = {} -- [modele] = { base = CFrame, graine }
+
+-- les Phonks des bases bougent la tête en rythme
+local function suivre(objet)
+    if objet:IsA("Model") and objet:GetAttribute("Base") then
+        dansants[objet] = { base = objet:GetAttribute("Base"), graine = math.random() * 0.4 }
+    end
+end
+for _, objet in ipairs(dossierBases:GetDescendants()) do
+    suivre(objet)
+end
+dossierBases.DescendantAdded:Connect(suivre)
+dossierBases.DescendantRemoving:Connect(function(objet)
+    dansants[objet] = nil
+end)
+
+local BATTEMENT = 60 / 130
+RunService.RenderStepped:Connect(function()
     local camera = workspace.CurrentCamera
-    if not corps or not camera or (camera.CFrame.Position - corps.Position).Magnitude > 130 then
+    if not camera then
         return
     end
-    local couleur = couleurZone(modele:GetAttribute("Zone"))
-    local taille = modele:GetAttribute("Taille") or 4
-    local moi = attaquant == joueur
-    flasherMonstre(modele, BLANC, 0.05, 0.16)
-    eclats(corps.Position, couleur:Lerp(BLANC, 0.3), if moi then (if lourd then 22 else 10) else 4, if lourd then 2 else 1.1)
-    if not moi then
-        return
-    end
-    local couleurChiffre = if critique then OR elseif lourd then Color3.fromRGB(255, 150, 60) else BLANC
-    texteFlottant(corps.Position + Vector3.new(0, taille * 0.6, 0), (if critique then "CRIT " else "") .. court(degats), couleurChiffre, if lourd or critique then 1.25 else 0.85, 0.7)
-    jouerSon("coup", (if lourd then 0.7 else 0.9) + math.random() * 0.25, if lourd then 0.5 else 0.32)
-    if lourd then
-        hitstop(0.08)
-        secousse(0.55)
-        fovPulse = -5
-        onde(corps.Position, BLANC, taille * 2.4, 0.25)
-        jouerSon("boum", 1.3, 0.3)
-    else
-        hitstop(0.035)
-        secousse(if critique then 0.35 else 0.12)
+    local oeil = camera.CFrame.Position
+    local t = os.clock()
+    for modele, d in pairs(dansants) do
+        if modele.Parent and (d.base.Position - oeil).Magnitude < 160 then
+            local phase = ((t + d.graine) % BATTEMENT) / BATTEMENT
+            local saut = math.abs(math.sin(phase * math.pi)) * 0.3
+            local penche = math.sin((t + d.graine) * math.pi / BATTEMENT) * 0.1
+            modele:PivotTo(d.base * CFrame.new(0, saut, 0) * CFrame.Angles(penche * 0.5, 0, penche))
+        end
     end
 end)
 
--- 🤕 un monstre t'a touché : tu recules, l'écran flashe rouge
-CoupEvent.OnClientEvent:Connect(function(direction, force, degats)
-    local personnage = joueur.Character
-    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
-    local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
-    if not racine or not humanoid then
+-- les boutons « Sell » : seulement sur TA base
+local function filtrer(prompt)
+    if not prompt:IsA("ProximityPrompt") or prompt:GetAttribute("Action") ~= "Vendre" then
         return
     end
-    humanoid.PlatformStand = true
-    racine.AssemblyLinearVelocity = direction * force + Vector3.new(0, force * 0.45, 0)
-    task.delay(0.3, function()
-        if humanoid.Parent then
-            humanoid.PlatformStand = false
+    local function appliquer()
+        if prompt.Enabled and prompt:GetAttribute("Base") ~= joueur:GetAttribute("Base") then
+            prompt.Enabled = false
         end
-    end)
-    flasher(ROUGE, 0.3)
-    secousse(0.7)
-    hitstop(0.05)
-    jouerSon("coup", 0.6, 0.5)
-    texteFlottant(racine.Position + Vector3.new(0, 3, 0), "-" .. court(degats), ROUGE, 1, 0.7)
-    if degats >= humanoid.MaxHealth * 0.3 then
-        impactFrame()
     end
-end)
+    prompt:GetPropertyChangedSignal("Enabled"):Connect(appliquer)
+    appliquer()
+end
+for _, objet in ipairs(dossierBases:GetDescendants()) do
+    filtrer(objet)
+end
+dossierBases.DescendantAdded:Connect(filtrer)
+end -- fin du bloc des bases
 
--- 💥 un monstre est battu : il explose (le serveur fait voler les morceaux), et ton aura vole vers toi
-local orbes = {}
-local noteOrbe = 0
-MortEvent.OnClientEvent:Connect(function(position, gain, xp, typeMonstre, nomZone, taille)
-    local camera = workspace.CurrentCamera
-    local proche = camera and (camera.CFrame.Position - position).Magnitude < 160
-    if not proche and gain <= 0 then
-        return
-    end
-    local couleur = couleurZone(nomZone)
-    local gros = typeMonstre ~= "Petit"
-    eclats(position, couleur, if typeMonstre == "Boss" then 90 elseif gros then 40 else 24, if gros then 2.2 else 1.5)
-    onde(position - Vector3.new(0, (taille or 4) * 0.45, 0), couleur, (taille or 4) * 3.2, 0.45)
-    if proche then
-        jouerSon("boum", if gros then 0.9 else 1.3, if gros then 0.5 else 0.3)
-    end
-    if gain <= 0 then
+-- ========================== LES BOUTONS « E » ==========================
+-- les phrases qui s'affichent (style TikTok) quand tu achètes un Phonk rare
+local PHRASES = { "Phonk secured.", "Too much aura.", "Nobody can stop you now." }
+
+local function effetAchat(cle)
+    local def = PHONKS[cle]
+    local rarete = def and RARETE_PAR_CLE[def.rarete]
+    if not def or not rarete then
         return
     end
     Actions.cacherAide()
-    local nombre = if typeMonstre == "Boss" then 26 elseif gros then 10 else 4
-    for i = 1, nombre do
-        local boule = nouveau("Part", {
-            Shape = Enum.PartType.Ball,
-            Size = Vector3.new(0.9, 0.9, 0.9),
-            Material = Enum.Material.Neon,
-            Color = if i % 3 == 0 then BLANC else couleur:Lerp(OR, 0.5),
-            Anchored = true,
-            CanCollide = false,
-            CanQuery = false,
-            CanTouch = false,
-            CastShadow = false,
-            Position = position,
-            Parent = dossierEffets,
-        })
-        local direction = Vector3.new(math.random() - 0.5, math.random() * 0.8 + 0.3, math.random() - 0.5).Unit
-        table.insert(orbes, { part = boule, depart = position, eclatement = position + direction * (3 + math.random() * 4), debut = os.clock() + i * 0.025, duree = 0.55 + math.random() * 0.2 })
-    end
-    texteFlottant(position + Vector3.new(0, (taille or 4) * 0.7 + 1.5, 0), "+" .. court(gain) .. " AURA", OR, if gros then 1.3 else 0.95, 1.1)
-    if xp > 0 then
-        texteFlottant(position + Vector3.new(0, (taille or 4) * 0.7 + 0.2, 0), "+" .. court(xp) .. " XP", Color3.fromRGB(140, 200, 255), 0.75, 1.1)
-    end
-    if typeMonstre == "Gros" then
-        hitstop(0.09)
-        flasher(BLANC, 0.15)
-        secousse(0.45)
-    elseif typeMonstre == "Boss" then
-        local zone = ZONE_PAR_NOM[nomZone]
-        local nom = if zone and zone.noms then zone.noms.Boss else "BOSS"
-        hitstop(0.15)
-        editNoirEtBlanc(1.8, 1)
-        impactFrame()
-        modeCinema(2.4)
-        secousse(1.2)
-        jouerSon("boum", 0.7, 0.7)
-        annoncer(enCouleur(nom, couleur) .. " DEFEATED", "+" .. court(gain) .. " AURA", 2.6)
-        dire("Too much aura.", couleur, true)
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
     local personnage = joueur.Character
     local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
-    local t = os.clock()
-    for i = #orbes, 1, -1 do
-        local o = orbes[i]
-        local age = t - o.debut
-        if age >= 0 then
-            local cible = if racine then racine.Position else o.depart
-            local p
-            if age < 0.18 then
-                local a = age / 0.18
-                p = o.depart:Lerp(o.eclatement, 1 - (1 - a) * (1 - a))
-            else
-                local a = math.clamp((age - 0.18) / o.duree, 0, 1)
-                p = o.eclatement:Lerp(cible, a * a)
-            end
-            o.part.Position = p
-            if age >= 0.18 + o.duree then
-                o.part:Destroy()
-                table.remove(orbes, i)
-                noteOrbe = noteOrbe % 7 + 1
-                jouerSon("tic", 1.6 + noteOrbe * 0.12, 0.14, nil, 0.08)
-                Actions.popAura()
-            end
-        end
+    if racine then
+        eclats(racine.Position, rarete.couleur, 20 + rarete.rang * 8, 1.4)
+        onde(racine.Position - Vector3.new(0, 2.8, 0), rarete.couleur, 10 + rarete.rang * 3, 0.45)
     end
-end)
-end -- fin du bloc des monstres
-
--- ========================== LA BOUTIQUE ==========================
--- 3 onglets : UPGRADES (le marchand) · CLASSES · REBIRTH (la renaissance)
-do
-local fond = nouveau("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = NOIR, BackgroundTransparency = 1, AutoButtonColor = false, Text = "", Visible = false, ZIndex = 50, Parent = gui })
-local cadre = nouveau("TextButton", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(660, 460), BackgroundColor3 = FOND, AutoButtonColor = false, Text = "", ZIndex = 51, Parent = fond })
-nouveau("UICorner", { CornerRadius = UDim.new(0, 18), Parent = cadre })
-local contourCadre = nouveau("UIStroke", { Color = OR, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = cadre })
-local echelleCadre = nouveau("UIScale", { Parent = cadre })
-
-local onglets = {}
-local pages = {}
-local ongletActuel = "Ameliorations"
-local ORDRE_ONGLETS = {
-    { cle = "Ameliorations", nom = "UPGRADES", couleur = OR },
-    { cle = "Persos", nom = "CLASSES", couleur = Color3.fromRGB(200, 140, 255) },
-    { cle = "Renaissance", nom = "REBIRTH", couleur = BLANC },
-}
-local texteAuraBoutique = texte({ Position = UDim2.fromOffset(24, 64), Size = UDim2.fromOffset(400, 20), Font = Enum.Font.GothamBold, RichText = true, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 52, Parent = cadre })
-local fermer = bouton({ AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -18, 0, 16), Size = UDim2.fromOffset(100, 34), Text = "CLOSE", ZIndex = 52, Parent = cadre }, Color3.fromRGB(200, 200, 220), false)
-for i, o in ipairs(ORDRE_ONGLETS) do
-    local b, contour = bouton({ Position = UDim2.fromOffset(24 + (i - 1) * 140, 16), Size = UDim2.fromOffset(130, 36), Text = o.nom, ZIndex = 52, Parent = cadre }, o.couleur, false)
-    onglets[o.cle] = { bouton = b, contour = contour, couleur = o.couleur }
-    pages[o.cle] = nouveau("Frame", { Position = UDim2.fromOffset(20, 94), Size = UDim2.new(1, -40, 1, -112), BackgroundTransparency = 1, Visible = false, ZIndex = 52, Parent = cadre })
+    sonClic(4 + math.min(3, rarete.rang))
+    if rarete.rang >= 4 then
+        -- LÉGENDAIRE, MYTHIQUE, SECRET : le grand moment, en noir et blanc
+        editNoirEtBlanc(1.6 + (rarete.rang - 4) * 0.4, 1)
+        impactFrame()
+        modeCinema(2.4)
+        secousse(0.8 + (rarete.rang - 4) * 0.3)
+        jouerSon("boum", 0.8, 0.6)
+        annoncer(enCouleur(def.nom, rarete.couleur), rarete.nom, 2.6)
+        dire(PHRASES[math.random(1, #PHRASES)], rarete.couleur, true)
+    elseif rarete.rang == 3 then
+        flasher(rarete.couleur, 0.25)
+        secousse(0.35)
+        annoncer(enCouleur(def.nom, rarete.couleur), rarete.nom, 1.8)
+    else
+        notifier(def.nom .. " is in your base!", rarete.couleur)
+    end
 end
 
--- acheter (la réponse du serveur : ok, ou la raison du refus)
-local achatEnCours = false
-local majBoutique
-local function acheter(quoi, nom, silencieux)
-    if achatEnCours then
-        return false
-    end
-    achatEnCours = true
-    local ok, resultat = AcheterFonction:InvokeServer(quoi, nom)
-    achatEnCours = false
-    if ok then
-        if not silencieux then
-            sonClic(6)
+ProximityPromptService.PromptTriggered:Connect(function(prompt)
+    local action = prompt:GetAttribute("Action")
+    if action == "Acheter" then
+        local ok, resultat = ActionFonction:InvokeServer("Acheter", prompt:GetAttribute("Id"))
+        if ok then
+            effetAchat(resultat)
+        else
+            jouerSon("tic", 0.6, 0.5)
+            notifier(tostring(resultat), ROUGE)
         end
-    else
-        if not silencieux then
+    elseif action == "Vendre" then
+        local ok, resultat = ActionFonction:InvokeServer("Vendre", prompt:GetAttribute("Base"), prompt:GetAttribute("Emplacement"))
+        if ok then
+            sonClic(3)
+            notifier("+$" .. court(resultat) .. " (sold)", VERT)
+            Actions.popArgent()
+        else
             jouerSon("tic", 0.6, 0.5)
             notifier(tostring(resultat), ROUGE)
         end
     end
-    majBoutique()
-    return ok, resultat
-end
-
--- ---------- UPGRADES ----------
-local lignes = {}
-local function formatValeur(cle, v)
-    if cle == "Force" then
-        return court(v)
-    elseif cle == "Rapidite" then
-        return string.format("%.1f", 1 / v)
-    elseif cle == "Aimant" then
-        return "+" .. math.floor(v) .. "%"
-    elseif cle == "Vitalite" then
-        return court(v) .. " HP"
-    end
-    return tostring(math.floor(v))
-end
-for i, def in ipairs(AMELIOS) do
-    local ligne = nouveau("Frame", { Position = UDim2.fromOffset(0, (i - 1) * 84), Size = UDim2.new(1, 0, 0, 76), BackgroundColor3 = Color3.fromRGB(22, 22, 30), ZIndex = 53, Parent = pages.Ameliorations })
-    nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = ligne })
-    local nomL = texte({ Position = UDim2.fromOffset(16, 9), Size = UDim2.fromOffset(300, 24), Text = def.nom, TextColor3 = OR, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 54, Parent = ligne })
-    local effet = texte({ Position = UDim2.fromOffset(16, 37), Size = UDim2.fromOffset(330, 16), Font = Enum.Font.GothamBold, TextColor3 = Color3.fromRGB(220, 220, 232), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 54, Parent = ligne })
-    local niveau = texte({ Position = UDim2.fromOffset(16, 56), Size = UDim2.fromOffset(200, 13), Font = Enum.Font.GothamMedium, TextColor3 = GRIS, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 54, Parent = ligne })
-    local acheterB, contourA = bouton({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -96, 0.5, 0), Size = UDim2.fromOffset(150, 44), Text = "", ZIndex = 54, Parent = ligne }, VERT, true)
-    local maxB, contourM = bouton({ AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(76, 44), Text = "MAX", ZIndex = 54, Parent = ligne }, VERT, false)
-    lignes[i] = { def = def, effet = effet, niveau = niveau, acheter = acheterB, contourA = contourA, max = maxB, contourM = contourM, nom = nomL }
-    acheterB.Activated:Connect(function()
-        acheter("Amelioration", def.cle)
-    end)
-    -- MAX : on achète autant de niveaux que possible
-    maxB.Activated:Connect(function()
-        local achetes = 0
-        for _ = 1, 100 do
-            local ok = acheter("Amelioration", def.cle, true)
-            if not ok then
-                break
-            end
-            achetes += 1
-        end
-        if achetes > 0 then
-            sonClic(7)
-            notifier(def.nom .. " +" .. achetes, VERT)
-        else
-            jouerSon("tic", 0.6, 0.5)
-            notifier("Not enough aura", ROUGE)
-        end
-    end)
-end
-
--- ---------- CLASSES ----------
-local cartes = {}
-for i, nom in ipairs(ORDRE_PERSOS) do
-    local p = PERSOS[nom]
-    if p then
-        local carte = nouveau("Frame", { Position = UDim2.new((i - 1) * 0.25, 4, 0, 0), Size = UDim2.new(0.25, -8, 1, -4), BackgroundColor3 = Color3.fromRGB(22, 22, 30), ZIndex = 53, Parent = pages.Persos })
-        nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = carte })
-        local contour = nouveau("UIStroke", { Color = p.couleur, Thickness = 2, Transparency = 0.5, Parent = carte })
-        local barre = nouveau("Frame", { Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = p.couleur, BorderSizePixel = 0, ZIndex = 54, Parent = carte })
-        nouveau("UICorner", { CornerRadius = UDim.new(0, 12), Parent = barre })
-        texte({ Position = UDim2.fromOffset(10, 16), Size = UDim2.new(1, -20, 0, 26), Text = string.upper(nom), TextColor3 = p.couleur, ZIndex = 54, Parent = carte })
-        texte({ Position = UDim2.fromOffset(10, 46), Size = UDim2.new(1, -20, 0, 30), Text = p.devise, Font = Enum.Font.GothamMedium, TextWrapped = true, TextColor3 = GRIS, ZIndex = 54, Parent = carte })
-        texte({ Position = UDim2.fromOffset(10, 88), Size = UDim2.new(1, -20, 0, 18), Text = p.passif.nom, TextColor3 = BLANC, ZIndex = 54, Parent = carte })
-        texte({ Position = UDim2.fromOffset(10, 110), Size = UDim2.new(1, -20, 0, 120), Text = p.passif.texte, Font = Enum.Font.GothamMedium, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextColor3 = Color3.fromRGB(215, 215, 228), ZIndex = 54, Parent = carte })
-        local b, contourB = bouton({ AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -12), Size = UDim2.new(1, -20, 0, 42), Text = "", ZIndex = 54, Parent = carte }, p.couleur, true)
-        cartes[nom] = { bouton = b, contourB = contourB, contour = contour, couleur = p.couleur, prix = p.prix }
-        b.Activated:Connect(function()
-            acheter("Perso", nom)
-        end)
-    end
-end
-
--- ---------- REBIRTH ----------
-local pageR = pages.Renaissance
-texte({ Position = UDim2.fromOffset(0, 4), Size = UDim2.new(1, 0, 0, 40), Text = "REBIRTH", ZIndex = 53, Parent = pageR })
-local texteRebirths = texte({ Position = UDim2.fromOffset(0, 50), Size = UDim2.new(1, 0, 0, 22), Font = Enum.Font.GothamBold, RichText = true, ZIndex = 53, Parent = pageR })
-local texteBonus = texte({ Position = UDim2.fromOffset(0, 80), Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.GothamBold, RichText = true, TextColor3 = Color3.fromRGB(220, 220, 232), ZIndex = 53, Parent = pageR })
-texte({ Position = UDim2.fromOffset(40, 116), Size = UDim2.new(1, -80, 0, 40), Text = "You lose your aura and your upgrades.\nYou keep your zones and your classes.", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, ZIndex = 53, Parent = pageR })
-local railR = nouveau("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 176), Size = UDim2.new(0.8, 0, 0, 14), BackgroundColor3 = GRIS_FONCE, BorderSizePixel = 0, ZIndex = 53, Parent = pageR })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = railR })
-local rempliR = nouveau("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = BLANC, BorderSizePixel = 0, ZIndex = 54, Parent = railR })
-nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempliR })
-local texteRailR = texte({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 196), Size = UDim2.new(0.8, 0, 0, 16), Font = Enum.Font.GothamBold, TextColor3 = GRIS, ZIndex = 53, Parent = pageR })
-local boutonR, contourR = bouton({ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 232), Size = UDim2.fromOffset(300, 54), Text = "", ZIndex = 53, Parent = pageR }, BLANC, true)
-boutonR.Activated:Connect(function()
-    local ok = acheter("Renaissance", nil, true)
-    if ok then
-        Actions.fermerBoutique()
-    else
-        jouerSon("tic", 0.6, 0.5)
-        notifier("Not enough aura", ROUGE)
-    end
 end)
-
-local function prixRenaissance(n)
-    return math.floor(RENAISSANCE.prixBase * RENAISSANCE.croissance ^ n)
-end
-
--- tout remettre à jour (prix, niveaux, boutons)
-majBoutique = function()
-    local aura = monAura()
-    texteAuraBoutique.Text = "YOUR AURA: " .. enCouleur(court(aura), OR)
-    local niveaux = attributJson("Niveaux")
-    for _, l in ipairs(lignes) do
-        local n = niveaux[l.def.cle] or 0
-        local auMax = n >= l.def.max
-        local actuelle = formatValeur(l.def.cle, l.def.valeurs[n + 1] or 0)
-        if auMax then
-            l.effet.Text = l.def.texte .. ": " .. actuelle
-            l.acheter.Text = "MAX LEVEL"
-        else
-            l.effet.Text = l.def.texte .. ": " .. actuelle .. " → " .. formatValeur(l.def.cle, l.def.valeurs[n + 2] or 0)
-            l.acheter.Text = "BUY · " .. court(l.def.prix[n + 1] or 0)
-        end
-        l.niveau.Text = "LV " .. n .. " / " .. l.def.max
-        local peut = not auMax and aura >= (l.def.prix[n + 1] or math.huge)
-        l.acheter.BackgroundColor3 = if peut then VERT else GRIS_FONCE
-        l.acheter.TextColor3 = if peut then NOIR else GRIS
-        l.contourA.Color = if peut then VERT else GRIS_FONCE
-        l.max.TextColor3 = if peut then VERT else GRIS
-        l.contourM.Color = if peut then VERT else GRIS_FONCE
-        l.max.Visible = not auMax
-    end
-    local persos = attributJson("Persos")
-    local equipe = joueur:GetAttribute("Perso")
-    for nom, c in pairs(cartes) do
-        if equipe == nom then
-            c.bouton.Text = "EQUIPPED"
-            c.bouton.BackgroundColor3 = GRIS_FONCE
-            c.bouton.TextColor3 = c.couleur
-            c.contourB.Color = c.couleur
-            c.contour.Transparency = 0
-        elseif persos[nom] then
-            c.bouton.Text = "EQUIP"
-            c.bouton.BackgroundColor3 = c.couleur
-            c.bouton.TextColor3 = NOIR
-            c.contourB.Color = c.couleur
-            c.contour.Transparency = 0.5
-        else
-            local peut = aura >= c.prix
-            c.bouton.Text = "BUY · " .. court(c.prix)
-            c.bouton.BackgroundColor3 = if peut then OR else GRIS_FONCE
-            c.bouton.TextColor3 = if peut then NOIR else GRIS
-            c.contourB.Color = if peut then OR else GRIS_FONCE
-            c.contour.Transparency = 0.7
-        end
-    end
-    local r = joueur:GetAttribute("Rebirths") or 0
-    local prix = prixRenaissance(r)
-    texteRebirths.Text = "REBIRTHS: " .. enCouleur(tostring(r), OR)
-    local function bonus(n)
-        return "+" .. math.floor(RENAISSANCE.bonusAura * n * 100 + 0.5) .. "% aura  ·  +" .. math.floor(RENAISSANCE.bonusDegats * n * 100 + 0.5) .. "% damage"
-    end
-    texteBonus.Text = "NOW: " .. bonus(r) .. "   →   " .. enCouleur(bonus(r + 1), VERT)
-    rempliR.Size = UDim2.fromScale(math.clamp(aura / prix, 0, 1), 1)
-    texteRailR.Text = court(aura) .. " / " .. court(prix) .. " AURA"
-    local peut = aura >= prix
-    boutonR.Text = "REBIRTH · " .. court(prix)
-    boutonR.BackgroundColor3 = if peut then BLANC else GRIS_FONCE
-    boutonR.TextColor3 = if peut then NOIR else GRIS
-    contourR.Color = if peut then BLANC else GRIS_FONCE
-end
-
-local function montrerOnglet(cle)
-    ongletActuel = cle
-    for k, o in pairs(onglets) do
-        local actif = k == cle
-        pages[k].Visible = actif
-        o.bouton.BackgroundColor3 = if actif then o.couleur else FOND
-        o.bouton.BackgroundTransparency = if actif then 0 else 0.12
-        o.bouton.TextColor3 = if actif then NOIR else o.couleur
-    end
-    contourCadre.Color = onglets[cle].couleur
-    majBoutique()
-end
-for cle, o in pairs(onglets) do
-    o.bouton.Activated:Connect(function()
-        sonClic(4)
-        montrerOnglet(cle)
-    end)
-end
-
-local function echelleEcran()
-    local camera = workspace.CurrentCamera
-    local taille = if camera then camera.ViewportSize else Vector2.new(1280, 720)
-    return math.min(1, (taille.X - 24) / 680, (taille.Y - 24) / 480)
-end
-Actions.ouvrirBoutique = function(cle)
-    montrerOnglet(cle or ongletActuel)
-    if fond.Visible then
-        return
-    end
-    fond.Visible = true
-    fond.BackgroundTransparency = 1
-    tween(fond, 0.3, { BackgroundTransparency = 0.45 })
-    local e = echelleEcran()
-    echelleCadre.Scale = e * 0.75
-    tween(echelleCadre, 0.4, { Scale = e }, Enum.EasingStyle.Back)
-end
-Actions.fermerBoutique = function()
-    if not fond.Visible then
-        return
-    end
-    tween(fond, 0.2, { BackgroundTransparency = 1 })
-    tween(echelleCadre, 0.2, { Scale = echelleEcran() * 0.8 })
-    task.delay(0.2, function()
-        fond.Visible = false
-    end)
-end
-fermer.Activated:Connect(function()
-    sonClic(1)
-    Actions.fermerBoutique()
-end)
-fond.Activated:Connect(Actions.fermerBoutique)
-
--- mise à jour quand ton aura ou tes infos changent (seulement si la boutique est ouverte)
-local function siOuverte()
-    if fond.Visible then
-        majBoutique()
-    end
-end
-for _, nom in ipairs({ "Niveaux", "Persos", "Perso", "Rebirths" }) do
-    joueur:GetAttributeChangedSignal(nom):Connect(siOuverte)
-end
-task.spawn(function()
-    local aura = joueur:WaitForChild("leaderstats"):WaitForChild("Aura")
-    aura.Changed:Connect(siOuverte)
-end)
-end -- fin du bloc de la boutique
-
--- ========================== LES BOUTONS « E » ET LES PORTES DES ZONES ==========================
-do
-local dossierPortes = workspace:WaitForChild("MindsetMap"):WaitForChild("Portes")
-ProximityPromptService.PromptTriggered:Connect(function(prompt)
-    local action = prompt:GetAttribute("Action")
-    if action == "Boutique" then
-        sonClic(4)
-        Actions.ouvrirBoutique("Ameliorations")
-    elseif action == "Persos" then
-        sonClic(4)
-        Actions.ouvrirBoutique("Persos")
-    elseif action == "Renaissance" then
-        sonClic(4)
-        Actions.ouvrirBoutique("Renaissance")
-    elseif action == "Porte" then
-        local nom = prompt:GetAttribute("Zone")
-        local ok, resultat = AcheterFonction:InvokeServer("Zone", nom)
-        if not ok then
-            jouerSon("tic", 0.6, 0.5)
-            local zone = ZONE_PAR_NOM[nom or ""]
-            if resultat == "Not enough aura" and zone then
-                notifier("You need " .. court(zone.prix - monAura()) .. " more aura", ROUGE)
-            else
-                notifier(tostring(resultat), ROUGE)
-            end
-        end
-    end
-end)
-
--- une zone débloquée = sa porte disparaît (seulement pour toi)
-local function majPortes()
-    local zones = attributJson("Zones")
-    for _, porte in ipairs(dossierPortes:GetChildren()) do
-        if porte:IsA("BasePart") then
-            local ouverte = zones[porte:GetAttribute("Zone") or ""] == true
-            porte.CanCollide = not ouverte
-            porte.Transparency = if ouverte then 1 else 0.45
-            for _, enfant in ipairs(porte:GetChildren()) do
-                if enfant:IsA("SurfaceGui") then
-                    enfant.Enabled = not ouverte
-                elseif enfant:IsA("ProximityPrompt") then
-                    enfant.Enabled = not ouverte
-                end
-            end
-        end
-    end
-end
-joueur:GetAttributeChangedSignal("Zones"):Connect(majPortes)
-dossierPortes.ChildAdded:Connect(majPortes)
-majPortes()
-end -- fin du bloc des portes
-
--- ========================== L'AMBIANCE DES ZONES ==========================
-do
-local AMBIANCES = {
-    Ville = { heure = 15, teinte = BLANC, atmo = Color3.fromRGB(200, 200, 215), densite = 0.28 },
-    Forest = { heure = 7.5, teinte = Color3.fromRGB(228, 255, 228), atmo = Color3.fromRGB(170, 215, 165), densite = 0.34 },
-    Ice = { heure = 12, teinte = Color3.fromRGB(215, 235, 255), atmo = Color3.fromRGB(205, 228, 245), densite = 0.38 },
-    Volcano = { heure = 18.2, teinte = Color3.fromRGB(255, 212, 185), atmo = Color3.fromRGB(200, 80, 40), densite = 0.42 },
-    Cosmos = { heure = 0.2, teinte = Color3.fromRGB(222, 205, 255), atmo = Color3.fromRGB(60, 30, 110), densite = 0.35 },
-}
-local teinte = nouveau("ColorCorrectionEffect", { Name = "MindsetAmbiance", Parent = Lighting })
-local derniereZone = nil
-local dejaDit = {}
-local function appliquer(nom)
-    local a = AMBIANCES[nom]
-    if not a then
-        return -- (sur un pont : on garde l'ambiance d'avant)
-    end
-    tween(Lighting, 2.5, { ClockTime = a.heure }, Enum.EasingStyle.Sine)
-    tween(teinte, 2.5, { TintColor = a.teinte })
-    local atmo = Lighting:FindFirstChild("MindsetAtmo")
-    if atmo then
-        tween(atmo, 2.5, { Color = a.atmo, Density = a.densite })
-    end
-end
-local function surZone()
-    local nom = joueur:GetAttribute("Zone") or "Ville"
-    if nom == derniereZone then
-        return
-    end
-    derniereZone = nom
-    appliquer(nom)
-    local zone = ZONE_PAR_NOM[nom]
-    if zone then
-        Actions.banniere(zone.titre, "ZONE " .. zone.index .. "  ·  x" .. court(zone.aura) .. " AURA", zone.couleur)
-        if os.clock() - (dejaDit[nom] or -1000) > 90 then
-            dejaDit[nom] = os.clock()
-            dire(zone.phrase, zone.couleur)
-        end
-        jouerSon("eau", 0.7, 0.3)
-    elseif nom == "Ville" then
-        Actions.banniere("AURA CITY", "SAFE ZONE  ·  SHOP  ·  CLASSES  ·  REBIRTH", BLANC)
-    end
-end
-joueur:GetAttributeChangedSignal("Zone"):Connect(surZone)
-task.delay(1, surZone)
-end -- fin du bloc de l'ambiance
 
 -- ========================== CE QUI ARRIVE (messages du serveur) ==========================
 EvenementEvent.OnClientEvent:Connect(function(quoi, a, b)
-    if quoi == "Debloque" then
-        local zone = ZONE_PAR_NOM[a]
-        if not zone then
-            return
-        end
-        editNoirEtBlanc(1.6, 1)
-        impactFrame()
-        modeCinema(2.4)
-        secousse(1)
-        jouerSon("boum", 0.9, 0.6)
-        annoncer(enCouleur(zone.titre, zone.couleur), "ZONE UNLOCKED  ·  x" .. court(zone.aura) .. " AURA", 2.6)
-        dire(zone.phrase, zone.couleur, true)
-    elseif quoi == "Renaissance" then
-        editNoirEtBlanc(2.2, 1)
-        impactFrame()
-        modeCinema(2.8)
-        secousse(1.3)
-        flasher(BLANC, 0.8)
-        jouerSon("boum", 0.7, 0.7)
-        annoncer("REBIRTH " .. tostring(a), "+" .. math.floor(RENAISSANCE.bonusAura * a * 100 + 0.5) .. "% AURA  ·  +" .. math.floor(RENAISSANCE.bonusDegats * a * 100 + 0.5) .. "% DAMAGE  ·  FOREVER", 3)
-        dire("Reborn stronger.", BLANC, true)
-    elseif quoi == "NouveauPerso" then
-        local p = PERSOS[a]
-        if not p then
-            return
-        end
-        editNoirEtBlanc(1.2, 0.8)
-        impactFrame()
-        jouerSon("boum", 1.1, 0.45)
-        annoncer(enCouleur(string.upper(a), p.couleur), "NEW CLASS  ·  " .. p.passif.nom, 2.4)
-        dire(p.devise or "", p.couleur, true)
-    elseif quoi == "Boss" then
-        local zone = ZONE_PAR_NOM[a]
-        if not zone then
-            return
-        end
-        local nom = zone.noms and zone.noms.Boss or "BOSS"
-        jouerSon("boum", 0.6, 0.4)
-        notifier("BOSS: " .. nom .. " appeared in " .. zone.titre .. "!", zone.couleur)
-        if joueur:GetAttribute("Zone") == a then
-            editNoirEtBlanc(1, 0.7)
-            impactFrame()
-            secousse(0.8)
-            annoncer(enCouleur(nom, zone.couleur), "Beat it together: everyone gets a share!", 2.4)
-        end
-    elseif quoi == "BossMort" then
-        local zone = ZONE_PAR_NOM[a]
-        if b and b ~= "" then
-            notifier(b .. " dealt the most damage to " .. (if zone and zone.noms then zone.noms.Boss else "the boss"), if zone then zone.couleur else BLANC)
-        end
-    elseif quoi == "BossFuite" then
-        local zone = ZONE_PAR_NOM[a]
-        notifier((if zone and zone.noms then zone.noms.Boss else "The boss") .. " left...", GRIS)
-    elseif quoi == "Niveau" then
-        -- ⬆️ un niveau de plus
+    if quoi == "Collecte" then
+        -- 💰 l'argent récupéré sur le carré COLLECT
         local personnage = joueur.Character
         local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
-        flasher(Color3.fromRGB(140, 200, 255), 0.3)
-        jouerSon("tic", 1, 0.5)
-        jouerSon("tic", 1.5, 0.45, 0.08)
-        jouerSon("tic", 2, 0.4, 0.16)
         if racine then
-            onde(racine.Position - Vector3.new(0, 2.8, 0), Color3.fromRGB(140, 200, 255), 16, 0.5)
-            eclats(racine.Position, Color3.fromRGB(140, 200, 255), 30, 1.4)
+            texteFlottant(racine.Position + Vector3.new(0, 3.5, 0), "+$" .. court(a), VERT, 1.3, 1.1)
+            eclats(racine.Position, VERT, 26, 1.3)
         end
-        annoncer("LEVEL " .. tostring(a), "+3% DAMAGE  ·  +2% HEALTH  ·  FULL HEALTH", 1.8)
+        for i = 0, 4 do
+            jouerSon("tic", 1.5 + i * 0.15, 0.25, i * 0.05, 0.08)
+        end
+        Actions.popArgent()
+    elseif quoi == "RareTapis" then
+        local def = PHONKS[a]
+        local rarete = def and RARETE_PAR_CLE[def.rarete]
+        if rarete then
+            jouerSon("boum", 1.2, 0.35)
+            notifier("A " .. rarete.nom .. " Phonk is on the belt: " .. def.nom .. "!", rarete.couleur)
+        end
+    elseif quoi == "AchatRare" then
+        local def = PHONKS[b]
+        local rarete = def and RARETE_PAR_CLE[def.rarete]
+        if rarete and a ~= joueur.DisplayName then
+            notifier(a .. " bought " .. def.nom .. "!", rarete.couleur)
+        end
     end
 end)
 MessageEvent.OnClientEvent:Connect(function(message, couleur)
     notifier(message, if typeof(couleur) == "Color3" then couleur else BLANC)
 end)
 
--- la ville : le halo tourne, l'orbe et les rochers flottent, la zone AFK respire
-do
-local carte = workspace:WaitForChild("MindsetMap")
-local tournants, flottants, pulses = {}, {}, {}
-for _, objet in ipairs(carte:GetDescendants()) do
-    if objet:IsA("BasePart") then
-        if objet:GetAttribute("Tourne") then
-            table.insert(tournants, { part = objet, cf = objet.CFrame })
-        elseif objet:GetAttribute("Flotte") then
-            table.insert(flottants, { part = objet, cf = objet.CFrame, g = math.random() * 6 })
-        elseif objet:GetAttribute("Pulse") then
-            table.insert(pulses, objet)
-        end
-    end
-end
-RunService.RenderStepped:Connect(function()
-    local t = os.clock()
-    for _, o in ipairs(tournants) do
-        o.part.CFrame = CFrame.new(o.cf.Position) * CFrame.Angles(0, t * 0.8, 0) * (o.cf - o.cf.Position)
-    end
-    for _, o in ipairs(flottants) do
-        o.part.CFrame = o.cf + Vector3.new(0, math.sin(t * 0.9 + o.g) * 1.2, 0)
-    end
-    for _, p in ipairs(pulses) do
-        p.Transparency = 0.55 + math.sin(t * 2) * 0.2
-    end
-end)
-end
-
 -- ========================== LANGUE (anglais / français) ==========================
 -- Tout le jeu est écrit en anglais. Ce bloc traduit À LA VOLÉE chaque texte affiché (l'interface,
--- les panneaux de la carte, les barres des cristaux, les boutons « E ») :
+-- les panneaux de la map, les boutons « E ») :
 --   FR_EXACT  = les phrases fixes
 --   FR_MOTIFS = les phrases avec des nombres ou des noms dedans (motifs Lua, %1 = ce qui est entre parenthèses)
---   FR_NOMS   = les noms des zones, remplacés partout où ils apparaissent
+-- Les noms des Phonks restent en anglais (comme des noms de persos).
 -- Pour ajouter une traduction : ajoute une ligne ici, rien d'autre à toucher.
 local Langue = {}
 do
 local LocalizationService = game:GetService("LocalizationService")
 
-local FR_NOMS = {
-    { "EMERALD FOREST", "FORÊT D'ÉMERAUDE" },
-    { "FROZEN PEAKS", "PICS GELÉS" },
-    { "MAGMA CORE", "CŒUR DE MAGMA" },
-    { "COSMIC VOID", "VIDE COSMIQUE" },
-    { "AURA CITY", "VILLE DE L'AURA" },
-    -- les monstres
-    { "ANCIENT TREANT", "TRÉANT ANCIEN" },
-    { "FROST TITAN", "TITAN DE GIVRE" },
-    { "INFERNO LORD", "SEIGNEUR DES FLAMMES" },
-    { "COSMIC OVERLORD", "SEIGNEUR COSMIQUE" },
-    { "MOSS GOLEM", "GOLEM DE MOUSSE" },
-    { "ICE GOLEM", "GOLEM DE GLACE" },
-    { "LAVA GOLEM", "GOLEM DE LAVE" },
-    { "STAR GOLEM", "GOLEM STELLAIRE" },
-    { "SNOW SLIME", "SLIME DE NEIGE" },
-    { "MAGMA SLIME", "SLIME DE MAGMA" },
-    { "VOID SLIME", "SLIME DU VIDE" },
-}
-
 local FR_EXACT = {
     -- l'interface
-    ["SHOP"] = "BOUTIQUE",
-    ["REBIRTH"] = "RENAISSANCE",
-    ["AUTO: ON"] = "AUTO : OUI",
-    ["AUTO: OFF"] = "AUTO : NON",
+    ["CASH"] = "ARGENT",
+    ["MY BASE"] = "MA BASE",
     ["SETTINGS"] = "PARAMÈTRES",
-    ["PUNCH"] = "FRAPPER",
     ["CLOSE"] = "FERMER",
-    ["UPGRADES"] = "AMÉLIORATIONS",
-    ["MAX"] = "MAX",
-    ["MAX LEVEL"] = "NIVEAU MAX",
-    ["EQUIPPED"] = "ÉQUIPÉ",
-    ["EQUIP"] = "ÉQUIPER",
-    ["POWER"] = "FORCE",
-    ["PUNCH SPEED"] = "VITESSE DE FRAPPE",
-    ["AURA BOOST"] = "BONUS D'AURA",
-    ["HEALTH"] = "VIE",
-    ["Walk to a monster and CLICK (or hold) to fight"] = "Va près d'un monstre et CLIQUE (ou maintiens) pour te battre",
-    ["Walk to a monster and hold PUNCH to fight"] = "Va près d'un monstre et maintiens FRAPPER pour te battre",
-    ["AUTO PUNCH: ON (stay near monsters)"] = "COUPS AUTO : OUI (reste près des monstres)",
-    ["SLIME"] = "SLIME",
-    ["Beat it together: everyone gets a share!"] = "Battez-le ensemble : chacun a sa part !",
-    ["+3% DAMAGE  ·  +2% HEALTH  ·  FULL HEALTH"] = "+3 % DÉGÂTS  ·  +2 % PV  ·  PV AU MAX",
-    ["AUTO PUNCH: OFF"] = "COUPS AUTO : NON",
-    ["You lose your aura and your upgrades.\nYou keep your zones and your classes."] = "Tu perds ton aura et tes améliorations.\nTu gardes tes zones et tes classes.",
+    ["Buy Phonks on the belt (E): they make cash in your base!"] = "Achète des Phonks sur le tapis (E) : ils rapportent de l'argent dans ta base !",
     ["Your settings are saved for next time."] = "Tes réglages sont gardés pour la prochaine fois.",
     ["MUSIC"] = "MUSIQUE",
     ["SOUND EFFECTS (clicks, menu sounds, effects)"] = "BRUITAGES (clics, sons du menu, effets)",
@@ -1727,111 +884,48 @@ local FR_EXACT = {
     ["LANGUAGE"] = "LANGUE",
     ["ON"] = "OUI",
     ["OFF"] = "NON",
+    -- les raretés
+    ["COMMON"] = "COMMUN",
+    ["RARE"] = "RARE",
+    ["EPIC"] = "ÉPIQUE",
+    ["LEGENDARY"] = "LÉGENDAIRE",
+    ["MYTHIC"] = "MYTHIQUE",
+    ["SECRET"] = "SECRET",
+    -- la map et les boutons « E »
+    ["COLLECT"] = "RÉCUPÉRER",
+    ["EMPTY BASE"] = "BASE LIBRE",
+    ["Buy"] = "Acheter",
+    ["Sell"] = "Revendre",
+    ["TOP 10 · MOST CASH EARNED"] = "TOP 10 · LE PLUS D'ARGENT GAGNÉ",
+    ["TOP 10 · BEST INCOME"] = "TOP 10 · MEILLEUR REVENU",
+    ["Loading..."] = "Chargement...",
+    ["No record yet: be the first!"] = "Pas encore de record : sois le premier !",
     -- les messages du serveur
-    ["Not enough aura"] = "Pas assez d'aura",
-    ["Already at max level"] = "Déjà au niveau max",
-    ["Already unlocked"] = "Déjà débloquée",
-    ["Already equipped"] = "Déjà équipé",
-    ["Unlock the previous zone first"] = "Débloque d'abord la zone d'avant",
+    ["Too late!"] = "Trop tard !",
+    ["Get closer!"] = "Rapproche-toi !",
+    ["You don't have a base yet"] = "Tu n'as pas encore de base",
+    ["Your base is full! Sell a Phonk first."] = "Ta base est pleine ! Revends d'abord un Phonk.",
+    ["Not enough cash"] = "Pas assez d'argent",
+    ["That's not yours!"] = "Ce n'est pas à toi !",
     ["Still loading your data..."] = "Chargement de tes données...",
     ["Wait a second..."] = "Attends une seconde...",
     ["Try again in a second..."] = "Réessaie dans une seconde...",
-    ["This zone is locked!"] = "Cette zone est fermée !",
-    -- la carte
-    ["AURA MERCHANT"] = "MARCHAND D'AURA",
-    ["AFK ZONE"] = "ZONE AFK",
-    ["TOP 10 · TOTAL AURA"] = "TOP 10 · AURA TOTALE",
-    ["TOP 10 · REBIRTHS"] = "TOP 10 · RENAISSANCES",
-    ["Loading..."] = "Chargement...",
-    ["No record yet: be the first!"] = "Pas encore de record : sois le premier !",
-    -- les boutons « E »
-    ["Shop"] = "Boutique",
-    ["Aura Merchant"] = "Marchand d'aura",
-    ["Rebirth"] = "Renaissance",
-    ["Rebirth Altar"] = "Autel de renaissance",
-    ["Unlock"] = "Débloquer",
+    ["The server is full: no free base."] = "Le serveur est plein : plus de base libre.",
     -- les phrases style TikTok
-    ["Every legend starts somewhere."] = "Toute légende commence quelque part.",
-    ["Only the strong survive the cold."] = "Seuls les forts survivent au froid.",
-    ["Feel the heat."] = "Sens la chaleur.",
-    ["Beyond every limit."] = "Au-delà de toutes les limites.",
+    ["Phonk secured."] = "Phonk sécurisé.",
     ["Too much aura."] = "Trop d'aura.",
-    ["Reborn stronger."] = "Renaître plus fort.",
-    ["Unstoppable flow."] = "Un flow inarrêtable.",
-    -- les classes
-    ["Hits first. Hits hard."] = "Frappe en premier. Frappe fort.",
-    ["Never stops."] = "Ne s'arrête jamais.",
-    ["All eyes on you."] = "Tous les regards sur toi.",
-    ["Slow start. Unstoppable end."] = "Départ lent. Fin inarrêtable.",
-    ["FIRST STRIKE"] = "PREMIER COUP",
-    ["STREAK"] = "SÉRIE",
-    ["SPOTLIGHT"] = "PROJECTEUR",
-    ["RAGE"] = "RAGE",
-    ["Your first hit on every monster deals x3 damage."] = "Ton premier coup sur chaque monstre fait x3 dégâts.",
-    ["Every monster you beat in a row gives +2% aura (up to +100%). Stop for 10 s and it resets."] = "Chaque monstre battu d'affilée donne +2 % d'aura (jusqu'à +100 %). Arrête-toi 10 s et ça repart à zéro.",
-    ["x2 aura from monsters, but -25% damage. Crown when you're the richest on the server."] = "x2 aura sur les monstres, mais -25 % de dégâts. Une couronne quand tu es le plus riche du serveur.",
-    ["Every hit on the same monster deals +15% damage (up to x4)."] = "Chaque coup sur le même monstre fait +15 % de dégâts (jusqu'à x4).",
+    ["Nobody can stop you now."] = "Plus personne ne peut t'arrêter.",
 }
 
 local traduire
-local function traduireNoms(s)
-    for _, paire in ipairs(FR_NOMS) do
-        s = string.gsub(s, paire[1], paire[2])
-    end
-    return s
-end
 local FR_MOTIFS = {
-    { "^BUY · (.+)$", "ACHETER · %1" },
-    { "^REBIRTH · (.+)$", "RENAISSANCE · %1" },
-    { "^REBIRTH (%d+)$", "RENAISSANCE %1" },
-    { "^LV (%d+) / (%d+)$", "NIV %1 / %2" },
-    { "^YOUR AURA: (.+)$", "TON AURA : %1" },
-    { "^REBIRTHS: (.+)$", "RENAISSANCES : %1" },
-    { "^(.-) DMG  ·  (.-)/s  ·  x(.-) AURA$", "%1 DÉGÂTS  ·  %2/s  ·  x%3 AURA" },
-    { "^(.-)  ·  REBIRTHS (%d+)$", "%1  ·  RENAISSANCES %2" },
-    { "^NEXT ZONE: (.+)$", function(reste)
-        return "ZONE SUIVANTE : " .. traduireNoms(reste)
+    { "^(.+)'S BASE$", "BASE DE %1" },
+    { "^(.+) is in your base!$", "%1 est dans ta base !" },
+    { "^A (%u+) Phonk is on the belt: (.+)!$", function(rarete, nom)
+        return "Un Phonk " .. traduire(rarete) .. " est sur le tapis : " .. nom .. " !"
     end },
-    { "^STREAK x(%d+)  ·  %+(%d+)%% AURA$", "SÉRIE x%1  ·  +%2 %% AURA" },
-    { "^Damage per hit: (.+)$", "Dégâts par coup : %1" },
-    { "^Punches per second: (.+)$", "Coups par seconde : %1" },
-    { "^Bonus aura: (.+)$", "Aura en plus : %1" },
-    { "^NOW: (.+)$", function(reste)
-        reste = string.gsub(reste, "%% aura", " %% d'aura")
-        reste = string.gsub(reste, "%% damage", " %% de dégâts")
-        return "ACTUEL : " .. reste
-    end },
-    { "^(.-) AURA  ·  (.-) DAMAGE  ·  FOREVER$", "%1 AURA  ·  %2 DÉGÂTS  ·  POUR TOUJOURS" },
-    { "^ZONE UNLOCKED  ·  x(.+) AURA$", "ZONE DÉBLOQUÉE  ·  x%1 AURA" },
-    { "^NEW CLASS  ·  (.+)$", function(nom)
-        return "NOUVELLE CLASSE  ·  " .. traduire(nom)
-    end },
-    { "^SAFE ZONE  ·  SHOP  ·  CLASSES  ·  REBIRTH$", "ZONE SANS DANGER  ·  BOUTIQUE  ·  CLASSES  ·  RENAISSANCE" },
-    { "^FREE  ·  x(.+) AURA$", "GRATUIT  ·  x%1 AURA" },
-    { "^(.-)\nLOCKED · (.+) AURA$", function(titre, prix)
-        return traduireNoms(titre) .. "\nFERMÉE · " .. prix .. " AURA"
-    end },
-    { "^You need (.+) more aura$", "Il te manque %1 d'aura" },
-    { "^%+(.+) AURA %(AFK%)$", "+%1 AURA (AFK)" },
-    { "^BOSS: (.+) appeared in (.+)!$", function(nom, zone)
-        return "BOSS : " .. traduireNoms(nom) .. " est apparu : " .. traduireNoms(zone) .. " !"
-    end },
-    { "^(.+) dealt the most damage to (.+)$", function(qui, nom)
-        return qui .. " a fait le plus de dégâts à " .. traduireNoms(nom)
-    end },
-    { "^(.+) left%.%.%.$", function(nom)
-        return traduireNoms(nom) .. " est reparti..."
-    end },
-    { "^(.+) DEFEATED$", function(reste)
-        return traduireNoms(reste) .. " VAINCU"
-    end },
-    { "^LEVEL (%d+)$", "NIVEAU %1" },
-    { "^(.+) / (.+) HP$", "%1 / %2 PV" },
-    { "^LV (%d+)$", "NIV %1" },
-    { "^%+(.+) XP$", "+%1 XP" },
-    { "^Max health: (.+)$", function(reste)
-        return "PV max : " .. string.gsub(reste, "HP", "PV")
-    end },
+    { "^(.+) bought (.+)!$", "%1 a acheté %2 !" },
+    { "^%+%$(.+) %(sold%)$", "+$%1 (vendu)" },
 }
 
 local actuelle = "en"
@@ -1848,7 +942,7 @@ traduire = function(s)
             return (string.gsub(s, motif[1], motif[2], 1))
         end
     end
-    return traduireNoms(s)
+    return s
 end
 
 -- on suit chaque texte : quand un script le change, on le retraduit
