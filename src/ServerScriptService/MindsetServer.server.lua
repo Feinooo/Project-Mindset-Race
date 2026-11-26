@@ -2,40 +2,55 @@
     🌍 AURA SIMULATOR — Script SERVEUR
     À mettre dans : ServerScriptService  (type : Script, nom : MindsetServer)
 
-    Un open world de FARM d'aura.
+    Un open world : on FARME en battant des monstres pour devenir fort (le PvP viendra ensuite).
       - Au centre : la VILLE (sans danger) avec le marchand d'aura, les 4 sanctuaires des classes,
         l'autel de renaissance, les tableaux TOP 10 et une zone AFK.
       - Autour : 4 ZONES reliées à la ville par des ponts. On débloque la suivante avec l'aura.
           FORÊT (nord, gratuite) → GLACE (est) → VOLCAN (sud) → COSMOS (ouest)
-      - Dans chaque zone : des CRISTAUX à casser à coups de poing → de l'AURA. Plus la zone est loin, plus ça rapporte.
-      - De temps en temps un CRISTAL GÉANT (boss) apparaît dans une zone : tout le monde tape dessus.
-      - L'aura achète des améliorations (force, vitesse de frappe, bonus d'aura, vitesse de marche)
-        et les 4 CLASSES (chacune a un bonus de farm) : SPARK, FLOW, STAR, FURY.
+      - Dans chaque zone : des MONSTRES qui se baladent, t'attaquent quand tu approches, et lâchent de l'AURA
+        et de l'XP quand tu les bats. Plus la zone est loin, plus ils sont forts et plus ça rapporte.
+      - De temps en temps un BOSS apparaît dans une zone : tout le monde tape dessus, chacun a sa part.
+      - Combo de 4 coups (le 4e est un gros coup qui envoie voler), niveaux (XP), PV.
+      - L'aura achète des améliorations (force, vitesse de frappe, bonus d'aura, PV)
+        et les 4 CLASSES (chacune a un bonus) : SPARK, FLOW, STAR, FURY.
       - RENAISSANCE : tu perds ton aura et tes améliorations, mais tu gagnes un bonus pour toujours.
-      - Les gros moments (zone débloquée, renaissance, boss cassé) passent en EDIT NOIR ET BLANC (script client).
-    Ce script construit toute la carte, gère les cristaux, l'aura, les achats, la sauvegarde et les classements.
+      - Les gros moments (zone débloquée, renaissance, boss battu) passent en EDIT NOIR ET BLANC (script client).
+    Ce script construit toute la carte, gère les monstres, l'aura, les achats, la sauvegarde et les classements.
     (les anciens jeux sont gardés dans les tags git v1-course, v2-rythme, v3-escalier3d, v4-battlegrounds)
 ]]
 
 -- ===================== RÉGLAGES (tu peux les modifier) =====================
 local CONFIG = {
-    VITESSE_BASE = 18,      -- vitesse de marche de départ (16 = la vitesse normale de Roblox)
-    PORTEE = 9,             -- distance (en studs) pour frapper un cristal
-    CRISTAUX_PAR_ZONE = 22, -- nombre de cristaux en même temps dans chaque zone
-    REAPPARITION_CRISTAL = 1.2, -- un nouveau cristal toutes les ... secondes (par zone, s'il en manque)
+    VITESSE = 20,           -- vitesse de marche des joueurs (16 = la vitesse normale de Roblox)
+    PORTEE = 7,             -- distance (en studs, depuis le bord du monstre) pour le frapper
+    COMBO_DELAI = 1.1,      -- au-delà de ce temps sans frapper, le combo repart à 1
+    RECUL = 18,             -- la force du recul d'un coup normal
+    RECUL_LOURD = 55,       -- la force du recul du 4e coup (le gros coup)
 
-    -- 💎 LES CRISTAUX : pv = coups qu'il faut (multiplié par la zone), aura = ce qu'ils rapportent (multiplié par la zone)
-    TYPES = {
-        { nom = "SMALL", pv = 8, aura = 3, taille = 3, poids = 62 },
-        { nom = "MEDIUM", pv = 35, aura = 15, taille = 5, poids = 29 },
-        { nom = "BIG", pv = 140, aura = 70, taille = 8, poids = 9 },
+    -- 👾 LES MONSTRES (chaque zone multiplie pv, dégâts et aura ; les noms sont dans ZONES)
+    --   forme = "blob" (une boule qui sautille) ou "golem" (un costaud avec des bras)
+    --   nombre = combien il y en a en même temps dans chaque zone
+    MONSTRES = {
+        Petit = { forme = "blob", pv = 20, degats = 4, aura = 4, xp = 5, taille = 3.4, vitesse = 11, nombre = 10 },
+        Gros = { forme = "golem", pv = 75, degats = 10, aura = 20, xp = 22, taille = 5, vitesse = 9, nombre = 4 },
     },
+    VISION = 26,            -- un monstre te poursuit si tu es à moins de 26 studs
+    LAISSE = 50,            -- il abandonne s'il s'éloigne de plus de 50 studs de chez lui
+    PREPARATION = 0.6,      -- temps entre le début de son attaque et le coup (tu vois ses bras se lever : esquive !)
+    RECHARGE_MONSTRE = 1.6, -- temps entre 2 attaques d'un monstre
+    REAPPARITION = 5,       -- un monstre battu revient au bout de 5 secondes
 
-    -- 👑 LE CRISTAL GÉANT (boss) : apparaît toutes les « intervalle » secondes dans une zone où il y a du monde
-    BOSS = { intervalle = 150, duree = 120, pv = 5000, aura = 4000, taille = 16 },
+    -- 👑 LE BOSS : apparaît toutes les « intervalle » secondes dans une zone où il y a du monde
+    --   il frappe le sol autour de lui (« rayon ») : sors du cercle rouge !
+    BOSS = { forme = "golem", pv = 4000, degats = 30, aura = 3000, xp = 1200, taille = 12, vitesse = 7, rayon = 16, intervalle = 150, duree = 180 },
 
-    -- 🔁 la série de FLOW : chaque cristal cassé d'affilée (sans pause de plus de « delai » s) = + « bonus »
-    SERIE_DELAI = 8,
+    -- 📈 LES NIVEAUX : XP pour passer du niveau n au suivant = XP_BASE × n ^ 1.5
+    XP_BASE = 40,
+    NIVEAU_DEGATS = 0.03,   -- +3 % de dégâts par niveau
+    NIVEAU_PV = 0.02,       -- +2 % de PV par niveau
+
+    -- 🔁 la série de FLOW : chaque monstre battu d'affilée (sans pause de plus de « delai » s) = + « bonus »
+    SERIE_DELAI = 10,
     SERIE_BONUS = 0.02,
     SERIE_MAX = 1, -- +100 % au maximum
 
@@ -58,30 +73,34 @@ local CONFIG = {
 }
 
 -- 🗺️ LES ZONES (dans l'ordre où on les débloque)
---   prix = aura pour la débloquer · aura = multiplicateur d'aura des cristaux · pv = multiplicateur de leurs PV
---   direction = de quel côté de la ville elle est
--- ⚠️ Si tu changes un titre ou une phrase, change aussi sa traduction (script client, partie LANGUE).
+--   prix = aura pour la débloquer · aura / pv / degats = multiplicateurs des monstres de la zone
+--   noms = le nom des monstres de la zone · direction = de quel côté de la ville elle est
+-- ⚠️ Si tu changes un titre, un nom ou une phrase, change aussi sa traduction (script client, partie LANGUE).
 local ZONES = {
-    { nom = "Forest", titre = "EMERALD FOREST", prix = 0, aura = 1, pv = 1, direction = Vector3.new(0, 0, -1),
-        couleur = Color3.fromRGB(90, 230, 110), phrase = "Every legend starts somewhere." },
-    { nom = "Ice", titre = "FROZEN PEAKS", prix = 2500, aura = 8, pv = 10, direction = Vector3.new(1, 0, 0),
-        couleur = Color3.fromRGB(120, 220, 255), phrase = "Only the strong survive the cold." },
-    { nom = "Volcano", titre = "MAGMA CORE", prix = 60000, aura = 70, pv = 90, direction = Vector3.new(0, 0, 1),
-        couleur = Color3.fromRGB(255, 110, 30), phrase = "Feel the heat." },
-    { nom = "Cosmos", titre = "COSMIC VOID", prix = 1500000, aura = 600, pv = 800, direction = Vector3.new(-1, 0, 0),
-        couleur = Color3.fromRGB(180, 90, 255), phrase = "Beyond every limit." },
+    { nom = "Forest", titre = "EMERALD FOREST", prix = 0, aura = 1, pv = 1, degats = 1, direction = Vector3.new(0, 0, -1),
+        couleur = Color3.fromRGB(90, 230, 110), phrase = "Every legend starts somewhere.",
+        noms = { Petit = "SLIME", Gros = "MOSS GOLEM", Boss = "ANCIENT TREANT" } },
+    { nom = "Ice", titre = "FROZEN PEAKS", prix = 2500, aura = 8, pv = 10, degats = 8, direction = Vector3.new(1, 0, 0),
+        couleur = Color3.fromRGB(120, 220, 255), phrase = "Only the strong survive the cold.",
+        noms = { Petit = "SNOW SLIME", Gros = "ICE GOLEM", Boss = "FROST TITAN" } },
+    { nom = "Volcano", titre = "MAGMA CORE", prix = 60000, aura = 70, pv = 90, degats = 65, direction = Vector3.new(0, 0, 1),
+        couleur = Color3.fromRGB(255, 110, 30), phrase = "Feel the heat.",
+        noms = { Petit = "MAGMA SLIME", Gros = "LAVA GOLEM", Boss = "INFERNO LORD" } },
+    { nom = "Cosmos", titre = "COSMIC VOID", prix = 1500000, aura = 600, pv = 800, degats = 550, direction = Vector3.new(-1, 0, 0),
+        couleur = Color3.fromRGB(180, 90, 255), phrase = "Beyond every limit.",
+        noms = { Petit = "VOID SLIME", Gros = "STAR GOLEM", Boss = "COSMIC OVERLORD" } },
 }
 
--- 🧠 LES CLASSES : chacune a un bonus de farm. On les achète dans les sanctuaires de la ville.
+-- 🧠 LES CLASSES : chacune a un bonus. On les achète dans les sanctuaires de la ville.
 local PERSOS = {
     Spark = { prix = 0, couleur = Color3.fromRGB(255, 170, 40), devise = "Hits first. Hits hard.",
-        passif = { nom = "FIRST STRIKE", texte = "Your first hit on every crystal deals x3 damage." } },
+        passif = { nom = "FIRST STRIKE", texte = "Your first hit on every monster deals x3 damage." } },
     Flow = { prix = 3000, couleur = Color3.fromRGB(60, 160, 255), devise = "Never stops.",
-        passif = { nom = "STREAK", texte = "Every crystal you break in a row gives +2% aura (up to +100%). Stop for 8 s and it resets." } },
+        passif = { nom = "STREAK", texte = "Every monster you beat in a row gives +2% aura (up to +100%). Stop for 10 s and it resets." } },
     Star = { prix = 40000, couleur = Color3.fromRGB(255, 215, 70), devise = "All eyes on you.",
-        passif = { nom = "SPOTLIGHT", texte = "x2 aura from crystals, but -25% damage. Crown when you're the richest on the server." } },
+        passif = { nom = "SPOTLIGHT", texte = "x2 aura from monsters, but -25% damage. Crown when you're the richest on the server." } },
     Fury = { prix = 400000, couleur = Color3.fromRGB(235, 45, 60), devise = "Slow start. Unstoppable end.",
-        passif = { nom = "RAGE", texte = "Every hit on the same crystal deals +15% damage (up to x4)." } },
+        passif = { nom = "RAGE", texte = "Every hit on the same monster deals +15% damage (up to x4)." } },
 }
 local ORDRE_PERSOS = { "Spark", "Flow", "Star", "Fury" }
 
@@ -90,18 +109,18 @@ local AMELIORATIONS = {
     { cle = "Force", nom = "POWER", texte = "Damage per hit", max = 80, prixBase = 15, croissance = 1.32 },
     { cle = "Rapidite", nom = "PUNCH SPEED", texte = "Punches per second", max = 12, prixBase = 120, croissance = 2.1 },
     { cle = "Aimant", nom = "AURA BOOST", texte = "Bonus aura", max = 30, prixBase = 60, croissance = 1.55 },
-    { cle = "Jambes", nom = "WALK SPEED", texte = "Walk speed", max = 10, prixBase = 100, croissance = 1.9 },
+    { cle = "Vitalite", nom = "HEALTH", texte = "Max health", max = 60, prixBase = 20, croissance = 1.3 },
 }
 -- ce que donne chaque niveau
 local function valeurAmelioration(cle, n)
     if cle == "Force" then
         return 1 + n + math.floor(1.17 ^ n)
     elseif cle == "Rapidite" then
-        return 0.5 * 0.9 ^ n -- secondes entre 2 coups
+        return 0.45 * 0.9 ^ n -- secondes entre 2 coups
     elseif cle == "Aimant" then
         return 10 * n -- % d'aura en plus
     else
-        return CONFIG.VITESSE_BASE + 2 * n
+        return math.floor(100 * 1.12 ^ n) -- PV max
     end
 end
 -- ===========================================================================
@@ -181,10 +200,11 @@ local dossierRemotes = creer("Folder", { Name = "MindsetRemotes", Parent = Repli
 local function remote(nom, estFonction)
     return creer(if estFonction then "RemoteFunction" else "RemoteEvent", { Name = nom, Parent = dossierRemotes })
 end
-local FrapperEvent = remote("Frapper")       -- client → serveur : je frappe ce cristal
-local ImpactEvent = remote("Impact")         -- serveur → clients : un cristal a pris un coup
-local CasseEvent = remote("Casse")           -- serveur → clients : un cristal est cassé (+ ton aura gagnée)
-local EvenementEvent = remote("Evenement")   -- serveur → clients : zone débloquée, renaissance, boss...
+local FrapperEvent = remote("Frapper")       -- client → serveur : je frappe ce monstre
+local ImpactEvent = remote("Impact")         -- serveur → clients : un monstre a pris un coup
+local MortEvent = remote("Mort")             -- serveur → clients : un monstre est battu (+ ton aura et ton XP gagnées)
+local CoupEvent = remote("Coup")             -- serveur → client : un monstre t'a touché (le client applique le recul)
+local EvenementEvent = remote("Evenement")   -- serveur → clients : zone débloquée, renaissance, boss, niveau...
 local MessageEvent = remote("Message")       -- serveur → client : petit message en haut
 local ReglagesEvent = remote("Reglages")     -- client → serveur : les paramètres du joueur
 local AcheterFonction = remote("Acheter", true) -- client → serveur : acheter (amélioration, zone, classe, renaissance)
@@ -196,7 +216,7 @@ do
     end
     local zones = {}
     for i, zone in ipairs(ZONES) do
-        zones[i] = { nom = zone.nom, titre = zone.titre, prix = zone.prix, aura = zone.aura, phrase = zone.phrase, couleur = rgb(zone.couleur) }
+        zones[i] = { nom = zone.nom, titre = zone.titre, prix = zone.prix, aura = zone.aura, phrase = zone.phrase, couleur = rgb(zone.couleur), noms = zone.noms }
     end
     local persos = {}
     for nom, p in pairs(PERSOS) do
@@ -296,6 +316,9 @@ local function nouvelEtat()
         serie = 0,
         dernierCasse = 0,
         derniereFrappe = 0,
+        combo = 0,
+        niveau = 1,
+        xp = 0,
         reglages = nil,
         charge = false,
         chargeOk = false,
@@ -319,11 +342,18 @@ local function intervalle(e)
     return valeurAmelioration("Rapidite", e.niveaux.Rapidite)
 end
 local function degats(e)
-    local d = valeurAmelioration("Force", e.niveaux.Force) * (1 + CONFIG.RENAISSANCE.bonusDegats * e.rebirths)
+    local d = valeurAmelioration("Force", e.niveaux.Force) * (1 + CONFIG.RENAISSANCE.bonusDegats * e.rebirths) * (1 + CONFIG.NIVEAU_DEGATS * (e.niveau - 1))
     if e.perso == "Star" then
         d *= 0.75
     end
     return d
+end
+local function pvMax(e)
+    return math.floor(valeurAmelioration("Vitalite", e.niveaux.Vitalite) * (1 + CONFIG.NIVEAU_PV * (e.niveau - 1)))
+end
+-- l'XP qu'il faut pour passer du niveau n au suivant
+local function xpPourNiveau(n)
+    return math.floor(CONFIG.XP_BASE * n ^ 1.5)
 end
 local function bonusSerie(e)
     if e.perso ~= "Flow" then
@@ -365,13 +395,29 @@ local function publier(joueur)
     joueur:SetAttribute("Intervalle", intervalle(e))
     joueur:SetAttribute("MultAura", multAura(e))
     joueur:SetAttribute("Serie", e.serie)
+    joueur:SetAttribute("Niveau", e.niveau)
+    joueur:SetAttribute("Xp", e.xp)
+    joueur:SetAttribute("XpMax", xpPourNiveau(e.niveau))
     local r = stat(joueur, "Rebirths")
     if r then
         r.Value = e.rebirths
     end
+    local l = stat(joueur, "Level")
+    if l then
+        l.Value = e.niveau
+    end
     local humanoid = joueur.Character and joueur.Character:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        humanoid.WalkSpeed = valeurAmelioration("Jambes", e.niveaux.Jambes)
+        humanoid.WalkSpeed = CONFIG.VITESSE
+        -- les PV max (si ils montent, on gagne la différence tout de suite)
+        local nouveau = pvMax(e)
+        if nouveau ~= humanoid.MaxHealth then
+            local ecart = nouveau - humanoid.MaxHealth
+            humanoid.MaxHealth = nouveau
+            if humanoid.Health > 0 then
+                humanoid.Health = math.clamp(humanoid.Health + math.max(0, ecart), 1, nouveau)
+            end
+        end
     end
     if majEtiquette then
         majEtiquette(joueur)
@@ -411,6 +457,8 @@ local function chargerJoueur(joueur)
         stat(joueur, "Total").Value = nombre(donnees.total)
         e.rebirths = nombre(donnees.rebirths)
         e.tempsAvant = nombre(donnees.temps)
+        e.niveau = math.max(1, nombre(donnees.niveau))
+        e.xp = nombre(donnees.xp)
         if type(donnees.niveaux) == "table" then
             for _, def in ipairs(AMELIORATIONS) do
                 e.niveaux[def.cle] = math.clamp(nombre(donnees.niveaux[def.cle]), 0, def.max)
@@ -458,6 +506,8 @@ local function sauverJoueur(joueur)
         aura = stat(joueur, "Aura").Value,
         total = stat(joueur, "Total").Value,
         rebirths = e.rebirths,
+        niveau = e.niveau,
+        xp = e.xp,
         niveaux = table.clone(e.niveaux),
         zones = table.clone(e.zones),
         persos = table.clone(e.persos),
@@ -533,7 +583,7 @@ local DEMI_ZONE = 105
 local ZONE_CRISTAUX = 72 -- les cristaux apparaissent à moins de 72 studs du centre de la zone
 local APPARITION = C + Vector3.new(0, 4, 24)
 
-for _, nom in ipairs({ "MindsetMap", "MindsetCristaux" }) do
+for _, nom in ipairs({ "MindsetMap", "MindsetCristaux", "MindsetMonstres" }) do
     local vieux = workspace:FindFirstChild(nom)
     if vieux then
         vieux:Destroy()
@@ -542,7 +592,6 @@ end
 local dossierCarte = creer("Folder", { Name = "MindsetMap", Parent = workspace })
 local dossierVille = creer("Folder", { Name = "Ville", Parent = dossierCarte })
 local dossierPortes = creer("Folder", { Name = "Portes", Parent = dossierCarte })
-local dossierCristaux = creer("Folder", { Name = "MindsetCristaux", Parent = workspace })
 
 local function bloc(proprietes)
     proprietes.Anchored = true
@@ -1021,144 +1070,185 @@ for _, zone in ipairs(ZONES) do
     decorer(zone, dossier)
 end
 
--- ========================== LES CRISTAUX ==========================
-local cristaux = {} -- [modele] = info
-local nombreParZone = {}
-for _, zone in ipairs(ZONES) do
-    nombreParZone[zone.nom] = 0
-end
+-- ========================== LES MONSTRES ==========================
+-- Chaque monstre est un petit modèle avec un Humanoid (pour marcher). Le serveur décide de tout :
+-- qui il poursuit, quand il attaque, ses PV. Le client fait les effets (flash, éclats, bras qui se lèvent).
+-- Attributs du modèle (lus par le client) : Zone, Type (Petit / Gros / Boss), Nom, Forme, Taille,
+--   Attaque (heure serveur du début de son attaque), Preparation (durée avant le coup), Frappe (heure du coup), Rayon (boss), Mort
+local dossierMonstres = creer("Folder", { Name = "MindsetMonstres", Parent = workspace })
+local monstres = {} -- [modele] = info
 local bossActuel = nil
+local TweenService = game:GetService("TweenService")
+
+local MATIERES = {
+    Forest = Enum.Material.Slate,
+    Ice = Enum.Material.Ice,
+    Volcano = Enum.Material.Basalt,
+    Cosmos = Enum.Material.Slate,
+}
+
+local function plat(v)
+    return Vector3.new(v.X, 0, v.Z)
+end
 
 local function majBarre(info)
-    local part = math.clamp(info.pv / info.pvMax, 0, 1)
-    info.rempli.Size = UDim2.fromScale(part, 1)
-    if info.textePv then
-        info.textePv.Text = court(math.max(0, info.pv)) .. " / " .. court(info.pvMax)
-    end
+    info.rempli.Size = UDim2.fromScale(math.clamp(info.pv / info.pvMax, 0, 1), 1)
+    info.textePv.Text = court(math.max(0, info.pv)) .. " / " .. court(info.pvMax)
 end
 
-local function creerCristal(zone, typeCristal, position, estBoss)
-    local taille = if estBoss then CONFIG.BOSS.taille else typeCristal.taille
-    local modele = creer("Model", { Name = if estBoss then "Boss" else "Cristal" })
-    local base = CFrame.new(position)
-    local penche = CFrame.Angles(math.rad(45), 0, math.rad(35))
-    local coque = creer("Part", {
-        Name = "Coque",
-        Anchored = true,
-        CanCollide = false,
-        CanTouch = false,
-        Size = Vector3.new(taille, taille, taille),
-        CFrame = base * penche,
-        Material = Enum.Material.Glass,
-        Transparency = 0.25,
-        Reflectance = 0.15,
-        Color = zone.couleur:Lerp(BLANC, 0.25),
+local function construireMonstre(zone, cle, def, position, estBoss)
+    local t = def.taille
+    local couleur = zone.couleur
+    local modele = creer("Model", { Name = if estBoss then "Boss" else "Monstre" })
+    local racine = creer("Part", {
+        Name = "HumanoidRootPart",
+        Size = Vector3.new(t, t, t * 0.8),
+        CFrame = CFrame.new(position) * CFrame.Angles(0, math.random() * math.pi * 2, 0),
+        Transparency = 1,
+        CanCollide = true,
         CastShadow = false,
         Parent = modele,
     })
-    local coeur = creer("Part", {
-        Name = "Coeur",
-        Anchored = true,
-        CanCollide = false,
-        CanTouch = false,
-        CanQuery = false,
-        Size = Vector3.new(taille, taille, taille) * 0.55,
-        CFrame = base * penche,
-        Material = Enum.Material.Neon,
-        Color = zone.couleur,
-        CastShadow = false,
-        Parent = modele,
-    })
-    if estBoss or typeCristal.nom == "BIG" then
-        creer("PointLight", { Range = taille * 2.2, Brightness = if estBoss then 4 else 1.5, Color = zone.couleur, Parent = coeur })
+    modele.PrimaryPart = racine
+    local function piece(nom, taille, decalage, proprietes, attache)
+        proprietes = proprietes or {}
+        proprietes.Name = nom
+        proprietes.Size = taille
+        proprietes.CFrame = racine.CFrame * decalage
+        proprietes.CanCollide = false
+        proprietes.Massless = true
+        proprietes.TopSurface = Enum.SurfaceType.Smooth
+        proprietes.BottomSurface = Enum.SurfaceType.Smooth
+        proprietes.Parent = modele
+        local p = creer("Part", proprietes)
+        creer("WeldConstraint", { Part0 = attache or racine, Part1 = p, Parent = p })
+        return p
     end
-    modele.PrimaryPart = coque
-    -- la barre de vie
+    local function yeux(support, largeur, hauteur, avant, taille)
+        for _, s in ipairs({ -1, 1 }) do
+            local oeil = piece("Oeil", Vector3.one * taille, CFrame.new(s * largeur, hauteur, -avant), { Shape = Enum.PartType.Ball, Material = Enum.Material.Neon, Color = BLANC, CastShadow = false }, support)
+            piece("Pupille", Vector3.one * taille * 0.5, CFrame.new(s * largeur, hauteur, -avant - taille * 0.32), { Shape = Enum.PartType.Ball, Color = Color3.new(0, 0, 0), CastShadow = false }, oeil)
+        end
+    end
+    if def.forme == "blob" then
+        -- une boule molle avec deux gros yeux
+        local corps = piece("Corps", Vector3.new(t * 1.1, t * 0.9, t * 1.1), CFrame.new(0, -t * 0.05, 0), { Shape = Enum.PartType.Ball, Color = couleur, Material = Enum.Material.SmoothPlastic, Reflectance = 0.1 })
+        piece("Ventre", Vector3.new(t * 0.8, t * 0.6, t * 0.8), CFrame.new(0, -t * 0.1, 0), { Shape = Enum.PartType.Ball, Color = couleur:Lerp(BLANC, 0.5), Material = Enum.Material.Neon, Transparency = 0.6, CastShadow = false }, corps)
+        yeux(corps, t * 0.2, t * 0.12, t * 0.42, t * 0.26)
+    else
+        -- un golem : corps, tête, jambes, et deux bras (des Motor6D : le client les anime quand il attaque)
+        local matiere = MATIERES[zone.nom] or Enum.Material.Slate
+        local pierre = couleur:Lerp(Color3.fromRGB(70, 70, 75), 0.6)
+        local corps = piece("Corps", Vector3.new(t, t * 0.7, t * 0.7), CFrame.new(0, t * 0.15, 0), { Color = pierre, Material = matiere })
+        piece("Coeur", Vector3.new(t * 0.3, t * 0.3, 0.2), CFrame.new(0, t * 0.2, -t * 0.36), { Color = couleur, Material = Enum.Material.Neon, CastShadow = false }, corps)
+        local tete = piece("Tete", Vector3.new(t * 0.5, t * 0.42, t * 0.5), CFrame.new(0, t * 0.72, -t * 0.05), { Color = pierre, Material = matiere }, corps)
+        for _, s in ipairs({ -1, 1 }) do
+            piece("Oeil", Vector3.new(t * 0.1, t * 0.06, 0.15), CFrame.new(s * t * 0.11, t * 0.75, -t * 0.31), { Color = couleur, Material = Enum.Material.Neon, CastShadow = false }, tete)
+            piece("Jambe", Vector3.new(t * 0.3, t * 0.36, t * 0.3), CFrame.new(s * t * 0.25, -t * 0.32, 0), { Color = pierre:Lerp(Color3.new(0, 0, 0), 0.2), Material = matiere }, corps)
+            local bras = creer("Part", {
+                Name = if s < 0 then "BrasGauche" else "BrasDroit",
+                Size = Vector3.new(t * 0.3, t * 0.85, t * 0.3),
+                CFrame = racine.CFrame * CFrame.new(s * t * 0.66, t * 0.05, 0),
+                Color = pierre,
+                Material = matiere,
+                CanCollide = false,
+                Massless = true,
+                Parent = modele,
+            })
+            creer("Motor6D", { Name = "Epaule", Part0 = corps, Part1 = bras, C0 = CFrame.new(s * t * 0.66, t * 0.25, 0), C1 = CFrame.new(0, t * 0.35, 0), Parent = bras })
+            piece("Poing", Vector3.new(t * 0.36, t * 0.3, t * 0.36), CFrame.new(s * t * 0.66, -t * 0.38, 0), { Color = couleur:Lerp(pierre, 0.5), Material = matiere }, bras)
+        end
+    end
+    if estBoss then
+        creer("PointLight", { Range = t * 2.5, Brightness = 3, Color = couleur, Parent = racine })
+    end
+
+    -- il reste debout (on ne le laisse pas se renverser)
+    local attache = creer("Attachment", { Name = "Debout", CFrame = CFrame.Angles(0, 0, math.pi / 2), Parent = racine })
+    creer("AlignOrientation", { Mode = Enum.OrientationAlignmentMode.OneAttachment, Attachment0 = attache, AlignType = Enum.AlignType.PrimaryAxisParallel, PrimaryAxis = Vector3.yAxis, Responsiveness = 25, MaxTorque = math.huge, Parent = racine })
+
+    local humanoid = creer("Humanoid", {
+        WalkSpeed = def.vitesse,
+        HipHeight = 0,
+        DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None,
+        HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff,
+        RequiresNeck = false,
+        BreakJointsOnDeath = false,
+        Parent = modele,
+    })
+    humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+
+    -- le nom et la barre de vie
+    local nom = zone.noms[cle] or cle
     local billboard = creer("BillboardGui", {
         Name = "Barre",
-        Size = if estBoss then UDim2.fromOffset(320, 54) else UDim2.fromOffset(96, 14),
-        StudsOffsetWorldSpace = Vector3.new(0, taille * 0.85 + 1.5, 0),
-        MaxDistance = if estBoss then 300 else 40,
+        Size = if estBoss then UDim2.fromOffset(340, 58) else UDim2.fromOffset(120, 32),
+        StudsOffsetWorldSpace = Vector3.new(0, t * 1.05 + 1.2, 0),
+        MaxDistance = if estBoss then 300 else 50,
         AlwaysOnTop = estBoss,
         LightInfluence = 0,
-        Parent = coque,
+        Parent = racine,
     })
-    local fond = creer("Frame", {
-        AnchorPoint = Vector2.new(0, 1),
-        Position = UDim2.fromScale(0, 1),
-        Size = if estBoss then UDim2.new(1, 0, 0, 20) else UDim2.fromScale(1, 1),
-        BackgroundColor3 = Color3.fromRGB(15, 15, 20),
-        BorderSizePixel = 0,
-        Parent = billboard,
-    })
+    creer("TextLabel", { Size = UDim2.new(1, 0, 0.5, 0), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextScaled = true, Text = nom, TextColor3 = couleur:Lerp(BLANC, 0.35), TextStrokeTransparency = 0.2, Parent = billboard })
+    local fond = creer("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), Size = UDim2.fromScale(1, 0.42), BackgroundColor3 = Color3.fromRGB(15, 15, 20), BorderSizePixel = 0, Parent = billboard })
     creer("UICorner", { CornerRadius = UDim.new(1, 0), Parent = fond })
     creer("UIStroke", { Color = BLANC, Thickness = 1.2, Transparency = 0.3, Parent = fond })
-    local rempli = creer("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = zone.couleur:Lerp(BLANC, 0.2), BorderSizePixel = 0, Parent = fond })
+    local rempli = creer("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 80, 80), BorderSizePixel = 0, Parent = fond })
     creer("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempli })
     local textePv = creer("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextScaled = true, TextColor3 = BLANC, TextStrokeTransparency = 0.3, Parent = fond })
-    if estBoss then
-        creer("TextLabel", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextScaled = true, Text = "GIANT CRYSTAL", TextColor3 = zone.couleur:Lerp(BLANC, 0.3), TextStrokeTransparency = 0, Parent = billboard })
-    end
 
-    local pv = math.floor((if estBoss then CONFIG.BOSS.pv else typeCristal.pv) * zone.pv)
-    local aura = math.floor((if estBoss then CONFIG.BOSS.aura else typeCristal.aura) * zone.aura)
     modele:SetAttribute("Zone", zone.nom)
-    modele:SetAttribute("Type", if estBoss then "BOSS" else typeCristal.nom)
-    modele:SetAttribute("Taille", taille)
-    modele:SetAttribute("Base", base)
-    modele:SetAttribute("Aura", aura)
-    modele.Parent = dossierCristaux
+    modele:SetAttribute("Type", cle)
+    modele:SetAttribute("Nom", nom)
+    modele:SetAttribute("Forme", def.forme)
+    modele:SetAttribute("Taille", t)
+    if estBoss then
+        modele:SetAttribute("Rayon", def.rayon)
+    end
+    modele.Parent = dossierMonstres
+    pcall(function()
+        racine:SetNetworkOwner(nil)
+    end)
 
+    local pv = math.floor(def.pv * zone.pv)
     local info = {
         modele = modele,
+        racine = racine,
+        humanoid = humanoid,
         zone = zone,
-        type = if estBoss then "BOSS" else typeCristal.nom,
+        cle = cle,
+        def = def,
         pv = pv,
         pvMax = pv,
-        aura = aura,
-        position = position,
-        taille = taille,
+        degats = math.floor(def.degats * zone.degats),
+        aura = math.floor(def.aura * zone.aura),
+        xp = math.floor(def.xp * zone.aura ^ 0.8),
+        maison = position,
+        boss = estBoss,
         coups = {},
         contributions = {},
-        boss = estBoss,
+        prochaineAttaque = 0,
+        errance = 0,
+        recul = 0,
         rempli = rempli,
         textePv = textePv,
-        ne = os.clock(),
     }
-    cristaux[modele] = info
+    monstres[modele] = info
     majBarre(info)
-    if not estBoss then
-        nombreParZone[zone.nom] += 1
-    end
     return info
 end
 
-local function choisirType()
-    local total = 0
-    for _, t in ipairs(CONFIG.TYPES) do
-        total += t.poids
-    end
-    local tirage = math.random() * total
-    for _, t in ipairs(CONFIG.TYPES) do
-        tirage -= t.poids
-        if tirage <= 0 then
-            return t
-        end
-    end
-    return CONFIG.TYPES[1]
-end
-
-local function apparaitreCristal(zone)
-    local typeCristal = choisirType()
-    local position
-    for _ = 1, 10 do
+local function apparaitreMonstre(zone, cle)
+    local def = CONFIG.MONSTRES[cle]
+    local position = nil
+    for _ = 1, 12 do
         local x = (math.random() * 2 - 1) * ZONE_CRISTAUX
         local z = (math.random() * 2 - 1) * ZONE_CRISTAUX
         if math.abs(x) > 18 or math.abs(z) > 18 then -- pas sur le socle du boss
-            local essai = zone.centre + Vector3.new(x, typeCristal.taille * 0.9 + 1, z)
+            local essai = zone.centre + Vector3.new(x, def.taille * 0.5 + 0.5, z)
             local libre = true
-            for _, info in pairs(cristaux) do
-                if info.zone == zone and (info.position - essai).Magnitude < (info.taille + typeCristal.taille) * 0.75 + 3 then
+            for _, info in pairs(monstres) do
+                if info.zone == zone and (info.maison - essai).Magnitude < 9 then
                     libre = false
                     break
                 end
@@ -1169,19 +1259,34 @@ local function apparaitreCristal(zone)
             end
         end
     end
-    if position then
-        creerCristal(zone, typeCristal, position, false)
-    end
+    position = position or zone.centre + Vector3.new(ZONE_CRISTAUX * 0.6, def.taille * 0.5 + 0.5, ZONE_CRISTAUX * 0.6)
+    return construireMonstre(zone, cle, def, position, false)
 end
 
--- 💥 un cristal est cassé : chacun gagne sa part d'aura (selon les dégâts qu'il a faits)
-local function casser(modele, info)
+-- 💨 le recul : le monstre ne contrôle plus ses jambes pendant un instant et il vole
+local function reculer(info, direction, force, haut)
+    info.recul += 1
+    local numero = info.recul
+    info.humanoid.PlatformStand = true
+    info.racine.AssemblyLinearVelocity = direction * force + Vector3.new(0, haut, 0)
+    task.delay(if force > 30 then 0.65 else 0.22, function()
+        if info.recul == numero and not info.mort then
+            info.humanoid.PlatformStand = false
+        end
+    end)
+end
+
+-- 💥 un monstre est battu : chacun gagne sa part (selon les dégâts qu'il a faits), puis il explose en morceaux
+local donnerXp -- (défini plus bas, avec les joueurs)
+local function tuer(info, tueur)
     if info.mort then
         return
     end
     info.mort = true
+    local modele = info.modele
     modele:SetAttribute("Mort", true)
-    local gains = {}
+    local position = info.racine.Position
+    local gains, xps = {}, {}
     local meilleur, meilleurDegats = nil, 0
     for j, contribution in pairs(info.contributions) do
         local e = etats[j]
@@ -1190,7 +1295,7 @@ local function casser(modele, info)
             if info.boss then
                 part = math.max(part, 0.1) -- tous ceux qui ont aidé ont au moins 10 %
             else
-                -- la série de DISCIPLINE
+                -- la série de FLOW
                 if os.clock() - e.dernierCasse <= CONFIG.SERIE_DELAI then
                     e.serie += 1
                 else
@@ -1201,50 +1306,101 @@ local function casser(modele, info)
                 j:SetAttribute("MultAura", multAura(e))
             end
             local gain = math.max(1, math.floor(info.aura * part * multAura(e) + 0.5))
+            local xp = math.max(1, math.floor(info.xp * part + 0.5))
             ajouterAura(j, gain)
-            gains[j] = gain
+            donnerXp(j, e, xp)
+            gains[j], xps[j] = gain, xp
             if contribution > meilleurDegats then
                 meilleur, meilleurDegats = j, contribution
             end
         end
     end
     for _, p in ipairs(Players:GetPlayers()) do
-        CasseEvent:FireClient(p, info.position, gains[p] or 0, info.type, info.zone.nom, info.taille)
+        MortEvent:FireClient(p, position, gains[p] or 0, xps[p] or 0, info.cle, info.zone.nom, info.def.taille)
     end
+    monstres[modele] = nil
     if info.boss then
         bossActuel = nil
         EvenementEvent:FireAllClients("BossMort", info.zone.nom, if meilleur then meilleur.DisplayName else "")
     else
-        nombreParZone[info.zone.nom] -= 1
+        task.delay(CONFIG.REAPPARITION, apparaitreMonstre, info.zone, info.cle)
     end
-    cristaux[modele] = nil
-    task.delay(0.05, function()
+
+    -- l'explosion en morceaux (dans la direction du coup)
+    local direction = Vector3.new(0, 0, 0)
+    local racineTueur = tueur and tueur.Character and tueur.Character:FindFirstChild("HumanoidRootPart")
+    if racineTueur then
+        local d = plat(position - racineTueur.Position)
+        if d.Magnitude > 0.1 then
+            direction = d.Unit
+        end
+    end
+    info.humanoid:Destroy()
+    for _, objet in ipairs(modele:GetDescendants()) do
+        if objet:IsA("JointInstance") or objet:IsA("WeldConstraint") or objet:IsA("AlignOrientation") or objet:IsA("BillboardGui") then
+            objet:Destroy()
+        end
+    end
+    local morceaux = {}
+    for _, objet in ipairs(modele:GetDescendants()) do
+        if objet:IsA("BasePart") then
+            if objet == info.racine then
+                objet.CanCollide = false
+                objet.Anchored = true
+            else
+                objet.Massless = false
+                objet.CanCollide = true
+                objet.AssemblyLinearVelocity = direction * math.random(25, 45) + Vector3.new((math.random() - 0.5) * 30, math.random(20, 40), (math.random() - 0.5) * 30)
+                objet.AssemblyAngularVelocity = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 20
+                pcall(function()
+                    objet:SetNetworkOwner(nil)
+                end)
+                table.insert(morceaux, objet)
+            end
+        end
+    end
+    task.delay(1.3, function()
+        for _, p in ipairs(morceaux) do
+            if p.Parent then
+                TweenService:Create(p, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+            end
+        end
+    end)
+    task.delay(2.3, function()
         modele:Destroy()
     end)
 end
 
--- 👊 un joueur frappe un cristal
+-- 👊 un joueur frappe un monstre (combo de 4 : le 4e coup fait x2 et envoie voler)
 FrapperEvent.OnServerEvent:Connect(function(joueur, modele)
     local e = etats[joueur]
     if not e or not e.charge or typeof(modele) ~= "Instance" then
         return
     end
-    local info = cristaux[modele]
-    if not info or info.mort then
+    local info = monstres[modele]
+    if not info or info.mort or not e.zones[info.zone.nom] then
         return
     end
     local maintenant = os.clock()
     if maintenant - e.derniereFrappe < intervalle(e) * 0.8 then
         return -- trop vite
     end
-    if not e.zones[info.zone.nom] then
+    local personnage = joueur.Character
+    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
+    local humanoidJ = personnage and personnage:FindFirstChildOfClass("Humanoid")
+    if not racine or not humanoidJ or humanoidJ.Health <= 0 then
         return
     end
-    local racine = joueur.Character and joueur.Character:FindFirstChild("HumanoidRootPart")
-    if not racine or (racine.Position - info.position).Magnitude > CONFIG.PORTEE + info.taille * 0.6 + 5 then
+    if (racine.Position - info.racine.Position).Magnitude - info.def.taille * 0.5 > CONFIG.PORTEE + 5 then
         return
     end
+    if maintenant - e.derniereFrappe > CONFIG.COMBO_DELAI then
+        e.combo = 0
+    end
+    e.combo = e.combo % 4 + 1
     e.derniereFrappe = maintenant
+    local lourd = e.combo == 4
+
     local coups = (info.coups[joueur] or 0) + 1
     info.coups[joueur] = coups
     local d = degats(e)
@@ -1257,34 +1413,183 @@ FrapperEvent.OnServerEvent:Connect(function(joueur, modele)
         d *= m
         critique = m >= 4
     end
+    if lourd then
+        d *= 2
+    end
     d = math.max(1, math.floor(d))
     info.contributions[joueur] = (info.contributions[joueur] or 0) + math.min(d, math.max(0, info.pv))
     info.pv -= d
+    info.cible = joueur -- il s'énerve contre celui qui le tape
     majBarre(info)
-    ImpactEvent:FireAllClients(modele, d, joueur, critique)
+    ImpactEvent:FireAllClients(modele, d, joueur, critique, lourd)
     if info.pv <= 0 then
-        casser(modele, info)
+        tuer(info, joueur)
+        return
+    end
+    if not info.boss then
+        local direction = plat(info.racine.Position - racine.Position)
+        direction = if direction.Magnitude > 0.1 then direction.Unit else plat(racine.CFrame.LookVector).Unit
+        reculer(info, direction, if lourd then CONFIG.RECUL_LOURD else CONFIG.RECUL, if lourd then 30 else 5)
+        if lourd and info.attaque then
+            info.annulee = true -- le gros coup coupe son attaque
+        end
     end
 end)
 
--- on remplit les zones, puis on remplace les cristaux cassés petit à petit
-for _, zone in ipairs(ZONES) do
-    for _ = 1, CONFIG.CRISTAUX_PAR_ZONE do
-        apparaitreCristal(zone)
+-- un joueur se fait toucher par un monstre : dégâts + recul (appliqué par son client, c'est lui qui contrôle son avatar)
+local function toucher(joueur, depuis, degatsCoup, force)
+    local personnage = joueur.Character
+    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
+    local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
+    if not racine or not humanoid or humanoid.Health <= 0 then
+        return
+    end
+    humanoid:TakeDamage(degatsCoup)
+    local direction = plat(racine.Position - depuis)
+    direction = if direction.Magnitude > 0.1 then direction.Unit else Vector3.new(0, 0, 1)
+    CoupEvent:FireClient(joueur, direction, force, degatsCoup)
+end
+
+local function attaquer(info)
+    info.attaque = true
+    info.annulee = false
+    local preparation = if info.boss then 1.25 else CONFIG.PREPARATION
+    info.prochaineAttaque = os.clock() + preparation + CONFIG.RECHARGE_MONSTRE * (if info.boss then 1.4 else 1)
+    info.humanoid:MoveTo(info.racine.Position)
+    info.modele:SetAttribute("Preparation", preparation)
+    info.modele:SetAttribute("Attaque", workspace:GetServerTimeNow())
+    task.delay(preparation, function()
+        info.attaque = false
+        if info.mort or not info.modele.Parent then
+            return
+        end
+        if info.annulee then
+            info.annulee = false
+            return
+        end
+        info.modele:SetAttribute("Frappe", workspace:GetServerTimeNow())
+        local centre = info.racine.Position
+        local portee = if info.boss then info.def.rayon else info.def.taille * 0.5 + 4.5
+        for _, p in ipairs(Players:GetPlayers()) do
+            local r = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+            if r and p:GetAttribute("Zone") == info.zone.nom and plat(r.Position - centre).Magnitude <= portee and math.abs(r.Position.Y - centre.Y) < 12 then
+                toucher(p, centre, info.degats, if info.boss then 75 else 38)
+            end
+        end
+    end)
+end
+
+-- 🧠 ce que fait un monstre (appelé plusieurs fois par seconde, seulement s'il y a des joueurs dans sa zone)
+local function penser(info, joueursIci)
+    local racine = info.racine
+    local position = racine.Position
+    if position.Y < info.zone.centre.Y - 25 then
+        -- tombé de l'île : retour à la maison
+        info.modele:PivotTo(CFrame.new(info.maison))
+        racine.AssemblyLinearVelocity = Vector3.zero
+        return
+    end
+    if info.attaque or info.humanoid.PlatformStand then
+        return
+    end
+    local laisse = if info.boss then 45 else CONFIG.LAISSE
+    local loin = plat(position - info.maison).Magnitude
+    if loin > laisse then
+        -- trop loin de chez lui : il rentre (et se soigne)
+        info.cible = nil
+        info.humanoid:MoveTo(info.maison)
+        if info.pv < info.pvMax and not info.boss then
+            info.pv = info.pvMax
+            info.contributions, info.coups = {}, {}
+            majBarre(info)
+        end
+        return
+    end
+    -- sa cible : celui qui l'a frappé, sinon le joueur le plus proche
+    local vision = if info.boss then 55 else CONFIG.VISION
+    local cible, racineCible = nil, nil
+    local function valide(j)
+        local r = j and j.Character and j.Character:FindFirstChild("HumanoidRootPart")
+        local h = j and j.Character and j.Character:FindFirstChildOfClass("Humanoid")
+        if r and h and h.Health > 0 and table.find(joueursIci, j) then
+            return r
+        end
+        return nil
+    end
+    local r = valide(info.cible)
+    if r and plat(r.Position - position).Magnitude < vision * 1.8 then
+        cible, racineCible = info.cible, r
+    else
+        local meilleure = vision
+        for _, j in ipairs(joueursIci) do
+            local rj = valide(j)
+            if rj then
+                local d = plat(rj.Position - position).Magnitude
+                if d < meilleure then
+                    cible, racineCible, meilleure = j, rj, d
+                end
+            end
+        end
+        info.cible = cible
+    end
+    if cible then
+        local versCible = plat(racineCible.Position - position)
+        local distance = versCible.Magnitude - info.def.taille * 0.5
+        local portee = if info.boss then info.def.rayon * 0.55 else 3.2
+        if distance <= portee then
+            if versCible.Magnitude > 0.1 then
+                racine.CFrame = CFrame.lookAt(position, position + versCible)
+            end
+            if os.clock() >= info.prochaineAttaque then
+                attaquer(info)
+            else
+                info.humanoid:MoveTo(position)
+            end
+        else
+            info.humanoid:MoveTo(racineCible.Position)
+        end
+    elseif os.clock() > info.errance then
+        -- personne : il se balade autour de chez lui
+        info.errance = os.clock() + 3 + math.random() * 4
+        local angle = math.random() * math.pi * 2
+        info.humanoid:MoveTo(info.maison + Vector3.new(math.cos(angle), 0, math.sin(angle)) * math.random(3, 14))
     end
 end
+
+-- on remplit les zones
+for _, zone in ipairs(ZONES) do
+    for cle, def in pairs(CONFIG.MONSTRES) do
+        for _ = 1, def.nombre do
+            apparaitreMonstre(zone, cle)
+        end
+    end
+end
+
+-- le cerveau des monstres
 task.spawn(function()
     while true do
-        task.wait(CONFIG.REAPPARITION_CRISTAL)
-        for _, zone in ipairs(ZONES) do
-            if nombreParZone[zone.nom] < CONFIG.CRISTAUX_PAR_ZONE then
-                apparaitreCristal(zone)
+        task.wait(0.15)
+        local parZone = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            local z = p:GetAttribute("Zone")
+            if z and ZONE_PAR_NOM[z] then
+                parZone[z] = parZone[z] or {}
+                table.insert(parZone[z], p)
+            end
+        end
+        for _, info in pairs(monstres) do
+            local ici = parZone[info.zone.nom]
+            if ici and not info.mort and info.modele.Parent then
+                local ok, erreur = pcall(penser, info, ici)
+                if not ok then
+                    warn("👾 Monstre :", erreur)
+                end
             end
         end
     end
 end)
 
--- 👑 LE CRISTAL GÉANT : dans une zone où il y a quelqu'un
+-- 👑 LE BOSS : dans une zone où il y a quelqu'un
 task.spawn(function()
     while true do
         task.wait(CONFIG.BOSS.intervalle)
@@ -1298,14 +1603,14 @@ task.spawn(function()
             end
             if #candidates > 0 then
                 local zone = candidates[math.random(1, #candidates)]
-                local info = creerCristal(zone, nil, zone.centre + Vector3.new(0, CONFIG.BOSS.taille * 0.9 + 2.5, 0), true)
+                local info = construireMonstre(zone, "Boss", CONFIG.BOSS, zone.centre + Vector3.new(0, CONFIG.BOSS.taille * 0.5 + 1.5, 0), true)
                 bossActuel = info
                 EvenementEvent:FireAllClients("Boss", zone.nom)
                 task.delay(CONFIG.BOSS.duree, function()
                     if bossActuel == info and not info.mort then
                         info.mort = true
                         bossActuel = nil
-                        cristaux[info.modele] = nil
+                        monstres[info.modele] = nil
                         info.modele:Destroy()
                         EvenementEvent:FireAllClients("BossFuite", zone.nom)
                     end
@@ -1596,6 +1901,7 @@ local function joueurArrive(joueur)
     etats[joueur] = nouvelEtat()
     local stats = creer("Folder", { Name = "leaderstats" })
     creer("IntValue", { Name = "Aura", Parent = stats })
+    creer("IntValue", { Name = "Level", Value = 1, Parent = stats })
     creer("IntValue", { Name = "Rebirths", Parent = stats })
     stats.Parent = joueur
     local cachees = creer("Folder", { Name = "StatsCachees", Parent = joueur })
@@ -1612,8 +1918,10 @@ local function joueurArrive(joueur)
         local position = APPARITION + Vector3.new((math.random() - 0.5) * 8, 0, (math.random() - 0.5) * 6)
         personnage:PivotTo(CFrame.lookAt(position, position + Vector3.new(0, 0, -1)))
         local e = etats[joueur]
+        humanoid.WalkSpeed = CONFIG.VITESSE
         if e then
-            humanoid.WalkSpeed = valeurAmelioration("Jambes", e.niveaux.Jambes)
+            humanoid.MaxHealth = pvMax(e)
+            humanoid.Health = humanoid.MaxHealth
         end
         personnage:WaitForChild("Head", 5)
         majEtiquette(joueur)
@@ -1630,11 +1938,36 @@ end
 Players.PlayerRemoving:Connect(function(joueur)
     sauverJoueur(joueur)
     etats[joueur] = nil
-    for _, info in pairs(cristaux) do
+    for _, info in pairs(monstres) do
         info.contributions[joueur] = nil
         info.coups[joueur] = nil
+        if info.cible == joueur then
+            info.cible = nil
+        end
     end
 end)
+
+-- 📈 gagner de l'XP (et des niveaux)
+donnerXp = function(joueur, e, xp)
+    e.xp += xp
+    local monte = false
+    while e.xp >= xpPourNiveau(e.niveau) do
+        e.xp -= xpPourNiveau(e.niveau)
+        e.niveau += 1
+        monte = true
+    end
+    if monte then
+        publier(joueur)
+        local humanoid = joueur.Character and joueur.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.Health > 0 then
+            humanoid.Health = humanoid.MaxHealth -- un niveau = tous les PV
+        end
+        EvenementEvent:FireClient(joueur, "Niveau", e.niveau)
+    else
+        joueur:SetAttribute("Xp", e.xp)
+    end
+end
+Players.RespawnTime = 3
 
 -- où est chaque joueur ? (ville, pont, ou une zone) — et pas dans une zone fermée !
 local function zoneA(position)

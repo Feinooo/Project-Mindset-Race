@@ -4,7 +4,7 @@
     ⚠️ C'est le SEUL script client du jeu.
 
     Ce script s'occupe de tout ce que TU vois et fais :
-      - FRAPPER les cristaux : clic (ou maintenir le clic) près d'un cristal · bouton AUTO · sur téléphone : bouton PUNCH
+      - SE BATTRE contre les monstres : clic (ou maintenir le clic) = combo de 4 coups · bouton AUTO · sur téléphone : bouton PUNCH
       - les effets : étincelles, chiffres de dégâts, l'aura qui vole vers toi, l'EDIT NOIR ET BLANC des gros moments
       - l'interface : ton aura, tes stats, la prochaine zone, la boutique (améliorations, classes, renaissance)
       - l'ambiance de chaque zone (lumière, couleurs), les portes des zones, les phrases de la trend style TikTok
@@ -26,7 +26,8 @@ local joueur = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("MindsetRemotes")
 local FrapperEvent = remotes:WaitForChild("Frapper")
 local ImpactEvent = remotes:WaitForChild("Impact")
-local CasseEvent = remotes:WaitForChild("Casse")
+local MortEvent = remotes:WaitForChild("Mort")
+local CoupEvent = remotes:WaitForChild("Coup")
 local EvenementEvent = remotes:WaitForChild("Evenement")
 local MessageEvent = remotes:WaitForChild("Message")
 local ReglagesEvent = remotes:WaitForChild("Reglages")
@@ -262,11 +263,25 @@ local function secousse(force)
     forceSecousse = math.max(forceSecousse, force * (if REGLAGES.secousses then 1 else 0))
 end
 
+-- ⏸️ le HITSTOP : l'image se fige une fraction de seconde sur un coup (comme dans les animes et les jeux de combat)
+local gelJusqua, imageGelee = 0, nil
+local function hitstop(duree)
+    if os.clock() + duree > gelJusqua then
+        gelJusqua = os.clock() + duree
+    end
+end
+
 RunService:BindToRenderStep("MindsetCamera", Enum.RenderPriority.Camera.Value + 1, function(dt)
     local camera = workspace.CurrentCamera
     if not camera then
         return
     end
+    if os.clock() < gelJusqua then
+        imageGelee = imageGelee or camera.CFrame
+        camera.CFrame = imageGelee
+        return
+    end
+    imageGelee = nil
     forceSecousse = math.max(0, forceSecousse - dt * 5)
     fovPulse += (0 - fovPulse) * math.min(1, dt * 7)
     if forceSecousse > 0.01 then
@@ -601,12 +616,29 @@ Actions.banniere = function(titre, sousTitre, couleur)
     end)
 end
 
--- ---------- l'aide en bas (jusqu'au premier cristal cassé) ----------
+-- ---------- en bas au milieu : tes PV et ton niveau ----------
+local cadreVie = nouveau("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -40), Size = UDim2.fromOffset(380, 24), BackgroundColor3 = FOND, BackgroundTransparency = 0.15, ZIndex = 10, Parent = gui })
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cadreVie })
+nouveau("UIStroke", { Color = BLANC, Thickness = 1.5, Transparency = 0.4, Parent = cadreVie })
+local traineeVie = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(255, 230, 230), BorderSizePixel = 0, ZIndex = 11, Parent = cadreVie })
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = traineeVie })
+local rempliVie = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(235, 60, 70), BorderSizePixel = 0, ZIndex = 12, Parent = cadreVie })
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempliVie })
+local texteVie = texte({ Size = UDim2.fromScale(1, 1), TextStrokeTransparency = 0.3, ZIndex = 13, Parent = cadreVie })
+nouveau("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4), Parent = texteVie })
+local cadreXp = nouveau("Frame", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(380, 10), BackgroundColor3 = FOND, BackgroundTransparency = 0.15, ZIndex = 10, Parent = gui })
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = cadreXp })
+local rempliXp = nouveau("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.fromRGB(110, 190, 255), BorderSizePixel = 0, ZIndex = 11, Parent = cadreXp })
+nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempliXp })
+local texteNiveau = texte({ AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(0, -10, 1, 2), Size = UDim2.fromOffset(90, 30), TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Color3.fromRGB(140, 200, 255), TextStrokeTransparency = 0.3, ZIndex = 11, Parent = cadreVie })
+local partVieAffichee = 1
+
+-- ---------- l'aide (jusqu'au premier monstre battu) ----------
 local aide = texte({
     AnchorPoint = Vector2.new(0.5, 1),
-    Position = UDim2.new(0.5, 0, 1, -20),
+    Position = UDim2.new(0.5, 0, 1, -76),
     Size = UDim2.fromOffset(520, 22),
-    Text = if surMobile then "Walk to a crystal and hold PUNCH to farm aura" else "Walk to a crystal and CLICK (or hold) to farm aura",
+    Text = if surMobile then "Walk to a monster and hold PUNCH to fight" else "Walk to a monster and CLICK (or hold) to fight",
     Font = Enum.Font.GothamBold,
     TextStrokeTransparency = 0.3,
     ZIndex = 10,
@@ -719,6 +751,18 @@ majHUD = function(dt)
         cadreSuivante.Visible = false
     end
 
+    -- PV (avec une traînée claire qui descend doucement) + niveau et XP
+    local humanoid = joueur.Character and joueur.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        local part = math.clamp(humanoid.Health / math.max(1, humanoid.MaxHealth), 0, 1)
+        rempliVie.Size = UDim2.fromScale(part, 1)
+        partVieAffichee = if part > partVieAffichee then part else partVieAffichee + (part - partVieAffichee) * math.min(1, dt * 3)
+        traineeVie.Size = UDim2.fromScale(partVieAffichee, 1)
+        texteVie.Text = court(math.ceil(humanoid.Health)) .. " / " .. court(humanoid.MaxHealth) .. " HP"
+    end
+    texteNiveau.Text = "LV " .. (joueur:GetAttribute("Niveau") or 1)
+    rempliXp.Size = UDim2.fromScale(math.clamp((joueur:GetAttribute("Xp") or 0) / math.max(1, joueur:GetAttribute("XpMax") or 1), 0, 1), 1)
+
     local serie = joueur:GetAttribute("Serie") or 0
     if perso == "Flow" and serie > 0 then
         cadreSerie.Visible = true
@@ -731,47 +775,65 @@ majHUD = function(dt)
 end
 end -- fin du bloc de l'interface
 
--- ========================== FRAPPER ==========================
+-- ========================== LE COMBAT : FRAPPER ==========================
+-- Combo de 4 : droite, gauche, droite, puis un GROS COUP des deux bras (le serveur fait x2 et envoie voler)
 do
-local PORTEE = CONFIG.portee or 9
-local dossierCristaux = workspace:WaitForChild("MindsetCristaux")
+local PORTEE = CONFIG.portee or 7
+local dossierMonstres = workspace:WaitForChild("MindsetMonstres")
 local appuye, auto = false, false
 local prochaine = 0
-local coteDroit = false
+local combo, dernierCoup = 0, 0
 local originaux = setmetatable({}, { __mode = "k" })
 
--- le bras qui frappe (R15 ou R6) : on tourne l'épaule vers l'avant, puis elle revient
-local function poing(personnage)
-    coteDroit = not coteDroit
-    local nom = if coteDroit then "Right" else "Left"
-    local moteur, rotation
+-- l'épaule (R15 ou R6) et l'axe pour lever le bras vers l'avant
+local function epaule(personnage, nom)
     local hautBras = personnage:FindFirstChild(nom .. "UpperArm")
-    if hautBras and hautBras:FindFirstChild(nom .. "Shoulder") then
-        moteur = hautBras[nom .. "Shoulder"]
-        rotation = CFrame.Angles(math.rad(95), 0, 0)
-    else
-        local torse = personnage:FindFirstChild("Torso")
-        moteur = torse and torse:FindFirstChild(nom .. " Shoulder")
-        rotation = CFrame.Angles(0, 0, math.rad(if coteDroit then 95 else -95))
+    local m = hautBras and hautBras:FindFirstChild(nom .. "Shoulder")
+    if m and m:IsA("Motor6D") then
+        return m, true
     end
-    if not moteur or not moteur:IsA("Motor6D") then
-        return
+    local torse = personnage:FindFirstChild("Torso")
+    m = torse and torse:FindFirstChild(nom .. " Shoulder")
+    if m and m:IsA("Motor6D") then
+        return m, false
     end
-    local origine = originaux[moteur] or moteur.C0
-    originaux[moteur] = origine
-    moteur.C0 = origine * rotation
-    tween(moteur, 0.16, { C0 = origine })
+    return nil
+end
+
+local function animerCoup(personnage, n)
+    local cotes = if n == 4 then { "Right", "Left" } elseif n % 2 == 1 then { "Right" } else { "Left" }
+    for _, nom in ipairs(cotes) do
+        local m, r15 = epaule(personnage, nom)
+        if m then
+            local angle = math.rad(if n == 4 then 150 else 95)
+            local rotation = if r15 then CFrame.Angles(angle, 0, 0) else CFrame.Angles(0, 0, if nom == "Right" then angle else -angle)
+            local origine = originaux[m] or m.C0
+            originaux[m] = origine
+            tween(m, 0.05, { C0 = origine * rotation })
+            task.delay(if n == 4 then 0.2 else 0.11, function()
+                if m.Parent then
+                    tween(m, 0.14, { C0 = origine })
+                end
+            end)
+        end
+    end
 end
 
 local function cibleProche(racine)
-    local meilleur, distanceMin = nil, math.huge
+    local meilleur, score = nil, math.huge
     local zones = attributJson("Zones")
-    for _, modele in ipairs(dossierCristaux:GetChildren()) do
-        local base = modele:GetAttribute("Base")
-        if base and not modele:GetAttribute("Mort") and zones[modele:GetAttribute("Zone") or ""] then
-            local d = (base.Position - racine.Position).Magnitude - (modele:GetAttribute("Taille") or 4) * 0.6
-            if d <= PORTEE and d < distanceMin then
-                meilleur, distanceMin = modele, d
+    local devant = racine.CFrame.LookVector
+    for _, modele in ipairs(dossierMonstres:GetChildren()) do
+        local corps = modele.PrimaryPart
+        if corps and not modele:GetAttribute("Mort") and zones[modele:GetAttribute("Zone") or ""] then
+            local ecart = corps.Position - racine.Position
+            local d = ecart.Magnitude - (modele:GetAttribute("Taille") or 4) * 0.5
+            if d <= PORTEE then
+                -- on préfère celui qui est devant soi
+                local s = d - (if ecart.Magnitude > 0.1 and ecart.Unit:Dot(devant) > 0.3 then 3 else 0)
+                if s < score then
+                    meilleur, score = modele, s
+                end
             end
         end
     end
@@ -782,7 +844,7 @@ local function frapper(manuel)
     local personnage = joueur.Character
     local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
     local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
-    if not racine or not humanoid or humanoid.Health <= 0 then
+    if not racine or not humanoid or humanoid.Health <= 0 or humanoid.PlatformStand then
         return
     end
     local maintenant = os.clock()
@@ -793,15 +855,23 @@ local function frapper(manuel)
     if not cible and not manuel then
         return
     end
-    prochaine = maintenant + math.max(0.1, joueur:GetAttribute("Intervalle") or 0.5)
-    poing(personnage)
-    jouerSon("swoosh", 1.4 + math.random() * 0.3, 0.18, nil, 0.18)
+    prochaine = maintenant + math.max(0.1, joueur:GetAttribute("Intervalle") or 0.45)
+    if maintenant - dernierCoup > 1.1 then
+        combo = 0
+    end
+    combo = combo % 4 + 1
+    dernierCoup = maintenant
+    animerCoup(personnage, combo)
+    jouerSon("swoosh", (if combo == 4 then 1.05 else 1.4) + math.random() * 0.3, if combo == 4 then 0.3 else 0.18, nil, 0.2)
     if cible then
-        -- on se tourne vers le cristal
-        local p = cible:GetAttribute("Base").Position
+        -- on se tourne vers le monstre (et le gros coup fait avancer)
+        local p = cible.PrimaryPart.Position
         local regard = Vector3.new(p.X, racine.Position.Y, p.Z)
         if (regard - racine.Position).Magnitude > 0.5 then
             racine.CFrame = CFrame.lookAt(racine.Position, regard)
+        end
+        if combo == 4 then
+            racine.AssemblyLinearVelocity += racine.CFrame.LookVector * 22
         end
         FrapperEvent:FireServer(cible)
     end
@@ -816,7 +886,7 @@ end
 Actions.basculerAuto = function()
     auto = not auto
     Actions.afficherAuto(auto)
-    notifier(if auto then "AUTO PUNCH: ON (stand near crystals)" else "AUTO PUNCH: OFF", if auto then VERT else GRIS)
+    notifier(if auto then "AUTO PUNCH: ON (stay near monsters)" else "AUTO PUNCH: OFF", if auto then VERT else GRIS)
 end
 
 UserInputService.InputBegan:Connect(function(input, dejaPris)
@@ -839,94 +909,213 @@ RunService.Heartbeat:Connect(function()
 end)
 end -- fin du bloc pour frapper
 
--- ========================== LES CRISTAUX (ce que tu vois) ==========================
+-- ========================== LES MONSTRES (ce que tu vois) ==========================
 do
-local dossierCristaux = workspace:WaitForChild("MindsetCristaux")
-local PENCHE = CFrame.Angles(math.rad(45), 0, math.rad(35))
-local secoues = setmetatable({}, { __mode = "k" }) -- [modele] = heure du dernier coup
-local graines = setmetatable({}, { __mode = "k" })
+local dossierMonstres = workspace:WaitForChild("MindsetMonstres")
 
 local function couleurZone(nom)
     local zone = ZONE_PAR_NOM[nom or ""]
     return if zone then zone.couleur else BLANC
 end
 
--- ils tournent sur eux-mêmes, flottent, et tremblent quand on les frappe (seulement ceux qui sont près de la caméra)
-RunService.RenderStepped:Connect(function()
-    local camera = workspace.CurrentCamera
-    if not camera then
-        return
+-- le monstre flashe d'une couleur (blanc quand on le tape, rouge quand il prépare une attaque)
+local function flasherMonstre(modele, couleur, depart, duree)
+    local ancien = modele:FindFirstChild("MindsetFlash")
+    if ancien then
+        ancien:Destroy()
     end
-    local t = os.clock()
-    local oeil = camera.CFrame.Position
-    for _, modele in ipairs(dossierCristaux:GetChildren()) do
-        local base = modele:GetAttribute("Base")
-        if base and modele.PrimaryPart and (base.Position - oeil).Magnitude < 170 then
-            local g = graines[modele]
-            if not g then
-                g = math.random() * 10
-                graines[modele] = g
-            end
-            local tremble = Vector3.zero
-            local coup = secoues[modele]
-            if coup and t - coup < 0.18 then
-                local f = (1 - (t - coup) / 0.18) * 0.35
-                tremble = Vector3.new((math.random() - 0.5) * f, (math.random() - 0.5) * f, (math.random() - 0.5) * f)
-            end
-            local bond = math.sin(t * 1.8 + g) * 0.35
-            modele:PivotTo(CFrame.new(base.Position + Vector3.new(0, bond, 0) + tremble) * CFrame.Angles(0, t * 0.7 + g, 0) * PENCHE)
+    local h = nouveau("Highlight", {
+        Name = "MindsetFlash",
+        FillColor = couleur,
+        OutlineColor = couleur,
+        FillTransparency = depart,
+        OutlineTransparency = 0.1,
+        DepthMode = Enum.HighlightDepthMode.Occluded,
+        Parent = modele,
+    })
+    tween(h, duree, { FillTransparency = 1, OutlineTransparency = 1 })
+    task.delay(duree + 0.05, function()
+        if h.Parent then
+            h:Destroy()
+        end
+    end)
+    return h
+end
+
+-- les bras du golem
+local originauxBras = setmetatable({}, { __mode = "k" })
+local function bras(modele, rotation, duree)
+    for _, nom in ipairs({ "BrasGauche", "BrasDroit" }) do
+        local b = modele:FindFirstChild(nom)
+        local m = b and b:FindFirstChild("Epaule")
+        if m then
+            local origine = originauxBras[m] or m.C0
+            originauxBras[m] = origine
+            tween(m, duree, { C0 = origine * rotation }, Enum.EasingStyle.Quad)
         end
     end
-end)
+end
 
--- 👊 un cristal prend un coup
-ImpactEvent.OnClientEvent:Connect(function(modele, degats, attaquant, critique)
-    if not modele or not modele.Parent then
-        return
-    end
-    local base = modele:GetAttribute("Base")
+-- ⚠️ chaque monstre : on regarde quand il prépare une attaque, et quand il frappe
+local function suivreMonstre(modele)
+    local cercle = nil
+    modele:GetAttributeChangedSignal("Attaque"):Connect(function()
+        local corps = modele.PrimaryPart
+        if not corps or modele:GetAttribute("Mort") then
+            return
+        end
+        local camera = workspace.CurrentCamera
+        if camera and (camera.CFrame.Position - corps.Position).Magnitude > 140 then
+            return
+        end
+        local preparation = modele:GetAttribute("Preparation") or 0.6
+        local taille = modele:GetAttribute("Taille") or 4
+        -- rouge qui monte + « ! » au-dessus de la tête + les bras qui se lèvent
+        local h = flasherMonstre(modele, ROUGE, 0.9, preparation + 0.1)
+        h.FillTransparency = 0.9
+        tween(h, preparation, { FillTransparency = 0.35 })
+        texteFlottant(corps.Position + Vector3.new(0, taille * 1.1 + 2, 0), "!", ROUGE, 1.1, preparation)
+        bras(modele, CFrame.Angles(math.rad(160), 0, 0), preparation * 0.85)
+        local rayon = modele:GetAttribute("Rayon")
+        if rayon then
+            -- le BOSS : un cercle rouge au sol = la zone qu'il va frapper
+            if cercle then
+                cercle:Destroy()
+            end
+            cercle = nouveau("Part", {
+                Name = "ZoneBoss",
+                Anchored = true,
+                CanCollide = false,
+                CanQuery = false,
+                CanTouch = false,
+                CastShadow = false,
+                Shape = Enum.PartType.Cylinder,
+                Material = Enum.Material.Neon,
+                Color = ROUGE,
+                Transparency = 0.55,
+                Size = Vector3.new(0.2, 2, 2),
+                CFrame = CFrame.new(corps.Position - Vector3.new(0, taille * 0.5 - 0.15, 0)) * CFrame.Angles(0, 0, math.pi / 2),
+                Parent = dossierEffets,
+            })
+            tween(cercle, preparation, { Size = Vector3.new(0.2, rayon * 2, rayon * 2) })
+            jouerSon("tic", 0.5, 0.5)
+        end
+    end)
+    modele:GetAttributeChangedSignal("Frappe"):Connect(function()
+        local corps = modele.PrimaryPart
+        if not corps then
+            return
+        end
+        local taille = modele:GetAttribute("Taille") or 4
+        local sol = corps.Position - Vector3.new(0, taille * 0.5 - 0.2, 0)
+        local couleur = couleurZone(modele:GetAttribute("Zone"))
+        bras(modele, CFrame.Angles(math.rad(-25), 0, 0), 0.07)
+        task.delay(0.12, function()
+            bras(modele, CFrame.new(), 0.3)
+        end)
+        local camera = workspace.CurrentCamera
+        local distance = if camera then (camera.CFrame.Position - corps.Position).Magnitude else 0
+        if distance < 120 then
+            onde(sol, couleur:Lerp(ROUGE, 0.4), (modele:GetAttribute("Rayon") or taille) * 2.2, 0.35)
+            eclats(sol, couleur, 12, 1.2)
+            jouerSon("pose", 0.7, 0.35)
+        end
+        if cercle then
+            cercle:Destroy()
+            cercle = nil
+            secousse(if distance < 60 then 1 else 0.3)
+            jouerSon("boum", 0.75, 0.5)
+            flasher(ROUGE, 0.12)
+        end
+    end)
+    modele.AncestryChanged:Connect(function()
+        if not modele.Parent and cercle then
+            cercle:Destroy()
+            cercle = nil
+        end
+    end)
+end
+for _, modele in ipairs(dossierMonstres:GetChildren()) do
+    suivreMonstre(modele)
+end
+dossierMonstres.ChildAdded:Connect(suivreMonstre)
+
+-- 👊 un monstre prend un coup : flash blanc, éclats, chiffre, et (si c'est toi) le petit arrêt sur image
+ImpactEvent.OnClientEvent:Connect(function(modele, degats, attaquant, critique, lourd)
+    local corps = modele and modele.PrimaryPart
     local camera = workspace.CurrentCamera
-    if not base or not camera or (camera.CFrame.Position - base.Position).Magnitude > 130 then
+    if not corps or not camera or (camera.CFrame.Position - corps.Position).Magnitude > 130 then
         return
     end
-    secoues[modele] = os.clock()
     local couleur = couleurZone(modele:GetAttribute("Zone"))
     local taille = modele:GetAttribute("Taille") or 4
     local moi = attaquant == joueur
-    eclats(base.Position, couleur, if moi then 9 else 4, if critique then 1.5 else 1)
-    if moi then
-        texteFlottant(base.Position + Vector3.new(0, taille * 0.5, 0), (if critique then "CRIT " else "") .. court(degats), if critique then OR else BLANC, if critique then 1.2 else 0.85, 0.7)
-        jouerSon("coup", 0.85 + math.random() * 0.3, 0.32)
-        secousse(if critique then 0.45 else 0.12)
-        if critique then
-            fovPulse = -3
-            jouerSon("pose", 1.4, 0.3)
-        end
+    flasherMonstre(modele, BLANC, 0.05, 0.16)
+    eclats(corps.Position, couleur:Lerp(BLANC, 0.3), if moi then (if lourd then 22 else 10) else 4, if lourd then 2 else 1.1)
+    if not moi then
+        return
+    end
+    local couleurChiffre = if critique then OR elseif lourd then Color3.fromRGB(255, 150, 60) else BLANC
+    texteFlottant(corps.Position + Vector3.new(0, taille * 0.6, 0), (if critique then "CRIT " else "") .. court(degats), couleurChiffre, if lourd or critique then 1.25 else 0.85, 0.7)
+    jouerSon("coup", (if lourd then 0.7 else 0.9) + math.random() * 0.25, if lourd then 0.5 else 0.32)
+    if lourd then
+        hitstop(0.08)
+        secousse(0.55)
+        fovPulse = -5
+        onde(corps.Position, BLANC, taille * 2.4, 0.25)
+        jouerSon("boum", 1.3, 0.3)
+    else
+        hitstop(0.035)
+        secousse(if critique then 0.35 else 0.12)
     end
 end)
 
--- 💥 un cristal est cassé : éclats, et ton aura vole vers toi
-local orbes = {} -- { part, depart, debut, duree, eclatement }
+-- 🤕 un monstre t'a touché : tu recules, l'écran flashe rouge
+CoupEvent.OnClientEvent:Connect(function(direction, force, degats)
+    local personnage = joueur.Character
+    local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
+    local humanoid = personnage and personnage:FindFirstChildOfClass("Humanoid")
+    if not racine or not humanoid then
+        return
+    end
+    humanoid.PlatformStand = true
+    racine.AssemblyLinearVelocity = direction * force + Vector3.new(0, force * 0.45, 0)
+    task.delay(0.3, function()
+        if humanoid.Parent then
+            humanoid.PlatformStand = false
+        end
+    end)
+    flasher(ROUGE, 0.3)
+    secousse(0.7)
+    hitstop(0.05)
+    jouerSon("coup", 0.6, 0.5)
+    texteFlottant(racine.Position + Vector3.new(0, 3, 0), "-" .. court(degats), ROUGE, 1, 0.7)
+    if degats >= humanoid.MaxHealth * 0.3 then
+        impactFrame()
+    end
+end)
+
+-- 💥 un monstre est battu : il explose (le serveur fait voler les morceaux), et ton aura vole vers toi
+local orbes = {}
 local noteOrbe = 0
-CasseEvent.OnClientEvent:Connect(function(position, gain, typeCristal, nomZone, taille)
+MortEvent.OnClientEvent:Connect(function(position, gain, xp, typeMonstre, nomZone, taille)
     local camera = workspace.CurrentCamera
     local proche = camera and (camera.CFrame.Position - position).Magnitude < 160
     if not proche and gain <= 0 then
         return
     end
     local couleur = couleurZone(nomZone)
-    local gros = typeCristal == "BIG" or typeCristal == "BOSS"
-    eclats(position, couleur, if typeCristal == "BOSS" then 80 elseif gros then 40 else 22, if gros then 2 else 1.4)
-    onde(position - Vector3.new(0, (taille or 4) * 0.6, 0), couleur, (taille or 4) * 3.5, 0.45)
+    local gros = typeMonstre ~= "Petit"
+    eclats(position, couleur, if typeMonstre == "Boss" then 90 elseif gros then 40 else 24, if gros then 2.2 else 1.5)
+    onde(position - Vector3.new(0, (taille or 4) * 0.45, 0), couleur, (taille or 4) * 3.2, 0.45)
     if proche then
-        jouerSon("verre", 0.9 + math.random() * 0.25, if gros then 0.55 else 0.35)
+        jouerSon("boum", if gros then 0.9 else 1.3, if gros then 0.5 else 0.3)
     end
     if gain <= 0 then
         return
     end
     Actions.cacherAide()
-    -- les boules d'aura qui volent vers toi
-    local nombre = if typeCristal == "BOSS" then 24 elseif typeCristal == "BIG" then 10 elseif typeCristal == "MEDIUM" then 6 else 3
+    local nombre = if typeMonstre == "Boss" then 26 elseif gros then 10 else 4
     for i = 1, nombre do
         local boule = nouveau("Part", {
             Shape = Enum.PartType.Ball,
@@ -944,17 +1133,24 @@ CasseEvent.OnClientEvent:Connect(function(position, gain, typeCristal, nomZone, 
         local direction = Vector3.new(math.random() - 0.5, math.random() * 0.8 + 0.3, math.random() - 0.5).Unit
         table.insert(orbes, { part = boule, depart = position, eclatement = position + direction * (3 + math.random() * 4), debut = os.clock() + i * 0.025, duree = 0.55 + math.random() * 0.2 })
     end
-    texteFlottant(position + Vector3.new(0, (taille or 4) * 0.7 + 1, 0), "+" .. court(gain) .. " AURA", OR, if gros then 1.3 else 0.95, 1.1)
-    if typeCristal == "BIG" then
-        flasher(BLANC, 0.12)
-        secousse(0.3)
-    elseif typeCristal == "BOSS" then
+    texteFlottant(position + Vector3.new(0, (taille or 4) * 0.7 + 1.5, 0), "+" .. court(gain) .. " AURA", OR, if gros then 1.3 else 0.95, 1.1)
+    if xp > 0 then
+        texteFlottant(position + Vector3.new(0, (taille or 4) * 0.7 + 0.2, 0), "+" .. court(xp) .. " XP", Color3.fromRGB(140, 200, 255), 0.75, 1.1)
+    end
+    if typeMonstre == "Gros" then
+        hitstop(0.09)
+        flasher(BLANC, 0.15)
+        secousse(0.45)
+    elseif typeMonstre == "Boss" then
+        local zone = ZONE_PAR_NOM[nomZone]
+        local nom = if zone and zone.noms then zone.noms.Boss else "BOSS"
+        hitstop(0.15)
         editNoirEtBlanc(1.8, 1)
         impactFrame()
         modeCinema(2.4)
         secousse(1.2)
-        jouerSon("boum", 0.8, 0.6)
-        annoncer(enCouleur("GIANT CRYSTAL", couleur) .. " BROKEN", "+" .. court(gain) .. " AURA", 2.6)
+        jouerSon("boum", 0.7, 0.7)
+        annoncer(enCouleur(nom, couleur) .. " DEFEATED", "+" .. court(gain) .. " AURA", 2.6)
         dire("Too much aura.", couleur, true)
     end
 end)
@@ -970,11 +1166,9 @@ RunService.RenderStepped:Connect(function()
             local cible = if racine then racine.Position else o.depart
             local p
             if age < 0.18 then
-                -- l'éclatement
                 local a = age / 0.18
                 p = o.depart:Lerp(o.eclatement, 1 - (1 - a) * (1 - a))
             else
-                -- vers toi (en accélérant)
                 local a = math.clamp((age - 0.18) / o.duree, 0, 1)
                 p = o.eclatement:Lerp(cible, a * a)
             end
@@ -989,7 +1183,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
-end -- fin du bloc des cristaux
+end -- fin du bloc des monstres
 
 -- ========================== LA BOUTIQUE ==========================
 -- 3 onglets : UPGRADES (le marchand) · CLASSES · REBIRTH (la renaissance)
@@ -1049,6 +1243,8 @@ local function formatValeur(cle, v)
         return string.format("%.1f", 1 / v)
     elseif cle == "Aimant" then
         return "+" .. math.floor(v) .. "%"
+    elseif cle == "Vitalite" then
+        return court(v) .. " HP"
     end
     return tostring(math.floor(v))
 end
@@ -1401,19 +1597,36 @@ EvenementEvent.OnClientEvent:Connect(function(quoi, a, b)
         if not zone then
             return
         end
+        local nom = zone.noms and zone.noms.Boss or "BOSS"
         jouerSon("boum", 0.6, 0.4)
-        notifier("A GIANT CRYSTAL appeared in " .. zone.titre .. "!", zone.couleur)
+        notifier("BOSS: " .. nom .. " appeared in " .. zone.titre .. "!", zone.couleur)
         if joueur:GetAttribute("Zone") == a then
             editNoirEtBlanc(1, 0.7)
-            annoncer(enCouleur("GIANT CRYSTAL", zone.couleur), "Break it together: everyone gets a share!", 2.4)
+            impactFrame()
+            secousse(0.8)
+            annoncer(enCouleur(nom, zone.couleur), "Beat it together: everyone gets a share!", 2.4)
         end
     elseif quoi == "BossMort" then
         local zone = ZONE_PAR_NOM[a]
         if b and b ~= "" then
-            notifier(b .. " dealt the most damage to the GIANT CRYSTAL", if zone then zone.couleur else BLANC)
+            notifier(b .. " dealt the most damage to " .. (if zone and zone.noms then zone.noms.Boss else "the boss"), if zone then zone.couleur else BLANC)
         end
     elseif quoi == "BossFuite" then
-        notifier("The GIANT CRYSTAL faded away...", GRIS)
+        local zone = ZONE_PAR_NOM[a]
+        notifier((if zone and zone.noms then zone.noms.Boss else "The boss") .. " left...", GRIS)
+    elseif quoi == "Niveau" then
+        -- ⬆️ un niveau de plus
+        local personnage = joueur.Character
+        local racine = personnage and personnage:FindFirstChild("HumanoidRootPart")
+        flasher(Color3.fromRGB(140, 200, 255), 0.3)
+        jouerSon("tic", 1, 0.5)
+        jouerSon("tic", 1.5, 0.45, 0.08)
+        jouerSon("tic", 2, 0.4, 0.16)
+        if racine then
+            onde(racine.Position - Vector3.new(0, 2.8, 0), Color3.fromRGB(140, 200, 255), 16, 0.5)
+            eclats(racine.Position, Color3.fromRGB(140, 200, 255), 30, 1.4)
+        end
+        annoncer("LEVEL " .. tostring(a), "+3% DAMAGE  ·  +2% HEALTH  ·  FULL HEALTH", 1.8)
     end
 end)
 MessageEvent.OnClientEvent:Connect(function(message, couleur)
@@ -1465,8 +1678,19 @@ local FR_NOMS = {
     { "FROZEN PEAKS", "PICS GELÉS" },
     { "MAGMA CORE", "CŒUR DE MAGMA" },
     { "COSMIC VOID", "VIDE COSMIQUE" },
-    { "GIANT CRYSTAL", "CRISTAL GÉANT" },
     { "AURA CITY", "VILLE DE L'AURA" },
+    -- les monstres
+    { "ANCIENT TREANT", "TRÉANT ANCIEN" },
+    { "FROST TITAN", "TITAN DE GIVRE" },
+    { "INFERNO LORD", "SEIGNEUR DES FLAMMES" },
+    { "COSMIC OVERLORD", "SEIGNEUR COSMIQUE" },
+    { "MOSS GOLEM", "GOLEM DE MOUSSE" },
+    { "ICE GOLEM", "GOLEM DE GLACE" },
+    { "LAVA GOLEM", "GOLEM DE LAVE" },
+    { "STAR GOLEM", "GOLEM STELLAIRE" },
+    { "SNOW SLIME", "SLIME DE NEIGE" },
+    { "MAGMA SLIME", "SLIME DE MAGMA" },
+    { "VOID SLIME", "SLIME DU VIDE" },
 }
 
 local FR_EXACT = {
@@ -1486,10 +1710,13 @@ local FR_EXACT = {
     ["POWER"] = "FORCE",
     ["PUNCH SPEED"] = "VITESSE DE FRAPPE",
     ["AURA BOOST"] = "BONUS D'AURA",
-    ["WALK SPEED"] = "VITESSE DE MARCHE",
-    ["Walk to a crystal and CLICK (or hold) to farm aura"] = "Va près d'un cristal et CLIQUE (ou maintiens) pour farmer de l'aura",
-    ["Walk to a crystal and hold PUNCH to farm aura"] = "Va près d'un cristal et maintiens FRAPPER pour farmer de l'aura",
-    ["AUTO PUNCH: ON (stand near crystals)"] = "COUPS AUTO : OUI (reste près des cristaux)",
+    ["HEALTH"] = "VIE",
+    ["Walk to a monster and CLICK (or hold) to fight"] = "Va près d'un monstre et CLIQUE (ou maintiens) pour te battre",
+    ["Walk to a monster and hold PUNCH to fight"] = "Va près d'un monstre et maintiens FRAPPER pour te battre",
+    ["AUTO PUNCH: ON (stay near monsters)"] = "COUPS AUTO : OUI (reste près des monstres)",
+    ["SLIME"] = "SLIME",
+    ["Beat it together: everyone gets a share!"] = "Battez-le ensemble : chacun a sa part !",
+    ["+3% DAMAGE  ·  +2% HEALTH  ·  FULL HEALTH"] = "+3 % DÉGÂTS  ·  +2 % PV  ·  PV AU MAX",
     ["AUTO PUNCH: OFF"] = "COUPS AUTO : NON",
     ["You lose your aura and your upgrades.\nYou keep your zones and your classes."] = "Tu perds ton aura et tes améliorations.\nTu gardes tes zones et tes classes.",
     ["Your settings are saved for next time."] = "Tes réglages sont gardés pour la prochaine fois.",
@@ -1510,8 +1737,6 @@ local FR_EXACT = {
     ["Wait a second..."] = "Attends une seconde...",
     ["Try again in a second..."] = "Réessaie dans une seconde...",
     ["This zone is locked!"] = "Cette zone est fermée !",
-    ["The GIANT CRYSTAL faded away..."] = "Le CRISTAL GÉANT a disparu...",
-    ["Break it together: everyone gets a share!"] = "Cassez-le ensemble : chacun a sa part !",
     -- la carte
     ["AURA MERCHANT"] = "MARCHAND D'AURA",
     ["AFK ZONE"] = "ZONE AFK",
@@ -1542,10 +1767,10 @@ local FR_EXACT = {
     ["STREAK"] = "SÉRIE",
     ["SPOTLIGHT"] = "PROJECTEUR",
     ["RAGE"] = "RAGE",
-    ["Your first hit on every crystal deals x3 damage."] = "Ton premier coup sur chaque cristal fait x3 dégâts.",
-    ["Every crystal you break in a row gives +2% aura (up to +100%). Stop for 8 s and it resets."] = "Chaque cristal cassé d'affilée donne +2 % d'aura (jusqu'à +100 %). Arrête-toi 8 s et ça repart à zéro.",
-    ["x2 aura from crystals, but -25% damage. Crown when you're the richest on the server."] = "x2 aura sur les cristaux, mais -25 % de dégâts. Une couronne quand tu es le plus riche du serveur.",
-    ["Every hit on the same crystal deals +15% damage (up to x4)."] = "Chaque coup sur le même cristal fait +15 % de dégâts (jusqu'à x4).",
+    ["Your first hit on every monster deals x3 damage."] = "Ton premier coup sur chaque monstre fait x3 dégâts.",
+    ["Every monster you beat in a row gives +2% aura (up to +100%). Stop for 10 s and it resets."] = "Chaque monstre battu d'affilée donne +2 % d'aura (jusqu'à +100 %). Arrête-toi 10 s et ça repart à zéro.",
+    ["x2 aura from monsters, but -25% damage. Crown when you're the richest on the server."] = "x2 aura sur les monstres, mais -25 % de dégâts. Une couronne quand tu es le plus riche du serveur.",
+    ["Every hit on the same monster deals +15% damage (up to x4)."] = "Chaque coup sur le même monstre fait +15 % de dégâts (jusqu'à x4).",
 }
 
 local traduire
@@ -1571,7 +1796,6 @@ local FR_MOTIFS = {
     { "^Damage per hit: (.+)$", "Dégâts par coup : %1" },
     { "^Punches per second: (.+)$", "Coups par seconde : %1" },
     { "^Bonus aura: (.+)$", "Aura en plus : %1" },
-    { "^Walk speed: (.+)$", "Vitesse de marche : %1" },
     { "^NOW: (.+)$", function(reste)
         reste = string.gsub(reste, "%% aura", " %% d'aura")
         reste = string.gsub(reste, "%% damage", " %% de dégâts")
@@ -1589,12 +1813,24 @@ local FR_MOTIFS = {
     end },
     { "^You need (.+) more aura$", "Il te manque %1 d'aura" },
     { "^%+(.+) AURA %(AFK%)$", "+%1 AURA (AFK)" },
-    { "^A GIANT CRYSTAL appeared in (.+)!$", function(zone)
-        return "Un CRISTAL GÉANT est apparu : " .. traduireNoms(zone) .. " !"
+    { "^BOSS: (.+) appeared in (.+)!$", function(nom, zone)
+        return "BOSS : " .. traduireNoms(nom) .. " est apparu : " .. traduireNoms(zone) .. " !"
     end },
-    { "^(.+) dealt the most damage to the GIANT CRYSTAL$", "%1 a fait le plus de dégâts au CRISTAL GÉANT" },
-    { "^(.+) BROKEN$", function(reste)
-        return traduireNoms(reste) .. " CASSÉ"
+    { "^(.+) dealt the most damage to (.+)$", function(qui, nom)
+        return qui .. " a fait le plus de dégâts à " .. traduireNoms(nom)
+    end },
+    { "^(.+) left%.%.%.$", function(nom)
+        return traduireNoms(nom) .. " est reparti..."
+    end },
+    { "^(.+) DEFEATED$", function(reste)
+        return traduireNoms(reste) .. " VAINCU"
+    end },
+    { "^LEVEL (%d+)$", "NIVEAU %1" },
+    { "^(.+) / (.+) HP$", "%1 / %2 PV" },
+    { "^LV (%d+)$", "NIV %1" },
+    { "^%+(.+) XP$", "+%1 XP" },
+    { "^Max health: (.+)$", function(reste)
+        return "PV max : " .. string.gsub(reste, "HP", "PV")
     end },
 }
 
