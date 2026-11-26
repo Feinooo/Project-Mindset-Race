@@ -1,12 +1,12 @@
 --[[
-    🌍 MINDSET SIMULATOR — Script CLIENT
+    🌍 AURA SIMULATOR — Script CLIENT
     À mettre dans : StarterPlayer > StarterPlayerScripts  (type : LocalScript, nom : MindsetClient)
     ⚠️ C'est le SEUL script client du jeu.
 
     Ce script s'occupe de tout ce que TU vois et fais :
       - FRAPPER les cristaux : clic (ou maintenir le clic) près d'un cristal · bouton AUTO · sur téléphone : bouton PUNCH
       - les effets : étincelles, chiffres de dégâts, l'aura qui vole vers toi, l'EDIT NOIR ET BLANC des gros moments
-      - l'interface : ton aura, tes stats, la prochaine zone, la boutique (améliorations, états d'esprit, renaissance)
+      - l'interface : ton aura, tes stats, la prochaine zone, la boutique (améliorations, classes, renaissance)
       - l'ambiance de chaque zone (lumière, couleurs), les portes des zones, les phrases de la trend style TikTok
       - la musique, les paramètres et la langue (anglais / français)
     (le serveur, lui, décide de tout : les dégâts, l'aura, les achats)
@@ -55,7 +55,7 @@ local PERSOS = CONFIG.persos or {}
 for _, p in pairs(PERSOS) do
     p.couleur = couleurDe(p.couleur)
 end
-local ORDRE_PERSOS = CONFIG.ordrePersos or { "Motivation", "Discipline", "Ego", "Obsession" }
+local ORDRE_PERSOS = CONFIG.ordrePersos or { "Spark", "Flow", "Star", "Fury" }
 local AMELIOS = CONFIG.ameliorations or {}
 local RENAISSANCE = CONFIG.renaissance or { prixBase = 250000, croissance = 4, bonusAura = 0.5, bonusDegats = 0.25 }
 
@@ -563,17 +563,17 @@ nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempliSuivante })
 -- ---------- la série de DISCIPLINE ----------
 local cadreSerie = nouveau("Frame", { Position = UDim2.fromOffset(16, 226), Size = UDim2.fromOffset(270, 34), BackgroundColor3 = FOND, BackgroundTransparency = 0.25, Visible = false, ZIndex = 10, Parent = gui })
 nouveau("UICorner", { CornerRadius = UDim.new(0, 10), Parent = cadreSerie })
-nouveau("UIStroke", { Color = PERSOS.Discipline and PERSOS.Discipline.couleur or BLANC, Thickness = 1.5, Parent = cadreSerie })
-local texteSerie = texte({ Position = UDim2.fromOffset(12, 4), Size = UDim2.new(1, -24, 0, 16), Font = Enum.Font.GothamBlack, TextColor3 = PERSOS.Discipline and PERSOS.Discipline.couleur or BLANC, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = cadreSerie })
+nouveau("UIStroke", { Color = PERSOS.Flow and PERSOS.Flow.couleur or BLANC, Thickness = 1.5, Parent = cadreSerie })
+local texteSerie = texte({ Position = UDim2.fromOffset(12, 4), Size = UDim2.new(1, -24, 0, 16), Font = Enum.Font.GothamBlack, TextColor3 = PERSOS.Flow and PERSOS.Flow.couleur or BLANC, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11, Parent = cadreSerie })
 local railSerie = nouveau("Frame", { Position = UDim2.fromOffset(12, 23), Size = UDim2.new(1, -24, 0, 5), BackgroundColor3 = GRIS_FONCE, BorderSizePixel = 0, ZIndex = 11, Parent = cadreSerie })
-local rempliSerie = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = PERSOS.Discipline and PERSOS.Discipline.couleur or BLANC, BorderSizePixel = 0, ZIndex = 12, Parent = railSerie })
+local rempliSerie = nouveau("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = PERSOS.Flow and PERSOS.Flow.couleur or BLANC, BorderSizePixel = 0, ZIndex = 12, Parent = railSerie })
 local derniereSerie, heureSerie = 0, 0
 joueur:GetAttributeChangedSignal("Serie"):Connect(function()
     local s = joueur:GetAttribute("Serie") or 0
     if s > derniereSerie then
         heureSerie = os.clock()
-        if s > 0 and s % 10 == 0 and joueur:GetAttribute("Perso") == "Discipline" then
-            dire("DISCIPLINE keeps you going.", PERSOS.Discipline.couleur)
+        if s > 0 and s % 10 == 0 and joueur:GetAttribute("Perso") == "Flow" then
+            dire("Unstoppable flow.", PERSOS.Flow.couleur)
         end
     end
     derniereSerie = s
@@ -635,7 +635,7 @@ end
 boutonColonne("SHOP", OR, 1, function()
     Actions.ouvrirBoutique("Ameliorations")
 end)
-boutonColonne("MINDSETS", Color3.fromRGB(200, 140, 255), 2, function()
+boutonColonne("CLASSES", Color3.fromRGB(200, 140, 255), 2, function()
     Actions.ouvrirBoutique("Persos")
 end)
 boutonColonne("REBIRTH", BLANC, 3, function()
@@ -702,7 +702,7 @@ majHUD = function(dt)
     local par = 1 / (joueur:GetAttribute("Intervalle") or 0.5)
     local mult = joueur:GetAttribute("MultAura") or 1
     texteStats.Text = court(degats) .. " DMG  ·  " .. string.format("%.1f", par) .. "/s  ·  x" .. string.format("%.2f", mult):gsub("%.?0+$", "") .. " AURA"
-    local perso = joueur:GetAttribute("Perso") or "Motivation"
+    local perso = joueur:GetAttribute("Perso") or "Spark"
     local rebirths = joueur:GetAttribute("Rebirths") or 0
     texteStats2.Text = string.upper(perso) .. "  ·  REBIRTHS " .. rebirths
     texteStats2.TextColor3 = if PERSOS[perso] then PERSOS[perso].couleur:Lerp(BLANC, 0.3) else GRIS
@@ -720,10 +720,10 @@ majHUD = function(dt)
     end
 
     local serie = joueur:GetAttribute("Serie") or 0
-    if perso == "Discipline" and serie > 0 then
+    if perso == "Flow" and serie > 0 then
         cadreSerie.Visible = true
         local s = CONFIG.serie or { delai = 8, bonus = 0.02, max = 1 }
-        texteSerie.Text = "ROUTINE x" .. serie .. "  ·  +" .. math.floor(math.min(s.max, serie * s.bonus) * 100 + 0.5) .. "% AURA"
+        texteSerie.Text = "STREAK x" .. serie .. "  ·  +" .. math.floor(math.min(s.max, serie * s.bonus) * 100 + 0.5) .. "% AURA"
         rempliSerie.Size = UDim2.fromScale(math.clamp(1 - (os.clock() - heureSerie) / s.delai, 0, 1), 1)
     else
         cadreSerie.Visible = false
@@ -954,8 +954,8 @@ CasseEvent.OnClientEvent:Connect(function(position, gain, typeCristal, nomZone, 
         modeCinema(2.4)
         secousse(1.2)
         jouerSon("boum", 0.8, 0.6)
-        annoncer(enCouleur("GIANT THOUGHT", couleur) .. " BROKEN", "+" .. court(gain) .. " AURA", 2.6)
-        dire("Your next opponent is you.", couleur, true)
+        annoncer(enCouleur("GIANT CRYSTAL", couleur) .. " BROKEN", "+" .. court(gain) .. " AURA", 2.6)
+        dire("Too much aura.", couleur, true)
     end
 end)
 
@@ -992,7 +992,7 @@ end)
 end -- fin du bloc des cristaux
 
 -- ========================== LA BOUTIQUE ==========================
--- 3 onglets : UPGRADES (le marchand) · MINDSETS (les états d'esprit) · REBIRTH (la renaissance)
+-- 3 onglets : UPGRADES (le marchand) · CLASSES · REBIRTH (la renaissance)
 do
 local fond = nouveau("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = NOIR, BackgroundTransparency = 1, AutoButtonColor = false, Text = "", Visible = false, ZIndex = 50, Parent = gui })
 local cadre = nouveau("TextButton", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(660, 460), BackgroundColor3 = FOND, AutoButtonColor = false, Text = "", ZIndex = 51, Parent = fond })
@@ -1005,7 +1005,7 @@ local pages = {}
 local ongletActuel = "Ameliorations"
 local ORDRE_ONGLETS = {
     { cle = "Ameliorations", nom = "UPGRADES", couleur = OR },
-    { cle = "Persos", nom = "MINDSETS", couleur = Color3.fromRGB(200, 140, 255) },
+    { cle = "Persos", nom = "CLASSES", couleur = Color3.fromRGB(200, 140, 255) },
     { cle = "Renaissance", nom = "REBIRTH", couleur = BLANC },
 }
 local texteAuraBoutique = texte({ Position = UDim2.fromOffset(24, 64), Size = UDim2.fromOffset(400, 20), Font = Enum.Font.GothamBold, RichText = true, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 52, Parent = cadre })
@@ -1084,7 +1084,7 @@ for i, def in ipairs(AMELIOS) do
     end)
 end
 
--- ---------- MINDSETS ----------
+-- ---------- CLASSES ----------
 local cartes = {}
 for i, nom in ipairs(ORDRE_PERSOS) do
     local p = PERSOS[nom]
@@ -1111,7 +1111,7 @@ local pageR = pages.Renaissance
 texte({ Position = UDim2.fromOffset(0, 4), Size = UDim2.new(1, 0, 0, 40), Text = "REBIRTH", ZIndex = 53, Parent = pageR })
 local texteRebirths = texte({ Position = UDim2.fromOffset(0, 50), Size = UDim2.new(1, 0, 0, 22), Font = Enum.Font.GothamBold, RichText = true, ZIndex = 53, Parent = pageR })
 local texteBonus = texte({ Position = UDim2.fromOffset(0, 80), Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.GothamBold, RichText = true, TextColor3 = Color3.fromRGB(220, 220, 232), ZIndex = 53, Parent = pageR })
-texte({ Position = UDim2.fromOffset(40, 116), Size = UDim2.new(1, -80, 0, 40), Text = "You lose your aura and your upgrades.\nYou keep your zones and your mindsets.", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, ZIndex = 53, Parent = pageR })
+texte({ Position = UDim2.fromOffset(40, 116), Size = UDim2.new(1, -80, 0, 40), Text = "You lose your aura and your upgrades.\nYou keep your zones and your classes.", Font = Enum.Font.GothamMedium, TextColor3 = GRIS, ZIndex = 53, Parent = pageR })
 local railR = nouveau("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 176), Size = UDim2.new(0.8, 0, 0, 14), BackgroundColor3 = GRIS_FONCE, BorderSizePixel = 0, ZIndex = 53, Parent = pageR })
 nouveau("UICorner", { CornerRadius = UDim.new(1, 0), Parent = railR })
 local rempliR = nouveau("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = BLANC, BorderSizePixel = 0, ZIndex = 54, Parent = railR })
@@ -1320,10 +1320,10 @@ end -- fin du bloc des portes
 do
 local AMBIANCES = {
     Ville = { heure = 15, teinte = BLANC, atmo = Color3.fromRGB(200, 200, 215), densite = 0.28 },
-    Motivation = { heure = 6.6, teinte = Color3.fromRGB(255, 226, 200), atmo = Color3.fromRGB(255, 185, 130), densite = 0.34 },
-    Discipline = { heure = 11.5, teinte = Color3.fromRGB(212, 226, 255), atmo = Color3.fromRGB(165, 185, 230), densite = 0.3 },
-    Ego = { heure = 17.3, teinte = Color3.fromRGB(255, 242, 212), atmo = Color3.fromRGB(255, 220, 160), densite = 0.24 },
-    Obsession = { heure = 0.3, teinte = Color3.fromRGB(255, 180, 180), atmo = Color3.fromRGB(110, 18, 28), densite = 0.45 },
+    Forest = { heure = 7.5, teinte = Color3.fromRGB(228, 255, 228), atmo = Color3.fromRGB(170, 215, 165), densite = 0.34 },
+    Ice = { heure = 12, teinte = Color3.fromRGB(215, 235, 255), atmo = Color3.fromRGB(205, 228, 245), densite = 0.38 },
+    Volcano = { heure = 18.2, teinte = Color3.fromRGB(255, 212, 185), atmo = Color3.fromRGB(200, 80, 40), densite = 0.42 },
+    Cosmos = { heure = 0.2, teinte = Color3.fromRGB(222, 205, 255), atmo = Color3.fromRGB(60, 30, 110), densite = 0.35 },
 }
 local teinte = nouveau("ColorCorrectionEffect", { Name = "MindsetAmbiance", Parent = Lighting })
 local derniereZone = nil
@@ -1349,14 +1349,14 @@ local function surZone()
     appliquer(nom)
     local zone = ZONE_PAR_NOM[nom]
     if zone then
-        Actions.banniere(zone.titre, string.upper(zone.nom) .. " ZONE  ·  x" .. court(zone.aura) .. " AURA", zone.couleur)
+        Actions.banniere(zone.titre, "ZONE " .. zone.index .. "  ·  x" .. court(zone.aura) .. " AURA", zone.couleur)
         if os.clock() - (dejaDit[nom] or -1000) > 90 then
             dejaDit[nom] = os.clock()
             dire(zone.phrase, zone.couleur)
         end
         jouerSon("eau", 0.7, 0.3)
     elseif nom == "Ville" then
-        Actions.banniere("MINDSET CITY", "SAFE ZONE  ·  SHOP  ·  MINDSETS  ·  REBIRTH", BLANC)
+        Actions.banniere("AURA CITY", "SAFE ZONE  ·  SHOP  ·  CLASSES  ·  REBIRTH", BLANC)
     end
 end
 joueur:GetAttributeChangedSignal("Zone"):Connect(surZone)
@@ -1385,7 +1385,7 @@ EvenementEvent.OnClientEvent:Connect(function(quoi, a, b)
         flasher(BLANC, 0.8)
         jouerSon("boum", 0.7, 0.7)
         annoncer("REBIRTH " .. tostring(a), "+" .. math.floor(RENAISSANCE.bonusAura * a * 100 + 0.5) .. "% AURA  ·  +" .. math.floor(RENAISSANCE.bonusDegats * a * 100 + 0.5) .. "% DAMAGE  ·  FOREVER", 3)
-        dire("Your next opponent is you.", BLANC, true)
+        dire("Reborn stronger.", BLANC, true)
     elseif quoi == "NouveauPerso" then
         local p = PERSOS[a]
         if not p then
@@ -1394,32 +1394,26 @@ EvenementEvent.OnClientEvent:Connect(function(quoi, a, b)
         editNoirEtBlanc(1.2, 0.8)
         impactFrame()
         jouerSon("boum", 1.1, 0.45)
-        annoncer(enCouleur(string.upper(a), p.couleur), "NEW MINDSET  ·  " .. p.passif.nom, 2.4)
-        local phrases = {
-            Motivation = "MOTIVATION gets you started.",
-            Discipline = "DISCIPLINE keeps you going.",
-            Ego = "EGO wants everyone to watch.",
-            Obsession = "OBSESSION makes you unstoppable.",
-        }
-        dire(phrases[a] or "", p.couleur, true)
+        annoncer(enCouleur(string.upper(a), p.couleur), "NEW CLASS  ·  " .. p.passif.nom, 2.4)
+        dire(p.devise or "", p.couleur, true)
     elseif quoi == "Boss" then
         local zone = ZONE_PAR_NOM[a]
         if not zone then
             return
         end
         jouerSon("boum", 0.6, 0.4)
-        notifier("A GIANT THOUGHT appeared in " .. zone.titre .. "!", zone.couleur)
+        notifier("A GIANT CRYSTAL appeared in " .. zone.titre .. "!", zone.couleur)
         if joueur:GetAttribute("Zone") == a then
             editNoirEtBlanc(1, 0.7)
-            annoncer(enCouleur("GIANT THOUGHT", zone.couleur), "Break it together: everyone gets a share!", 2.4)
+            annoncer(enCouleur("GIANT CRYSTAL", zone.couleur), "Break it together: everyone gets a share!", 2.4)
         end
     elseif quoi == "BossMort" then
         local zone = ZONE_PAR_NOM[a]
         if b and b ~= "" then
-            notifier(b .. " dealt the most damage to the GIANT THOUGHT", if zone then zone.couleur else BLANC)
+            notifier(b .. " dealt the most damage to the GIANT CRYSTAL", if zone then zone.couleur else BLANC)
         end
     elseif quoi == "BossFuite" then
-        notifier("The GIANT THOUGHT faded away...", GRIS)
+        notifier("The GIANT CRYSTAL faded away...", GRIS)
     end
 end)
 MessageEvent.OnClientEvent:Connect(function(message, couleur)
@@ -1467,18 +1461,17 @@ do
 local LocalizationService = game:GetService("LocalizationService")
 
 local FR_NOMS = {
-    { "SUNRISE VALLEY", "VALLÉE DE L'AUBE" },
-    { "IRON DOJO", "DOJO DE FER" },
-    { "GOLDEN STAGE", "SCÈNE DORÉE" },
-    { "RED ABYSS", "ABÎME ROUGE" },
-    { "GIANT THOUGHT", "PENSÉE GÉANTE" },
-    { "MINDSET CITY", "VILLE MINDSET" },
+    { "EMERALD FOREST", "FORÊT D'ÉMERAUDE" },
+    { "FROZEN PEAKS", "PICS GELÉS" },
+    { "MAGMA CORE", "CŒUR DE MAGMA" },
+    { "COSMIC VOID", "VIDE COSMIQUE" },
+    { "GIANT CRYSTAL", "CRISTAL GÉANT" },
+    { "AURA CITY", "VILLE DE L'AURA" },
 }
 
 local FR_EXACT = {
     -- l'interface
     ["SHOP"] = "BOUTIQUE",
-    ["MINDSETS"] = "ÉTATS D'ESPRIT",
     ["REBIRTH"] = "RENAISSANCE",
     ["AUTO: ON"] = "AUTO : OUI",
     ["AUTO: OFF"] = "AUTO : NON",
@@ -1498,7 +1491,7 @@ local FR_EXACT = {
     ["Walk to a crystal and hold PUNCH to farm aura"] = "Va près d'un cristal et maintiens FRAPPER pour farmer de l'aura",
     ["AUTO PUNCH: ON (stand near crystals)"] = "COUPS AUTO : OUI (reste près des cristaux)",
     ["AUTO PUNCH: OFF"] = "COUPS AUTO : NON",
-    ["You lose your aura and your upgrades.\nYou keep your zones and your mindsets."] = "Tu perds ton aura et tes améliorations.\nTu gardes tes zones et tes états d'esprit.",
+    ["You lose your aura and your upgrades.\nYou keep your zones and your classes."] = "Tu perds ton aura et tes améliorations.\nTu gardes tes zones et tes classes.",
     ["Your settings are saved for next time."] = "Tes réglages sont gardés pour la prochaine fois.",
     ["MUSIC"] = "MUSIQUE",
     ["SOUND EFFECTS (clicks, menu sounds, effects)"] = "BRUITAGES (clics, sons du menu, effets)",
@@ -1517,8 +1510,8 @@ local FR_EXACT = {
     ["Wait a second..."] = "Attends une seconde...",
     ["Try again in a second..."] = "Réessaie dans une seconde...",
     ["This zone is locked!"] = "Cette zone est fermée !",
-    ["The GIANT THOUGHT faded away..."] = "La PENSÉE GÉANTE a disparu...",
-    ["Break it together: everyone gets a share!"] = "Cassez-la ensemble : chacun a sa part !",
+    ["The GIANT CRYSTAL faded away..."] = "Le CRISTAL GÉANT a disparu...",
+    ["Break it together: everyone gets a share!"] = "Cassez-le ensemble : chacun a sa part !",
     -- la carte
     ["AURA MERCHANT"] = "MARCHAND D'AURA",
     ["AFK ZONE"] = "ZONE AFK",
@@ -1531,23 +1524,24 @@ local FR_EXACT = {
     ["Aura Merchant"] = "Marchand d'aura",
     ["Rebirth"] = "Renaissance",
     ["Rebirth Altar"] = "Autel de renaissance",
-    ["Mindsets"] = "États d'esprit",
     ["Unlock"] = "Débloquer",
-    -- la trend
-    ["MOTIVATION gets you started."] = "La MOTIVATION te fait commencer.",
-    ["DISCIPLINE keeps you going."] = "La DISCIPLINE te fait continuer.",
-    ["EGO wants everyone to watch."] = "L'EGO veut que tout le monde regarde.",
-    ["OBSESSION makes you unstoppable."] = "L'OBSESSION te rend inarrêtable.",
-    ["Your next opponent is you."] = "Ton prochain adversaire, c'est toi.",
-    -- les états d'esprit
-    ["Fast start. Then it fades."] = "Départ en feu. Puis ça s'éteint.",
-    ["Steady. Every day."] = "Régulier. Tous les jours.",
-    ["Main character. Glass jaw."] = "Personnage principal. Mâchoire de verre.",
+    -- les phrases style TikTok
+    ["Every legend starts somewhere."] = "Toute légende commence quelque part.",
+    ["Only the strong survive the cold."] = "Seuls les forts survivent au froid.",
+    ["Feel the heat."] = "Sens la chaleur.",
+    ["Beyond every limit."] = "Au-delà de toutes les limites.",
+    ["Too much aura."] = "Trop d'aura.",
+    ["Reborn stronger."] = "Renaître plus fort.",
+    ["Unstoppable flow."] = "Un flow inarrêtable.",
+    -- les classes
+    ["Hits first. Hits hard."] = "Frappe en premier. Frappe fort.",
+    ["Never stops."] = "Ne s'arrête jamais.",
+    ["All eyes on you."] = "Tous les regards sur toi.",
     ["Slow start. Unstoppable end."] = "Départ lent. Fin inarrêtable.",
-    ["FAST START"] = "DÉPART EN FEU",
-    ["ROUTINE"] = "ROUTINE",
-    ["MAIN CHARACTER"] = "PERSO PRINCIPAL",
-    ["FIXATION"] = "FIXATION",
+    ["FIRST STRIKE"] = "PREMIER COUP",
+    ["STREAK"] = "SÉRIE",
+    ["SPOTLIGHT"] = "PROJECTEUR",
+    ["RAGE"] = "RAGE",
     ["Your first hit on every crystal deals x3 damage."] = "Ton premier coup sur chaque cristal fait x3 dégâts.",
     ["Every crystal you break in a row gives +2% aura (up to +100%). Stop for 8 s and it resets."] = "Chaque cristal cassé d'affilée donne +2 % d'aura (jusqu'à +100 %). Arrête-toi 8 s et ça repart à zéro.",
     ["x2 aura from crystals, but -25% damage. Crown when you're the richest on the server."] = "x2 aura sur les cristaux, mais -25 % de dégâts. Une couronne quand tu es le plus riche du serveur.",
@@ -1573,7 +1567,7 @@ local FR_MOTIFS = {
     { "^NEXT ZONE: (.+)$", function(reste)
         return "ZONE SUIVANTE : " .. traduireNoms(reste)
     end },
-    { "^ROUTINE x(%d+)  ·  %+(%d+)%% AURA$", "ROUTINE x%1  ·  +%2 %% AURA" },
+    { "^STREAK x(%d+)  ·  %+(%d+)%% AURA$", "SÉRIE x%1  ·  +%2 %% AURA" },
     { "^Damage per hit: (.+)$", "Dégâts par coup : %1" },
     { "^Punches per second: (.+)$", "Coups par seconde : %1" },
     { "^Bonus aura: (.+)$", "Aura en plus : %1" },
@@ -1585,23 +1579,22 @@ local FR_MOTIFS = {
     end },
     { "^(.-) AURA  ·  (.-) DAMAGE  ·  FOREVER$", "%1 AURA  ·  %2 DÉGÂTS  ·  POUR TOUJOURS" },
     { "^ZONE UNLOCKED  ·  x(.+) AURA$", "ZONE DÉBLOQUÉE  ·  x%1 AURA" },
-    { "^NEW MINDSET  ·  (.+)$", function(nom)
-        return "NOUVEL ÉTAT D'ESPRIT  ·  " .. traduire(nom)
+    { "^NEW CLASS  ·  (.+)$", function(nom)
+        return "NOUVELLE CLASSE  ·  " .. traduire(nom)
     end },
-    { "^(%u+) ZONE  ·  x(.+) AURA$", "ZONE %1  ·  x%2 AURA" },
-    { "^SAFE ZONE  ·  SHOP  ·  MINDSETS  ·  REBIRTH$", "ZONE SANS DANGER  ·  BOUTIQUE  ·  ÉTATS D'ESPRIT  ·  RENAISSANCE" },
+    { "^SAFE ZONE  ·  SHOP  ·  CLASSES  ·  REBIRTH$", "ZONE SANS DANGER  ·  BOUTIQUE  ·  CLASSES  ·  RENAISSANCE" },
     { "^FREE  ·  x(.+) AURA$", "GRATUIT  ·  x%1 AURA" },
     { "^(.-)\nLOCKED · (.+) AURA$", function(titre, prix)
         return traduireNoms(titre) .. "\nFERMÉE · " .. prix .. " AURA"
     end },
     { "^You need (.+) more aura$", "Il te manque %1 d'aura" },
     { "^%+(.+) AURA %(AFK%)$", "+%1 AURA (AFK)" },
-    { "^A GIANT THOUGHT appeared in (.+)!$", function(zone)
-        return "Une PENSÉE GÉANTE est apparue : " .. traduireNoms(zone) .. " !"
+    { "^A GIANT CRYSTAL appeared in (.+)!$", function(zone)
+        return "Un CRISTAL GÉANT est apparu : " .. traduireNoms(zone) .. " !"
     end },
-    { "^(.+) dealt the most damage to the GIANT THOUGHT$", "%1 a fait le plus de dégâts à la PENSÉE GÉANTE" },
+    { "^(.+) dealt the most damage to the GIANT CRYSTAL$", "%1 a fait le plus de dégâts au CRISTAL GÉANT" },
     { "^(.+) BROKEN$", function(reste)
-        return traduireNoms(reste) .. " CASSÉE"
+        return traduireNoms(reste) .. " CASSÉ"
     end },
 }
 

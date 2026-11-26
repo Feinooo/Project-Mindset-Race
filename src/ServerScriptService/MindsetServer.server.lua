@@ -1,16 +1,16 @@
 --[[
-    🌍 MINDSET SIMULATOR — Script SERVEUR
+    🌍 AURA SIMULATOR — Script SERVEUR
     À mettre dans : ServerScriptService  (type : Script, nom : MindsetServer)
 
-    Un open world de FARM sur la trend Motivation vs Ego vs Discipline vs Obsession.
-      - Au centre : la VILLE (sans danger) avec le marchand d'aura, les 4 sanctuaires des états d'esprit,
+    Un open world de FARM d'aura.
+      - Au centre : la VILLE (sans danger) avec le marchand d'aura, les 4 sanctuaires des classes,
         l'autel de renaissance, les tableaux TOP 10 et une zone AFK.
-      - Autour : 4 ZONES (une par état d'esprit), reliées à la ville par des ponts. On débloque la suivante avec l'aura.
-          MOTIVATION (nord, gratuite) → DISCIPLINE (est) → EGO (sud) → OBSESSION (ouest)
+      - Autour : 4 ZONES reliées à la ville par des ponts. On débloque la suivante avec l'aura.
+          FORÊT (nord, gratuite) → GLACE (est) → VOLCAN (sud) → COSMOS (ouest)
       - Dans chaque zone : des CRISTAUX à casser à coups de poing → de l'AURA. Plus la zone est loin, plus ça rapporte.
-      - De temps en temps une PENSÉE GÉANTE (boss) apparaît dans une zone : tout le monde tape dessus.
+      - De temps en temps un CRISTAL GÉANT (boss) apparaît dans une zone : tout le monde tape dessus.
       - L'aura achète des améliorations (force, vitesse de frappe, bonus d'aura, vitesse de marche)
-        et les états d'esprit (chacun a un bonus de farm).
+        et les 4 CLASSES (chacune a un bonus de farm) : SPARK, FLOW, STAR, FURY.
       - RENAISSANCE : tu perds ton aura et tes améliorations, mais tu gagnes un bonus pour toujours.
       - Les gros moments (zone débloquée, renaissance, boss cassé) passent en EDIT NOIR ET BLANC (script client).
     Ce script construit toute la carte, gère les cristaux, l'aura, les achats, la sauvegarde et les classements.
@@ -31,10 +31,10 @@ local CONFIG = {
         { nom = "BIG", pv = 140, aura = 70, taille = 8, poids = 9 },
     },
 
-    -- 👑 LA PENSÉE GÉANTE (boss) : apparaît toutes les « intervalle » secondes dans une zone où il y a du monde
+    -- 👑 LE CRISTAL GÉANT (boss) : apparaît toutes les « intervalle » secondes dans une zone où il y a du monde
     BOSS = { intervalle = 150, duree = 120, pv = 5000, aura = 4000, taille = 16 },
 
-    -- 🔁 la série de DISCIPLINE : chaque cristal cassé d'affilée (sans pause de plus de « delai » s) = + « bonus »
+    -- 🔁 la série de FLOW : chaque cristal cassé d'affilée (sans pause de plus de « delai » s) = + « bonus »
     SERIE_DELAI = 8,
     SERIE_BONUS = 0.02,
     SERIE_MAX = 1, -- +100 % au maximum
@@ -62,28 +62,28 @@ local CONFIG = {
 --   direction = de quel côté de la ville elle est
 -- ⚠️ Si tu changes un titre ou une phrase, change aussi sa traduction (script client, partie LANGUE).
 local ZONES = {
-    { nom = "Motivation", titre = "SUNRISE VALLEY", prix = 0, aura = 1, pv = 1, direction = Vector3.new(0, 0, -1),
-        phrase = "MOTIVATION gets you started." },
-    { nom = "Discipline", titre = "IRON DOJO", prix = 2500, aura = 8, pv = 10, direction = Vector3.new(1, 0, 0),
-        phrase = "DISCIPLINE keeps you going." },
-    { nom = "Ego", titre = "GOLDEN STAGE", prix = 60000, aura = 70, pv = 90, direction = Vector3.new(0, 0, 1),
-        phrase = "EGO wants everyone to watch." },
-    { nom = "Obsession", titre = "RED ABYSS", prix = 1500000, aura = 600, pv = 800, direction = Vector3.new(-1, 0, 0),
-        phrase = "OBSESSION makes you unstoppable." },
+    { nom = "Forest", titre = "EMERALD FOREST", prix = 0, aura = 1, pv = 1, direction = Vector3.new(0, 0, -1),
+        couleur = Color3.fromRGB(90, 230, 110), phrase = "Every legend starts somewhere." },
+    { nom = "Ice", titre = "FROZEN PEAKS", prix = 2500, aura = 8, pv = 10, direction = Vector3.new(1, 0, 0),
+        couleur = Color3.fromRGB(120, 220, 255), phrase = "Only the strong survive the cold." },
+    { nom = "Volcano", titre = "MAGMA CORE", prix = 60000, aura = 70, pv = 90, direction = Vector3.new(0, 0, 1),
+        couleur = Color3.fromRGB(255, 110, 30), phrase = "Feel the heat." },
+    { nom = "Cosmos", titre = "COSMIC VOID", prix = 1500000, aura = 600, pv = 800, direction = Vector3.new(-1, 0, 0),
+        couleur = Color3.fromRGB(180, 90, 255), phrase = "Beyond every limit." },
 }
 
--- 🧠 LES ÉTATS D'ESPRIT : chacun a un bonus de farm. On les achète dans les sanctuaires de la ville.
+-- 🧠 LES CLASSES : chacune a un bonus de farm. On les achète dans les sanctuaires de la ville.
 local PERSOS = {
-    Motivation = { prix = 0, couleur = Color3.fromRGB(255, 150, 30), devise = "Fast start. Then it fades.",
-        passif = { nom = "FAST START", texte = "Your first hit on every crystal deals x3 damage." } },
-    Discipline = { prix = 3000, couleur = Color3.fromRGB(60, 140, 255), devise = "Steady. Every day.",
-        passif = { nom = "ROUTINE", texte = "Every crystal you break in a row gives +2% aura (up to +100%). Stop for 8 s and it resets." } },
-    Ego = { prix = 40000, couleur = Color3.fromRGB(170, 80, 255), devise = "Main character. Glass jaw.",
-        passif = { nom = "MAIN CHARACTER", texte = "x2 aura from crystals, but -25% damage. Crown when you're the richest on the server." } },
-    Obsession = { prix = 400000, couleur = Color3.fromRGB(230, 40, 60), devise = "Slow start. Unstoppable end.",
-        passif = { nom = "FIXATION", texte = "Every hit on the same crystal deals +15% damage (up to x4)." } },
+    Spark = { prix = 0, couleur = Color3.fromRGB(255, 170, 40), devise = "Hits first. Hits hard.",
+        passif = { nom = "FIRST STRIKE", texte = "Your first hit on every crystal deals x3 damage." } },
+    Flow = { prix = 3000, couleur = Color3.fromRGB(60, 160, 255), devise = "Never stops.",
+        passif = { nom = "STREAK", texte = "Every crystal you break in a row gives +2% aura (up to +100%). Stop for 8 s and it resets." } },
+    Star = { prix = 40000, couleur = Color3.fromRGB(255, 215, 70), devise = "All eyes on you.",
+        passif = { nom = "SPOTLIGHT", texte = "x2 aura from crystals, but -25% damage. Crown when you're the richest on the server." } },
+    Fury = { prix = 400000, couleur = Color3.fromRGB(235, 45, 60), devise = "Slow start. Unstoppable end.",
+        passif = { nom = "RAGE", texte = "Every hit on the same crystal deals +15% damage (up to x4)." } },
 }
-local ORDRE_PERSOS = { "Motivation", "Discipline", "Ego", "Obsession" }
+local ORDRE_PERSOS = { "Spark", "Flow", "Star", "Fury" }
 
 -- 🛒 LES AMÉLIORATIONS du marchand : prix du niveau n = prixBase × croissance ^ n
 local AMELIORATIONS = {
@@ -165,7 +165,6 @@ local ZONE_PAR_NOM, AMELIO_PAR_CLE = {}, {}
 for i, zone in ipairs(ZONES) do
     zone.index = i
     ZONE_PAR_NOM[zone.nom] = zone
-    zone.couleur = PERSOS[zone.nom].couleur
 end
 for _, def in ipairs(AMELIORATIONS) do
     AMELIO_PAR_CLE[def.cle] = def
@@ -188,7 +187,7 @@ local CasseEvent = remote("Casse")           -- serveur → clients : un cristal
 local EvenementEvent = remote("Evenement")   -- serveur → clients : zone débloquée, renaissance, boss...
 local MessageEvent = remote("Message")       -- serveur → client : petit message en haut
 local ReglagesEvent = remote("Reglages")     -- client → serveur : les paramètres du joueur
-local AcheterFonction = remote("Acheter", true) -- client → serveur : acheter (amélioration, zone, état d'esprit, renaissance)
+local AcheterFonction = remote("Acheter", true) -- client → serveur : acheter (amélioration, zone, classe, renaissance)
 
 -- tout ce que le client doit savoir (prix, textes...) est publié ici en JSON
 do
@@ -280,7 +279,7 @@ local function essayer(fonction)
 end
 
 -- L'état de chaque joueur (le serveur décide de tout)
---   niveaux = { Force = 0, ... } · zones = { Motivation = true, ... } · persos = { Motivation = true, ... }
+--   niveaux = { Force = 0, ... } · zones = { Forest = true, ... } · persos = { Spark = true, ... }
 local etats = {} -- [joueur] = état
 
 local function nouvelEtat()
@@ -290,9 +289,9 @@ local function nouvelEtat()
     end
     return {
         niveaux = niveaux,
-        zones = { Motivation = true },
-        persos = { Motivation = true },
-        perso = "Motivation",
+        zones = { [ZONES[1].nom] = true },
+        persos = { [ORDRE_PERSOS[1]] = true },
+        perso = ORDRE_PERSOS[1],
         rebirths = 0,
         serie = 0,
         dernierCasse = 0,
@@ -321,20 +320,20 @@ local function intervalle(e)
 end
 local function degats(e)
     local d = valeurAmelioration("Force", e.niveaux.Force) * (1 + CONFIG.RENAISSANCE.bonusDegats * e.rebirths)
-    if e.perso == "Ego" then
+    if e.perso == "Star" then
         d *= 0.75
     end
     return d
 end
 local function bonusSerie(e)
-    if e.perso ~= "Discipline" then
+    if e.perso ~= "Flow" then
         return 0
     end
     return math.min(CONFIG.SERIE_MAX, e.serie * CONFIG.SERIE_BONUS)
 end
 local function multAura(e)
     local m = (1 + valeurAmelioration("Aimant", e.niveaux.Aimant) / 100) * (1 + CONFIG.RENAISSANCE.bonusAura * e.rebirths)
-    if e.perso == "Ego" then
+    if e.perso == "Star" then
         m *= 2
     end
     return m * (1 + bonusSerie(e))
@@ -668,7 +667,7 @@ do
     local obelisque = bloc({ Name = "Obelisque", Size = Vector3.new(7, 34, 7), CFrame = CFrame.new(C + Vector3.new(0, 19, 0)), Material = Enum.Material.Marble, Color = Color3.fromRGB(28, 28, 34) })
     for _, zone in ipairs(ZONES) do
         local face = bloc({ Name = "Face", Size = Vector3.new(6, 26, 0.2), CFrame = tournee(C + Vector3.new(0, 20, 0) + zone.direction * 3.6, zone.direction), Material = Enum.Material.Neon, Color = Color3.fromRGB(18, 18, 22), CanCollide = false })
-        local s, label = panneau(face, string.upper(zone.nom), zone.couleur, 20)
+        local s, label = panneau(face, zone.titre, zone.couleur, 20)
         label.Rotation = 0
         s.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
         s.CanvasSize = Vector2.new(60, 260)
@@ -752,7 +751,7 @@ do
         local plaque = bloc({ Name = "Plaque", Size = Vector3.new(10, 2.2, 0.3), CFrame = base * CFrame.new(0, 12.5, 0), Color = Color3.fromRGB(16, 16, 20), CanCollide = false })
         panneau(plaque, string.upper(nom), perso.couleur, 30)
         local point = invisible({ Name = "Sanctuaire_" .. nom, Size = Vector3.new(2, 2, 2), CFrame = CFrame.new(p + Vector3.new(0, 4, 0)), CanCollide = false })
-        local prompt = bouton(point, "Mindsets", string.upper(nom), "Persos", 11)
+        local prompt = bouton(point, "Classes", string.upper(nom), "Persos", 11)
         prompt:SetAttribute("Perso", nom)
     end
 
@@ -784,7 +783,7 @@ do
         end
     end
 
-    -- 😴 LA ZONE AFK (sud, sur l'allée de l'Ego)
+    -- 😴 LA ZONE AFK (sud, sur l'allée du Volcan)
     do
         local p = C + Vector3.new(0, 0, 62)
         local cercle = neon({ Name = "ZoneAFK", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.3, 18, 18), CFrame = CFrame.new(p + Vector3.new(0, 0.25, 0)) * CFrame.Angles(0, 0, math.pi / 2), Color = Color3.fromRGB(110, 230, 160), Transparency = 0.55 })
@@ -811,10 +810,10 @@ for _, zone in ipairs(ZONES) do
 end
 
 local THEMES = {
-    Motivation = { sol = Enum.Material.Grass, couleurSol = Color3.fromRGB(96, 140, 58), pont = Enum.Material.WoodPlanks, couleurPont = Color3.fromRGB(120, 82, 50) },
-    Discipline = { sol = Enum.Material.Slate, couleurSol = Color3.fromRGB(70, 82, 100), pont = Enum.Material.Cobblestone, couleurPont = Color3.fromRGB(95, 100, 110) },
-    Ego = { sol = Enum.Material.Marble, couleurSol = Color3.fromRGB(235, 232, 225), pont = Enum.Material.Marble, couleurPont = Color3.fromRGB(215, 200, 160) },
-    Obsession = { sol = Enum.Material.Basalt, couleurSol = Color3.fromRGB(30, 24, 26), pont = Enum.Material.Basalt, couleurPont = Color3.fromRGB(45, 30, 32) },
+    Forest = { sol = Enum.Material.Grass, couleurSol = Color3.fromRGB(70, 135, 60), pont = Enum.Material.WoodPlanks, couleurPont = Color3.fromRGB(120, 82, 50) },
+    Ice = { sol = Enum.Material.Snow, couleurSol = Color3.fromRGB(225, 235, 245), pont = Enum.Material.Ice, couleurPont = Color3.fromRGB(170, 210, 235) },
+    Volcano = { sol = Enum.Material.Basalt, couleurSol = Color3.fromRGB(38, 30, 28), pont = Enum.Material.Basalt, couleurPont = Color3.fromRGB(55, 40, 35) },
+    Cosmos = { sol = Enum.Material.Slate, couleurSol = Color3.fromRGB(28, 22, 45), pont = Enum.Material.Glass, couleurPont = Color3.fromRGB(70, 50, 120) },
 }
 
 -- les décors de chaque zone (posés tout autour, entre 80 et 100 studs du centre, pour laisser la place aux cristaux)
@@ -839,94 +838,97 @@ local function decorer(zone, dossier)
         p.Parent = dossier
         return p
     end
-    if zone.nom == "Motivation" then
-        -- des arbres d'automne et des torches
-        for _ = 1, 26 do
+    if zone.nom == "Forest" then
+        -- des grands arbres, des champignons qui brillent, des rochers moussus
+        for _ = 1, 28 do
             local p = pointAuBord()
             local h = graine:NextNumber(10, 18)
             parent(bloc({ Name = "Tronc", Size = Vector3.new(1.6, h, 1.6), CFrame = CFrame.new(p + Vector3.new(0, h / 2, 0)), Material = Enum.Material.Wood, Color = Color3.fromRGB(90, 60, 38) }))
-            local teinte = Color3.fromRGB(graine:NextInteger(200, 255), graine:NextInteger(90, 160), 40)
+            local teinte = Color3.fromRGB(graine:NextInteger(40, 90), graine:NextInteger(140, 200), graine:NextInteger(50, 80))
             parent(boule(p + Vector3.new(0, h + 2, 0), graine:NextNumber(8, 12), { Name = "Feuillage", Material = Enum.Material.Grass, Color = teinte }))
             parent(boule(p + Vector3.new(2, h - 1, 1), graine:NextNumber(5, 7), { Name = "Feuillage", Material = Enum.Material.Grass, Color = teinte }))
         end
-        for _ = 1, 10 do
+        for _ = 1, 14 do
             local p = pointAuBord()
-            parent(bloc({ Name = "Torche", Size = Vector3.new(0.8, 6, 0.8), CFrame = CFrame.new(p + Vector3.new(0, 3, 0)), Material = Enum.Material.Wood, Color = Color3.fromRGB(70, 45, 30) }))
-            local feu = parent(neon({ Name = "Flamme", Size = Vector3.new(1, 1, 1), CFrame = CFrame.new(p + Vector3.new(0, 6.5, 0)), Color = Color3.fromRGB(255, 150, 30) }))
-            creer("Fire", { Size = 4, Heat = 6, Color = Color3.fromRGB(255, 140, 30), SecondaryColor = Color3.fromRGB(255, 60, 20), Parent = feu })
-            creer("PointLight", { Range = 16, Brightness = 2, Color = Color3.fromRGB(255, 160, 60), Parent = feu })
-        end
-        -- un soleil levant au loin
-        local soleil = parent(neon({ Name = "Soleil", Shape = Enum.PartType.Ball, Size = Vector3.new(60, 60, 60), Position = centre + zone.direction * 260 + Vector3.new(0, 20, 0), Color = Color3.fromRGB(255, 170, 60), Transparency = 0.1 }))
-        soleil.CanQuery = false
-    elseif zone.nom == "Discipline" then
-        -- des piliers de pierre, des lanternes bleues, des mannequins d'entraînement, des portiques de dojo
-        for _ = 1, 16 do
-            local p = pointAuBord()
-            local h = graine:NextNumber(12, 24)
-            parent(bloc({ Name = "Pilier", Size = Vector3.new(4, h, 4), CFrame = CFrame.new(p + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, graine:NextNumber(0, math.pi), 0), Material = Enum.Material.Slate, Color = Color3.fromRGB(110, 118, 130) }))
-        end
-        for _ = 1, 12 do
-            local p = pointAuBord()
-            parent(bloc({ Name = "Poteau", Size = Vector3.new(0.6, 7, 0.6), CFrame = CFrame.new(p + Vector3.new(0, 3.5, 0)), Color = Color3.fromRGB(40, 40, 46) }))
-            local lanterne = parent(neon({ Name = "Lanterne", Size = Vector3.new(1.6, 2.2, 1.6), CFrame = CFrame.new(p + Vector3.new(0, 8, 0)), Color = Color3.fromRGB(90, 160, 255) }))
-            creer("PointLight", { Range = 18, Brightness = 1.6, Color = Color3.fromRGB(90, 160, 255), Parent = lanterne })
+            local h = graine:NextNumber(2, 4)
+            parent(bloc({ Name = "Pied", Size = Vector3.new(0.7, h, 0.7), CFrame = CFrame.new(p + Vector3.new(0, h / 2, 0)), Color = Color3.fromRGB(230, 225, 210) }))
+            local chapeau = parent(neon({ Name = "Champignon", Shape = Enum.PartType.Ball, Size = Vector3.new(3, 1.4, 3), Position = p + Vector3.new(0, h + 0.3, 0), Color = Color3.fromRGB(110, 255, 170) }))
+            creer("PointLight", { Range = 12, Brightness = 1.5, Color = Color3.fromRGB(110, 255, 170), Parent = chapeau })
         end
         for _ = 1, 10 do
             local p = pointAuBord()
-            parent(bloc({ Name = "Mannequin", Size = Vector3.new(2, 5, 2), CFrame = CFrame.new(p + Vector3.new(0, 2.5, 0)), Material = Enum.Material.Wood, Color = Color3.fromRGB(150, 110, 70) }))
-            parent(bloc({ Name = "Bras", Size = Vector3.new(5, 0.6, 0.6), CFrame = CFrame.new(p + Vector3.new(0, 4, 0)) * CFrame.Angles(0, graine:NextNumber(0, math.pi), 0), Material = Enum.Material.Wood, Color = Color3.fromRGB(130, 95, 60) }))
-            parent(boule(p + Vector3.new(0, 5.8, 0), 1.8, { Name = "Tete", Material = Enum.Material.Fabric, Color = Color3.fromRGB(200, 180, 140) }))
+            parent(bloc({ Name = "Rocher", Size = Vector3.new(graine:NextNumber(4, 8), graine:NextNumber(2, 4), graine:NextNumber(4, 8)), CFrame = CFrame.new(p + Vector3.new(0, 1, 0)) * CFrame.Angles(0, graine:NextNumber(0, 3), 0), Material = Enum.Material.Rock, Color = Color3.fromRGB(90, 105, 85) }))
         end
-        -- un grand portique à l'entrée
-        local entree = centre - zone.direction * 88
-        local cote = Vector3.new(-zone.direction.Z, 0, zone.direction.X)
-        for _, s in ipairs({ -1, 1 }) do
-            parent(bloc({ Name = "Torii", Size = Vector3.new(2, 20, 2), CFrame = CFrame.new(entree + cote * 13 * s + Vector3.new(0, 10, 0)), Color = Color3.fromRGB(40, 60, 110) }))
-        end
-        -- (la poutre du haut est en travers : son axe X est sur le côté)
-        parent(bloc({ Name = "Torii", Size = Vector3.new(32, 2, 2.4), CFrame = tournee(entree + Vector3.new(0, 20, 0), zone.direction), Color = Color3.fromRGB(40, 60, 110) }))
-    elseif zone.nom == "Ego" then
-        -- des colonnes dorées, des miroirs, des projecteurs, un tapis rouge jusqu'au centre
-        for _ = 1, 18 do
+    elseif zone.nom == "Ice" then
+        -- des pics de glace, des rochers enneigés, des lanternes bleues
+        for _ = 1, 26 do
             local p = pointAuBord()
-            local h = graine:NextNumber(14, 22)
-            local col = parent(cylindre(p + Vector3.new(0, h / 2, 0), 3, h, { Name = "Colonne", Material = Enum.Material.Foil, Color = Color3.fromRGB(230, 190, 70) }))
-            col.CFrame = CFrame.new(p + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, 0, math.pi / 2)
-            parent(neon({ Name = "Chapiteau", Size = Vector3.new(4, 0.6, 4), CFrame = CFrame.new(p + Vector3.new(0, h + 0.3, 0)), Color = Color3.fromRGB(255, 220, 120) }))
+            local h = graine:NextNumber(8, 26)
+            parent(bloc({ Name = "PicGlace", Size = Vector3.new(graine:NextNumber(2.5, 5), h, graine:NextNumber(2.5, 5)), CFrame = CFrame.new(p + Vector3.new(0, h / 2 - 1, 0)) * CFrame.Angles(graine:NextNumber(-0.2, 0.2), graine:NextNumber(0, math.pi), graine:NextNumber(-0.2, 0.2)), Material = Enum.Material.Ice, Color = Color3.fromRGB(170, 220, 255), Transparency = 0.15 }))
         end
         for _ = 1, 10 do
             local p = pointAuBord()
-            local regard = (centre - p) * Vector3.new(1, 0, 1)
-            parent(bloc({ Name = "Miroir", Size = Vector3.new(7, 12, 0.4), CFrame = tournee(p + Vector3.new(0, 6, 0), regard.Unit), Material = Enum.Material.Glass, Color = Color3.fromRGB(200, 210, 230), Reflectance = 0.7, Transparency = 0.1 }))
-            parent(neon({ Name = "CadreMiroir", Size = Vector3.new(7.6, 12.6, 0.2), CFrame = tournee(p + Vector3.new(0, 6, 0), regard.Unit) * CFrame.new(0, 0, 0.3), Color = Color3.fromRGB(230, 190, 70) }))
+            parent(bloc({ Name = "RocherNeige", Size = Vector3.new(graine:NextNumber(5, 9), graine:NextNumber(3, 5), graine:NextNumber(5, 9)), CFrame = CFrame.new(p + Vector3.new(0, 1.5, 0)) * CFrame.Angles(0, graine:NextNumber(0, 3), 0), Material = Enum.Material.Snow, Color = Color3.fromRGB(240, 245, 250) }))
         end
-        for _ = 1, 6 do
+        for _ = 1, 10 do
             local p = pointAuBord()
-            local projecteur = parent(bloc({ Name = "Projecteur", Size = Vector3.new(2, 2, 3), CFrame = CFrame.lookAt(p + Vector3.new(0, 3, 0), centre + Vector3.new(0, 30, 0)), Color = Color3.fromRGB(30, 30, 30), Material = Enum.Material.Metal }))
-            creer("SpotLight", { Range = 60, Angle = 35, Brightness = 4, Color = Color3.fromRGB(255, 240, 200), Face = Enum.NormalId.Front, Parent = projecteur })
+            parent(bloc({ Name = "Poteau", Size = Vector3.new(0.6, 7, 0.6), CFrame = CFrame.new(p + Vector3.new(0, 3.5, 0)), Color = Color3.fromRGB(40, 50, 60) }))
+            local lanterne = parent(neon({ Name = "Lanterne", Size = Vector3.new(1.6, 2.2, 1.6), CFrame = CFrame.new(p + Vector3.new(0, 8, 0)), Color = Color3.fromRGB(120, 220, 255) }))
+            creer("PointLight", { Range = 18, Brightness = 1.6, Color = Color3.fromRGB(120, 220, 255), Parent = lanterne })
         end
-        local entree = centre - zone.direction * 100
-        local milieu = (entree + centre) / 2
-        parent(bloc({ Name = "TapisRouge", Size = Vector3.new(10, 0.2, 88), CFrame = tournee(milieu + Vector3.new(0, 0.1, 0), zone.direction), Material = Enum.Material.Fabric, Color = Color3.fromRGB(170, 20, 30), CanCollide = false }))
-    else
-        -- des pics noirs, des fissures de lave rouge, des rochers qui flottent
+        -- une grande montagne de glace au fond
+        local montagne = parent(bloc({ Name = "Montagne", Size = Vector3.new(90, 90, 90), CFrame = CFrame.new(centre + zone.direction * 230 + Vector3.new(0, 10, 0)) * CFrame.Angles(math.rad(45), 0, math.rad(45)), Material = Enum.Material.Glacier, Color = Color3.fromRGB(200, 230, 250), CanCollide = false }))
+        montagne.CanQuery = false
+    elseif zone.nom == "Volcano" then
+        -- des pics noirs, des fissures de lave, des rochers qui flottent, un volcan au fond
         for _ = 1, 22 do
             local p = pointAuBord()
             local h = graine:NextNumber(8, 22)
-            parent(bloc({ Name = "Pic", Size = Vector3.new(3, h, 3), CFrame = CFrame.new(p + Vector3.new(0, h / 2 - 1, 0)) * CFrame.Angles(graine:NextNumber(-0.25, 0.25), graine:NextNumber(0, math.pi), graine:NextNumber(-0.25, 0.25)), Material = Enum.Material.Basalt, Color = Color3.fromRGB(22, 18, 20) }))
+            parent(bloc({ Name = "Pic", Size = Vector3.new(3, h, 3), CFrame = CFrame.new(p + Vector3.new(0, h / 2 - 1, 0)) * CFrame.Angles(graine:NextNumber(-0.25, 0.25), graine:NextNumber(0, math.pi), graine:NextNumber(-0.25, 0.25)), Material = Enum.Material.Basalt, Color = Color3.fromRGB(28, 22, 20) }))
         end
-        for _ = 1, 24 do
+        for _ = 1, 26 do
             local x, z = graine:NextNumber(-95, 95), graine:NextNumber(-95, 95)
-            parent(neon({ Name = "Fissure", Size = Vector3.new(graine:NextNumber(0.4, 1), 0.15, graine:NextNumber(8, 22)), CFrame = CFrame.new(centre + Vector3.new(x, 0.08, z)) * CFrame.Angles(0, graine:NextNumber(0, math.pi), 0), Color = Color3.fromRGB(255, 40, 40) }))
+            parent(neon({ Name = "Fissure", Size = Vector3.new(graine:NextNumber(0.4, 1), 0.15, graine:NextNumber(8, 22)), CFrame = CFrame.new(centre + Vector3.new(x, 0.08, z)) * CFrame.Angles(0, graine:NextNumber(0, math.pi), 0), Color = Color3.fromRGB(255, 100, 20) }))
         end
-        for _ = 1, 12 do
+        for _ = 1, 10 do
+            local p = pointAuBord()
+            local feu = parent(neon({ Name = "Braise", Size = Vector3.new(1.2, 1.2, 1.2), CFrame = CFrame.new(p + Vector3.new(0, 0.6, 0)), Color = Color3.fromRGB(255, 120, 30) }))
+            creer("Fire", { Size = 6, Heat = 9, Color = Color3.fromRGB(255, 130, 30), SecondaryColor = Color3.fromRGB(255, 50, 10), Parent = feu })
+            creer("PointLight", { Range = 18, Brightness = 2, Color = Color3.fromRGB(255, 120, 40), Parent = feu })
+        end
+        for _ = 1, 10 do
             local p = pointAuBord() + Vector3.new(0, graine:NextNumber(18, 40), 0)
-            local rocher = parent(bloc({ Name = "RocherFlottant", Size = Vector3.new(graine:NextNumber(4, 9), graine:NextNumber(3, 6), graine:NextNumber(4, 9)), CFrame = CFrame.new(p) * CFrame.Angles(graine:NextNumber(0, 3), graine:NextNumber(0, 3), 0), Material = Enum.Material.Basalt, Color = Color3.fromRGB(35, 25, 28), CanCollide = false }))
+            local rocher = parent(bloc({ Name = "RocherFlottant", Size = Vector3.new(graine:NextNumber(4, 9), graine:NextNumber(3, 6), graine:NextNumber(4, 9)), CFrame = CFrame.new(p) * CFrame.Angles(graine:NextNumber(0, 3), graine:NextNumber(0, 3), 0), Material = Enum.Material.Basalt, Color = Color3.fromRGB(40, 28, 24), CanCollide = false }))
             rocher:SetAttribute("Flotte", true)
         end
-        local lune = parent(neon({ Name = "Lune", Shape = Enum.PartType.Ball, Size = Vector3.new(50, 50, 50), Position = centre + zone.direction * 260 + Vector3.new(0, 60, 0), Color = Color3.fromRGB(200, 30, 40) }))
-        lune.CanQuery = false
+        local volcan = parent(cylindre(centre + zone.direction * 240 + Vector3.new(0, 20, 0), 120, 80, { Name = "Volcan", Material = Enum.Material.Basalt, Color = Color3.fromRGB(35, 25, 22), CanCollide = false }))
+        volcan.CFrame = CFrame.new(centre + zone.direction * 240 + Vector3.new(0, 20, 0)) * CFrame.Angles(0, 0, math.pi / 2)
+        volcan.CanQuery = false
+        local cratere = parent(neon({ Name = "Cratere", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, 50, 50), CFrame = CFrame.new(centre + zone.direction * 240 + Vector3.new(0, 60.6, 0)) * CFrame.Angles(0, 0, math.pi / 2), Color = Color3.fromRGB(255, 90, 20) }))
+        cratere.CanQuery = false
+    else
+        -- le cosmos : des rochers qui flottent, des étoiles, une planète avec un anneau
+        for _ = 1, 18 do
+            local p = pointAuBord() + Vector3.new(0, graine:NextNumber(4, 36), 0)
+            local rocher = parent(bloc({ Name = "Asteroide", Size = Vector3.new(graine:NextNumber(3, 8), graine:NextNumber(3, 7), graine:NextNumber(3, 8)), CFrame = CFrame.new(p) * CFrame.Angles(graine:NextNumber(0, 3), graine:NextNumber(0, 3), 0), Material = Enum.Material.Slate, Color = Color3.fromRGB(60, 50, 85), CanCollide = false }))
+            rocher:SetAttribute("Flotte", true)
+        end
+        for _ = 1, 40 do
+            local p = centre + Vector3.new(graine:NextNumber(-140, 140), graine:NextNumber(30, 110), graine:NextNumber(-140, 140))
+            local etoile = parent(neon({ Name = "Etoile", Shape = Enum.PartType.Ball, Size = Vector3.one * graine:NextNumber(0.6, 1.6), Position = p, Color = if graine:NextNumber() < 0.5 then BLANC else Color3.fromRGB(200, 160, 255) }))
+            etoile.CanQuery = false
+        end
+        for _ = 1, 10 do
+            local p = pointAuBord()
+            local h = graine:NextNumber(6, 14)
+            parent(bloc({ Name = "Obelisque", Size = Vector3.new(2, h, 2), CFrame = CFrame.new(p + Vector3.new(0, h / 2, 0)), Material = Enum.Material.Glass, Color = Color3.fromRGB(150, 90, 255), Transparency = 0.2 }))
+            local pointe = parent(neon({ Name = "Pointe", Size = Vector3.new(1.4, 1.4, 1.4), CFrame = CFrame.new(p + Vector3.new(0, h + 1.5, 0)) * CFrame.Angles(math.rad(45), 0, math.rad(45)), Color = Color3.fromRGB(200, 150, 255) }))
+            pointe:SetAttribute("Tourne", true)
+        end
+        local planete = parent(neon({ Name = "Planete", Shape = Enum.PartType.Ball, Size = Vector3.new(70, 70, 70), Position = centre + zone.direction * 260 + Vector3.new(0, 70, 0), Color = Color3.fromRGB(140, 70, 230) }))
+        planete.CanQuery = false
+        local anneauP = parent(neon({ Name = "AnneauPlanete", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.5, 120, 120), CFrame = CFrame.new(planete.Position) * CFrame.Angles(0, 0, math.pi / 2 + 0.35), Color = Color3.fromRGB(220, 190, 255), Transparency = 0.5 }))
+        anneauP.CanQuery = false
     end
 end
 
@@ -1095,7 +1097,7 @@ local function creerCristal(zone, typeCristal, position, estBoss)
     creer("UICorner", { CornerRadius = UDim.new(1, 0), Parent = rempli })
     local textePv = creer("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextScaled = true, TextColor3 = BLANC, TextStrokeTransparency = 0.3, Parent = fond })
     if estBoss then
-        creer("TextLabel", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextScaled = true, Text = "GIANT THOUGHT", TextColor3 = zone.couleur:Lerp(BLANC, 0.3), TextStrokeTransparency = 0, Parent = billboard })
+        creer("TextLabel", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack, TextScaled = true, Text = "GIANT CRYSTAL", TextColor3 = zone.couleur:Lerp(BLANC, 0.3), TextStrokeTransparency = 0, Parent = billboard })
     end
 
     local pv = math.floor((if estBoss then CONFIG.BOSS.pv else typeCristal.pv) * zone.pv)
@@ -1247,10 +1249,10 @@ FrapperEvent.OnServerEvent:Connect(function(joueur, modele)
     info.coups[joueur] = coups
     local d = degats(e)
     local critique = false
-    if e.perso == "Motivation" and coups == 1 then
+    if e.perso == "Spark" and coups == 1 then
         d *= 3
         critique = true
-    elseif e.perso == "Obsession" then
+    elseif e.perso == "Fury" then
         local m = math.min(4, 1 + 0.15 * (coups - 1))
         d *= m
         critique = m >= 4
@@ -1282,7 +1284,7 @@ task.spawn(function()
     end
 end)
 
--- 👑 LA PENSÉE GÉANTE : dans une zone où il y a quelqu'un
+-- 👑 LE CRISTAL GÉANT : dans une zone où il y a quelqu'un
 task.spawn(function()
     while true do
         task.wait(CONFIG.BOSS.intervalle)
@@ -1356,7 +1358,7 @@ local function acheter(joueur, e, quoi, nom)
     elseif quoi == "Perso" then
         local perso = PERSOS[nom]
         if not perso then
-            return false, "Unknown mindset"
+            return false, "Unknown class"
         end
         if e.persos[nom] then
             if e.perso == nom then
@@ -1534,7 +1536,7 @@ task.spawn(function()
 end)
 
 -- ========================== LES JOUEURS ==========================
--- l'étiquette au-dessus de la tête : l'état d'esprit (en couleur) + les renaissances
+-- l'étiquette au-dessus de la tête : la classe (en couleur) + les renaissances
 majEtiquette = function(joueur)
     local e = etats[joueur]
     local tete = joueur.Character and joueur.Character:FindFirstChild("Head")
@@ -1553,7 +1555,7 @@ majEtiquette = function(joueur)
     etiquette.Texte.Text = texte
 end
 
--- 👑 la couronne de l'EGO (le plus riche du serveur, s'il est Ego)
+-- 👑 la couronne de STAR (le plus riche du serveur, s'il est Star)
 local function majCouronnes()
     local riche, plus = nil, -1
     for _, p in ipairs(Players:GetPlayers()) do
@@ -1566,11 +1568,11 @@ local function majCouronnes()
         local e = etats[p]
         local tete = p.Character and p.Character:FindFirstChild("Head")
         if tete then
-            local couronne = tete:FindFirstChild("CouronneEgo")
-            local doitAvoir = e and e.perso == "Ego" and p == riche
+            local couronne = tete:FindFirstChild("CouronneStar")
+            local doitAvoir = e and e.perso == "Star" and p == riche
             if doitAvoir and not couronne then
                 couronne = creer("Part", {
-                    Name = "CouronneEgo",
+                    Name = "CouronneStar",
                     Size = Vector3.new(1.4, 0.7, 1.4),
                     Material = Enum.Material.Neon,
                     Color = OR,
@@ -1672,7 +1674,7 @@ task.spawn(function()
                 if joueur:GetAttribute("Zone") ~= zone then
                     joueur:SetAttribute("Zone", zone)
                 end
-                -- la série de Discipline retombe à 0 après une pause
+                -- la série de Flow retombe à 0 après une pause
                 if e.serie > 0 and os.clock() - e.dernierCasse > CONFIG.SERIE_DELAI then
                     e.serie = 0
                     joueur:SetAttribute("Serie", 0)
@@ -1695,4 +1697,4 @@ task.spawn(function()
     end
 end)
 
-print("🌍 Mindset Simulator : carte construite, " .. #ZONES .. " zones, prêt !")
+print("🌍 Aura Simulator : carte construite, " .. #ZONES .. " zones, prêt !")
